@@ -8,7 +8,7 @@
 
   let state = SM.newState();
   const ui = (A.ui = {
-    view: 'home', stockId: null, showSold: false, journalOnly: false, selected: new Set(),
+    view: 'home', stockId: null, showSold: false, journalOnly: false, lotSort: 'no', openLots: new Set(), sec: { sales: true, events: false, memo: true, journal: true }, selected: new Set(),
     pnl: { group: 'month', stockId: 'all', from: '', to: '' },
     calc: { market: 'KR', baseQty: '', baseAvg: '', feeOn: true, buys: [{ qty: '', price: '' }, { qty: '', price: '' }], target: '', tprice: '', beAvg: '' },
   });
@@ -58,7 +58,7 @@
   }
 
   /* ---------- 헤더/내비 ---------- */
-  const VIEWS = [['home', '홈'], ['stocks', '종목'], ['pnl', '손익'], ['calc', '계산기'], ['backtest', '백테스트'], ['settings', '설정']];
+  const VIEWS = [['home', '홈', '🏠'], ['stocks', '종목', '📈'], ['pnl', '손익', '💰'], ['calc', '계산기', '🧮'], ['backtest', '백테스트', '🧪'], ['settings', '설정', '⚙️']];
   function syncBadge() {
     const s = SM.sync.S;
     const map = { off: ['이 기기에만 저장', 'off'], connecting: ['연결 중', 'warn'], signedout: ['로그인 필요', 'warn'], syncing: ['동기화 중', 'warn'], synced: ['동기화됨', 'ok'], error: ['동기화 오류', 'err'] };
@@ -70,7 +70,7 @@
     const vtag = A.versionTag ? A.versionTag() : '';
     return `<header class="top"><div class="brand">📈 주식 관리</div><nav class="nav-top">${VIEWS.map(([k, l]) => `<button class="${ui.view === k ? 'on' : ''}" data-act="nav" data-v="${k}">${l}</button>`).join('')}</nav><span id="syncBadgeBox">${syncBadge()}</span></header>
     ${banner}<main>${body}${ui.view === 'home' || ui.view === 'settings' ? vtag : ''}</main>
-    <nav class="nav-bottom">${VIEWS.map(([k, l]) => `<button class="${ui.view === k ? 'on' : ''}" data-act="nav" data-v="${k}">${l}</button>`).join('')}</nav>`;
+    <nav class="nav-bottom">${VIEWS.map(([k, l, ic]) => `<button class="${ui.view === k ? 'on' : ''}" data-act="nav" data-v="${k}"><i>${ic}</i><span>${l}</span></button>`).join('')}</nav>`;
   }
 
   function render() {
@@ -141,11 +141,11 @@
     const pf = SM.portfolio(state);
     const today = todayStr();
     let h = `<section class="card"><div class="row between wrap"><h2>내 자산 요약 <small class="muted">(원화 기준)</small></h2><button class="btn sm primary" data-act="priceAll">현재가 한 번에 입력</button></div>
-      <div class="cards"><div class="stat"><span>총 매입금</span><b>${fmtMoney(pf.costKRW, 'KRW')}</b><small>보유 ${pf.holdings}종목</small></div>
+      <div class="cards homecards"><div class="stat"><span>총 매입금</span><b>${fmtMoney(pf.costKRW, 'KRW')}</b><small>보유 ${pf.holdings}종목</small></div>
       <div class="stat"><span>총 평가금액</span><b>${pf.pricedCostKRW ? fmtMoney(pf.valueKRW, 'KRW') : '<span class="muted">현재가 입력</span>'}</b></div>
-      <div class="stat"><span>평가손익</span><b>${pf.pricedCostKRW ? money(pf.unrlKRW, 'KRW') + ' ' + pct(pf.unrlRet) : '-'}</b><small>현재가 입력된 종목 기준</small></div>
-      <div class="stat"><span>실현손익 (올해)</span><b>${money(pf.realizedYear, 'KRW')}</b><small>이번 달 ${fmtMoney(pf.realizedMonth, 'KRW')}</small></div>
-      <div class="stat"><span>실현손익 (누적)</span><b>${money(pf.realizedAll, 'KRW')}</b></div></div>`;
+      <div class="stat"><span>실현손익 (누적)</span><b>${money(pf.realizedAll, 'KRW')}</b></div>
+      <div class="stat wide2"><span>평가손익</span><b>${pf.pricedCostKRW ? money(pf.unrlKRW, 'KRW') + ' <small>' + pct(pf.unrlRet) + '</small>' : '-'}</b><small>현재가 입력된 종목 기준</small></div>
+      <div class="stat"><span>실현손익 (올해)</span><b>${money(pf.realizedYear, 'KRW')}</b><small>이번 달 ${fmtMoney(pf.realizedMonth, 'KRW')}</small></div></div>`;
     const warn = [];
     if (pf.missing.length) warn.push(`현재가가 없는 종목: ${pf.missing.map((s) => esc(s.name)).join(', ')} (평가금액에서 빠져 있습니다)`);
     if (pf.stale.length) warn.push(`현재가가 3일 넘게 갱신되지 않은 종목: ${pf.stale.map((s) => esc(s.name) + '(' + (SM.priceAge(s) > 365 ? '입력일 불명' : SM.priceAge(s) + '일 전') + ')').join(', ')}`);
@@ -185,99 +185,136 @@
     recent.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
     h += `<section class="card"><h2>최근 매매</h2>${recent.length ? recent.slice(0, 6).map((r) => {
       const cur = SM.curOf(r.st), key = r.type === 'lot' ? 'lot_' + r.lot.id : 'sale_' + r.sale.id;
-      return `<div class="tl"><div class="tl-h"><span class="tl-d">${r.date}</span> <b>${esc(r.st.name)}</b> ${r.type === 'lot' ? `<span class="tag buy">매수 ${r.lot.no}번</span> ${fmtNum(r.lot.qty, r.lot.qty % 1 ? 4 : 0)}주 @ ${fmtMoney(r.lot.price, cur)}` : `<span class="tag sell">매도</span> ${fmtNum(r.sale.qty, r.sale.qty % 1 ? 4 : 0)}주 @ ${fmtMoney(r.sale.price, cur)} · ${money(r.sale.pnlKRW, 'KRW')}`}</div>${noteLine(key)}<div>${noteBtn(key, true)}</div></div>`;
+      return `<div class="tl"><div class="tl-h"><span class="tl-d">${r.date}</span> <b>${esc(r.st.name)}</b> ${r.type === 'lot' ? `<span class="tag buy">매수 ${r.lot.no}번</span> ${fmtNum(r.lot.qty, r.lot.qty % 1 ? 4 : 0)}주 @ ${fmtMoney(r.lot.price, cur)}` : `<span class="tag sell">매도</span> ${fmtNum(r.sale.qty, r.sale.qty % 1 ? 4 : 0)}주 @ ${fmtMoney(r.sale.price, cur)} · ${money(r.sale.pnlKRW, 'KRW')}`}</div>${noteLine(key)}<div class="tl-b">${noteBtn(key, true)}</div></div>`;
     }).join('') : '<p class="muted">매매 기록이 없습니다.</p>'}</section>`;
     return h;
   };
 
   /* ---------- 종목 화면 ---------- */
+  const fd = (d) => String(d).slice(2).replace(/-/g, '.');   // 2026-10-01 → 26.10.01
+  const qn = (x) => fmtNum(x, x % 1 ? 4 : 0);
+  const SORTS = [['no', '번호순'], ['retDesc', '수익률 높은순'], ['retAsc', '수익률 낮은순'], ['priceAsc', '단가 낮은순'], ['priceDesc', '단가 높은순'], ['dateDesc', '최근 매수순']];
+  const abtn = (act, icon, label, extra = '', attrs = '') => `<button type="button" class="ab ${extra}" data-act="${act}" ${attrs} title="${label}"><i>${icon}</i><span>${label}</span></button>`;
+  const section = (id, title, count, body) => `<details class="card sec" data-sec="${id}" ${ui.sec[id] ? 'open' : ''}><summary><span class="st">${title}</span>${count != null ? `<span class="count">${count}</span>` : ''}<span class="chev"></span></summary><div class="sec-b">${body}</div></details>`;
+
   A.renderers.stocks = function () {
     const st = curStock();
-    let h = `<div class="tabs">${state.stocks.map((s) => `<button class="tab ${s.id === ui.stockId ? 'on' : ''}" data-act="tab" data-id="${s.id}">${esc(s.name)}${s.market === 'US' ? ' <small>US</small>' : ''}</button>`).join('')}<button class="tab add" data-act="addStock">＋ 종목 추가</button></div>`;
+    let h = `<div class="tabs">${state.stocks.map((s) => `<button class="tab ${s.id === ui.stockId ? 'on' : ''}" data-act="tab" data-id="${s.id}">${esc(s.name)}${s.market === 'US' ? ' <small>US</small>' : ''}</button>`).join('')}<button class="tab add" data-act="addStock">＋ 종목</button></div>`;
     if (!st) return h + `<section class="card empty"><h2>종목이 없습니다</h2><p><button class="btn primary" data-act="addStock">첫 종목 추가</button></p></section>`;
     const cur = SM.curOf(st), us = st.market === 'US';
     const sm = SM.stockSummary(st, state.settings);
     const realized = st.sales.reduce((a, s) => a + s.pnlKRW, 0);
     const age = SM.priceAge(st);
     const links = SM.linksFor(state, st);
-    h += `<section class="card"><div class="row between wrap"><div><h2>${esc(st.name)} <small class="muted">${esc(st.code)} · ${us ? '해외(USD)' : '국내(KRW)'}</small></h2></div>
-      <div class="row gap wrap"><button class="btn sm" data-act="editStock">수정</button><button class="btn sm" data-act="splitAdj">액면분할 조정</button><button class="btn sm danger" data-act="delStock">삭제</button></div></div>
-      ${links.length ? `<div class="links">${links.map((l) => `<a class="lnk" href="${esc(SM.fillLink(l.url, st))}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join('')}</div>` : ''}
-      <div class="row gap wrap pricebox"><label>현재가 (${cur})<input class="inp" data-change="price" value="${st.price == null ? '' : st.price}" inputmode="decimal" placeholder="직접 입력"><small class="${age > 3 ? 'stale' : 'muted'}">${st.price ? (age > 365 ? '입력일 불명' : age === 0 ? '오늘 입력' : age + '일 전 입력') : ''}</small></label>
-      ${us ? `<label>현재 환율 (원/$) <input class="inp" data-change="fxNow" value="${state.settings.fxNow}" inputmode="decimal"></label>` : ''}</div>
+    h += `<section class="card stockhead"><div class="sh-top"><div class="sh-title"><b class="sh-name">${esc(st.name)}</b> <small class="muted">${esc(st.code)} · ${us ? '해외 USD' : '국내 KRW'}</small></div>
+      <div class="sh-right"><label class="px">현재가<input class="inp" data-change="price" value="${st.price == null ? '' : st.price}" inputmode="decimal" placeholder="입력"></label>
+      ${us ? `<label class="px">환율<input class="inp" data-change="fxNow" value="${state.settings.fxNow}" inputmode="decimal"></label>` : ''}
+      <details class="menu"><summary aria-label="더보기">⋯</summary><div class="menu-body"><button data-act="editStock">종목 수정</button><button data-act="splitAdj">액면분할 조정</button><button class="danger" data-act="delStock">종목 삭제</button></div></details></div></div>
+      <div class="sh-sub"><small class="${age > 3 ? 'stale' : 'muted'}">${st.price ? '현재가 ' + (age > 365 ? '입력일 불명' : age === 0 ? '오늘 입력' : age + '일 전 입력') : '현재가를 입력하면 평가손익이 계산됩니다'}</small>
+        ${links.map((l) => `<a class="lnk" href="${esc(SM.fillLink(l.url, st))}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join('')}</div>
       <div class="cards">
-        <div class="stat"><span>보유 수량</span><b>${fmtNum(sm.qty, sm.qty % 1 ? 4 : 0)}주</b></div>
-        <div class="stat"><span>전체 평단가</span><b>${fmtMoney(sm.avg, cur)}</b><small>수수료 포함 ${fmtMoney(sm.avgInclFee, cur)}${us && sm.avgKRW ? `<br>원화 ${fmtMoney(sm.avgKRW, 'KRW')}` : ''}</small></div>
+        <div class="stat"><span>보유 수량</span><b>${qn(sm.qty)}주</b></div>
+        <div class="stat"><span>전체 평단가</span><b>${fmtMoney(sm.avg, cur)}</b><small>수수료 포함 ${fmtMoney(sm.avgInclFee, cur)}${us && sm.avgKRW ? ` · 원화 ${fmtMoney(sm.avgKRW, 'KRW')}` : ''}</small></div>
         <div class="stat"><span>총 매입금</span><b>${fmtMoney(sm.cost, cur)}</b>${us ? `<small>${fmtMoney(sm.costKRW, 'KRW')}</small>` : ''}</div>
-        <div class="stat"><span>평가손익${us ? ' (원화)' : ''}</span><b>${sm.value != null ? money(sm.unrlKRW, 'KRW') + ' ' + pct(sm.unrlRetKRW) : '<span class="muted">현재가 입력</span>'}</b>${us && sm.value != null ? `<small>달러 ${money(sm.unrl, 'USD')} ${pct(sm.unrlRet)}</small>` : ''}</div>
+        <div class="stat wide2"><span>평가손익${us ? ' (원화)' : ''}</span><b>${sm.value != null ? money(sm.unrlKRW, 'KRW') + ' <small>' + pct(sm.unrlRetKRW) + '</small>' : '<span class="muted">-</span>'}</b>${us && sm.value != null ? `<small>달러 ${money(sm.unrl, 'USD')} ${pct(sm.unrlRet)}</small>` : ''}</div>
         <div class="stat"><span>누적 실현손익</span><b>${money(realized, 'KRW')}</b><small>${st.sales.length}건</small></div>
       </div></section>`;
-    const lots = st.lots.slice().sort((a, b) => a.no - b.no);
-    const visible = lots.filter((l) => ui.showSold || SM.lotRem(st, l) > 0);
-    const selLots = lots.filter((l) => ui.selected.has(l.id) && SM.lotRem(st, l) > 0);
+
+    /* 매수 순번 목록 (작은 리스트) */
+    const all = st.lots.slice();
+    const heldN = all.filter((l) => SM.lotRem(st, l) > 0).length;
+    let rows = all.filter((l) => ui.showSold || SM.lotRem(st, l) > 0).map((l) => ({ l, v: SM.lotView(st, l, state.settings) }));
+    const retKey = (x) => (x.v.retKRW == null ? null : x.v.retKRW);
+    const cmpNull = (fn) => (a, b) => { const x = fn(a), y = fn(b); return x == null ? (y == null ? 0 : 1) : y == null ? -1 : x - y; };
+    const sorters = {
+      no: (a, b) => a.l.no - b.l.no, retDesc: cmpNull((x) => (retKey(x) == null ? null : -retKey(x))), retAsc: cmpNull(retKey),
+      priceAsc: (a, b) => a.l.price * (a.l.fx || 1) - b.l.price * (b.l.fx || 1), priceDesc: (a, b) => b.l.price * (b.l.fx || 1) - a.l.price * (a.l.fx || 1),
+      dateDesc: (a, b) => (a.l.date < b.l.date ? 1 : a.l.date > b.l.date ? -1 : b.l.no - a.l.no),
+    };
+    rows.sort(sorters[ui.lotSort] || sorters.no);
+    const selLots = all.filter((l) => ui.selected.has(l.id) && SM.lotRem(st, l) > 0);
     let selBar = '';
     if (selLots.length) {
       const q = selLots.reduce((a, l) => a + SM.lotRem(st, l), 0);
       const amt = selLots.reduce((a, l) => a + SM.lotRem(st, l) * l.price, 0);
       const amtF = selLots.reduce((a, l) => a + SM.lotRem(st, l) * (l.price + SM.lotFeePerShare(l)), 0);
       const avg = amt / q, avgF = amtF / q;
-      selBar = `<div class="selbar">선택 ${selLots.map((l) => l.no + '번').join('·')} 합산: <b>${fmtNum(q, q % 1 ? 4 : 0)}주</b> · 평단 <b>${fmtMoney(avg, cur)}</b> (수수료 포함 ${fmtMoney(avgF, cur)})${st.price ? ` · 현재가 대비 ${pct((st.price - avgF) / avgF)}` : ''}</div>`;
+      selBar = `<div class="selbar">선택 ${selLots.map((l) => l.no + '번').join('·')} · <b>${qn(q)}주</b> · 평단 <b>${fmtMoney(avg, cur)}</b> <small>(수수료 포함 ${fmtMoney(avgF, cur)})</small>${st.price ? ` · 현재가 대비 ${pct((st.price - avgF) / avgF)}` : ''}</div>`;
     }
-    h += `<section class="card"><div class="row between wrap"><h2>매수 순번</h2><div class="row gap wrap">
-      <button class="btn primary" data-act="addLot">＋ 매수 추가</button>
-      <button class="btn" data-act="mergeSel" ${selLots.length < 2 ? 'disabled' : ''}>선택 병합</button>
-      <button class="btn accent" data-act="openSell" ${sm.qty > 0 ? '' : 'disabled'}>매도 / 시뮬레이션</button></div></div>
+    h += `<section class="card"><div class="sec-h"><h2>매수 순번 <span class="count">${heldN}</span></h2>
+      <div class="sec-tools"><div class="seg2"><button class="${!ui.showSold ? 'on' : ''}" data-act="lotFilter" data-v="held">보유</button><button class="${ui.showSold ? 'on' : ''}" data-act="lotFilter" data-v="all">전체</button></div>
+      <select class="inp sm" data-change="lotSort" aria-label="정렬">${opts(SORTS, ui.lotSort)}</select></div></div>
+      <div class="toolbar"><button class="btn primary sm" data-act="addLot">＋ 매수</button><button class="btn sm" data-act="mergeSel" ${selLots.length < 2 ? 'disabled' : ''}>선택 병합</button><button class="btn sm accent" data-act="openSell" ${sm.qty > 0 ? '' : 'disabled'}>매도 / 시뮬레이션</button><span class="grow"></span>${rows.some((r) => r.v.rem > 0) ? `<button class="btn sm ghost" data-act="selAll">${selLots.length ? '선택 해제' : '전체 선택'}</button>` : ''}</div>
       ${selBar}
-      <label class="chk"><input type="checkbox" data-change="showSold" ${ui.showSold ? 'checked' : ''}> 매도 완료된 순번도 보기</label>
-      <div class="tablewrap"><table class="lots"><thead><tr><th></th><th>순번</th><th>매수일</th><th>매수가</th><th>수량(잔여/전체)</th><th>수수료</th><th>현재 수익률</th><th>평가손익</th><th>보유일</th><th></th></tr></thead><tbody>
-      ${visible.length ? visible.map((l) => lotRow(st, l, cur, us)).join('') : `<tr><td colspan="10" class="muted center">매수 기록이 없습니다. “＋ 매수 추가”를 눌러 첫 순번을 기록하세요.</td></tr>`}
-      </tbody></table></div>
-      <p class="hint">수익률은 매수 수수료를 포함한 원가 기준이며 매도 비용(수수료·세금)은 매도/시뮬레이션 화면에서 반영됩니다.${us ? ' 해외주식은 달러 기준과 원화(환율 반영) 기준을 함께 표시합니다.' : ''}${(st.splits || []).length ? ` 액면분할 조정 이력: ${st.splits.map((x) => x.date + ' ×' + +x.ratio.toFixed(6)).join(', ')}` : ''}</p></section>`;
-    h += `<section class="card"><h2>매도 기록</h2>${st.sales.length ? `<div class="tablewrap"><table><thead><tr><th>매도일</th><th>매도가</th><th>수량</th><th>사용 순번</th><th>실현손익(원)</th><th>수익률</th><th></th></tr></thead><tbody>
-      ${st.sales.slice().reverse().map((s) => `<tr><td data-label="매도일"><span class="v">${s.date}</span></td><td data-label="매도가"><span class="v">${fmtMoney(s.price, cur)}${us ? `<br><small class="muted">환율 ${fmtNum(s.fx, 2)}</small>` : ''}</span></td><td data-label="수량"><span class="v">${fmtNum(s.qty, s.qty % 1 ? 4 : 0)}</span></td><td data-label="사용 순번"><span class="v">${s.lines.map((l) => `${l.lotNo}번×${fmtNum(l.qty, l.qty % 1 ? 4 : 0)}`).join(', ')}</span></td><td data-label="실현손익"><span class="v">${money(s.pnlKRW, 'KRW')}</span></td><td data-label="수익률"><span class="v">${pct(s.costKRW > 0 ? s.pnlKRW / s.costKRW : null)}</span></td><td class="acts">${noteBtn('sale_' + s.id, true)} <button class="btn sm danger" data-act="delSale" data-id="${s.id}">삭제</button></td></tr>`).join('')}
-      </tbody></table></div><p class="hint">매도 기록을 삭제하면 해당 순번의 잔여 수량이 원래대로 돌아옵니다.</p>` : '<p class="muted">아직 매도 기록이 없습니다.</p>'}</section>`;
-    // 일정
+      <div class="lots" role="list">
+        <div class="lhead"><span></span><span>순번</span><span>매수일</span><span>수량 · 단가</span><span>수익률</span><span>평가손익</span><span></span></div>
+        ${rows.length ? rows.map((r) => lotRow(st, r.l, r.v, cur, us)).join('') : `<div class="lempty">매수 기록이 없습니다. “＋ 매수”를 눌러 첫 순번을 기록하세요.</div>`}
+      </div>
+      <p class="hint">줄을 누르면 수수료·메모·수정/삭제가 펼쳐집니다. 수익률은 매수 수수료 포함 원가 기준이고 매도 비용은 매도/시뮬레이션에서 반영됩니다.${us ? ' 해외주식은 원화(환율 반영) 기준입니다.' : ''}${(st.splits || []).length ? ` 액면분할 조정: ${st.splits.map((x) => x.date + ' ×' + +x.ratio.toFixed(6)).join(', ')}` : ''}</p></section>`;
+
+    /* 매도 기록 */
+    h += section('sales', '매도 기록', st.sales.length, st.sales.length
+      ? `<div class="slist">${st.sales.slice().reverse().map((s) => saleRow(st, s, cur, us)).join('')}</div><p class="hint">삭제하면 해당 순번의 잔여 수량이 원래대로 돌아옵니다.</p>`
+      : '<p class="muted">아직 매도 기록이 없습니다.</p>');
+
+    /* 일정 */
     const evs = (st.events || []).slice();
-    h += `<section class="card"><h2>일정 <small class="muted">(실적 발표 · 배당 · 주총 등)</small></h2>
-      ${evs.length ? `<ul class="evlist">${evs.map((e) => { const d = SM.daysBetween(todayStr(), e.date); return `<li class="${d < 0 ? 'past' : d <= 3 ? 'soon' : ''}"><span class="evd">${e.date}</span><span class="evk">${esc(e.kind)}</span>${esc(e.title)} <small class="muted">${d === 0 ? '오늘' : d > 0 ? d + '일 후' : -d + '일 지남'}</small> <button class="btn sm danger" data-act="delEvent" data-id="${e.id}">삭제</button></li>`; }).join('')}</ul>` : '<p class="muted">등록된 일정이 없습니다.</p>'}
-      <div class="evform"><input type="date" id="evDate" class="inp" value="${todayStr()}"><select id="evKind" class="inp">${EVENT_KINDS.map((k) => `<option>${k}</option>`).join('')}</select><input id="evTitle" class="inp" placeholder="예: 3분기 실적 발표"><button class="btn primary" data-act="addEvent">추가</button></div></section>`;
-    // 종목 메모
+    h += section('events', '일정 <small class="muted">실적·배당·주총</small>', evs.length, `
+      ${evs.length ? `<ul class="evlist">${evs.map((e) => { const d = SM.daysBetween(todayStr(), e.date); return `<li class="${d < 0 ? 'past' : d <= 3 ? 'soon' : ''}"><span class="evd">${e.date}</span><span class="evk">${esc(e.kind)}</span><span class="grow">${esc(e.title)} <small class="muted">${d === 0 ? '오늘' : d > 0 ? d + '일 후' : -d + '일 지남'}</small></span><button class="ab danger" data-act="delEvent" data-id="${e.id}" title="삭제"><i>🗑</i></button></li>`; }).join('')}</ul>` : '<p class="muted">등록된 일정이 없습니다.</p>'}
+      <div class="evform"><input type="date" id="evDate" class="inp" value="${todayStr()}"><select id="evKind" class="inp">${EVENT_KINDS.map((k) => `<option>${k}</option>`).join('')}</select><input id="evTitle" class="inp" placeholder="예: 3분기 실적 발표"><button class="btn primary sm" data-act="addEvent">추가</button></div>`);
+
+    /* 종목 메모 */
     const mkey = 'stock_' + st.id;
-    h += `<section class="card"><div class="row between wrap"><h2>종목 메모</h2><div>${noteBtn(mkey)} ${state.noteIdx[mkey] ? `<button class="btn sm" data-act="noteEdit" data-key="${mkey}">수정</button>` : ''}</div></div>${noteLine(mkey) || '<p class="muted">투자 아이디어, 체크할 것 등을 자유롭게 적어 두세요 (서식·표·사진 가능).</p>'}</section>`;
-    // 매매 일지
+    h += section('memo', '종목 메모', null, `<div class="row between wrap"><div class="grow">${noteLine(mkey) || '<span class="muted">투자 아이디어, 체크할 것 등을 적어 두세요 (서식·표·사진 가능).</span>'}</div><div class="row gap">${noteBtn(mkey, true)} ${state.noteIdx[mkey] ? `<button class="btn sm" data-act="noteEdit" data-key="${mkey}">수정</button>` : ''}</div></div>`);
+
+    /* 매매 일지 */
     const tl = [];
     st.lots.forEach((l) => tl.push({ type: 'lot', date: l.date, lot: l }));
     st.sales.forEach((s) => tl.push({ type: 'sale', date: s.date, sale: s }));
     tl.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
     const shown = ui.journalOnly ? tl.filter((r) => state.noteIdx[(r.type === 'lot' ? 'lot_' + r.lot.id : 'sale_' + r.sale.id)]) : tl;
-    h += `<section class="card"><div class="row between wrap"><h2>매매 일지 <small class="muted">(복기)</small></h2><label class="chk"><input type="checkbox" data-change="journalOnly" ${ui.journalOnly ? 'checked' : ''}> 사유가 있는 것만</label></div>
+    h += section('journal', '매매 일지 <small class="muted">복기</small>', tl.length, `<label class="chk"><input type="checkbox" data-change="journalOnly" ${ui.journalOnly ? 'checked' : ''}> 사유가 있는 것만</label>
       ${shown.length ? shown.map((r) => {
         const key = r.type === 'lot' ? 'lot_' + r.lot.id : 'sale_' + r.sale.id;
-        return `<div class="tl"><div class="tl-h"><span class="tl-d">${r.date}</span> ${r.type === 'lot' ? `<span class="tag buy">매수 ${r.lot.no}번</span> ${fmtNum(r.lot.qty, r.lot.qty % 1 ? 4 : 0)}주 @ ${fmtMoney(r.lot.price, cur)}` : `<span class="tag sell">매도</span> ${fmtNum(r.sale.qty, r.sale.qty % 1 ? 4 : 0)}주 @ ${fmtMoney(r.sale.price, cur)} · ${money(r.sale.pnlKRW, 'KRW')} ${pct(r.sale.costKRW > 0 ? r.sale.pnlKRW / r.sale.costKRW : null)}`}</div>${noteLine(key)}<div>${noteBtn(key)} ${state.noteIdx[key] ? `<button class="btn sm" data-act="noteEdit" data-key="${key}">수정</button>` : ''}</div></div>`;
-      }).join('') : '<p class="muted">표시할 기록이 없습니다.</p>'}</section>`;
+        return `<div class="tl"><div class="tl-h"><span class="tl-d">${fd(r.date)}</span> ${r.type === 'lot' ? `<span class="tag buy">매수 ${r.lot.no}번</span> ${qn(r.lot.qty)}주 @${fmtNum(r.lot.price, us ? 2 : 0)}` : `<span class="tag sell">매도</span> ${qn(r.sale.qty)}주 @${fmtNum(r.sale.price, us ? 2 : 0)} · ${money(r.sale.pnlKRW, 'KRW')} ${pct(r.sale.costKRW > 0 ? r.sale.pnlKRW / r.sale.costKRW : null)}`}</div>${noteLine(key)}<div class="tl-b">${noteBtn(key, true)} ${state.noteIdx[key] ? `<button class="btn sm" data-act="noteEdit" data-key="${key}">수정</button>` : ''}</div></div>`;
+      }).join('') : '<p class="muted">표시할 기록이 없습니다.</p>'}`);
     return h;
   };
 
-  function lotRow(st, l, cur, us) {
-    const v = SM.lotView(st, l, state.settings);
+  function lotRow(st, l, v, cur, us) {
     const done = v.rem <= 0;
     const days = SM.daysBetween(l.date, todayStr());
-    const retTxt = v.ret != null ? (us ? `${pct(v.ret)}<br><small>원화 ${pct(v.retKRW)}</small>` : pct(v.ret)) : '<span class="muted">-</span>';
-    const unrlTxt = v.unrl != null ? (us ? `${money(v.unrlKRW, 'KRW')}<br><small>${money(v.unrl, 'USD')}</small>` : money(v.unrl, 'KRW')) : '<span class="muted">-</span>';
     const sold = SM.lotSold(st, l.id) > 0;
-    return `<tr class="${done ? 'done' : ''}">
-      <td data-label="">${done ? '' : `<input type="checkbox" data-change="selLot" data-id="${l.id}" ${ui.selected.has(l.id) ? 'checked' : ''}>`}</td>
-      <td data-label="순번"><span class="v"><b class="no">${l.no}번</b>${l.parts ? ' <small class="tag">병합</small>' : ''}${l.note ? `<br><small class="muted">${esc(l.note)}</small>` : ''}</span></td>
-      <td data-label="매수일"><span class="v">${l.date}</span></td>
-      <td data-label="매수가"><span class="v">${fmtMoney(l.price, cur)}${us ? `<br><small class="muted">환율 ${fmtNum(l.fx, 2)}</small>` : ''}</span></td>
-      <td data-label="수량"><span class="v">${done ? '<span class="muted">매도완료</span>' : fmtNum(v.rem, v.rem % 1 ? 4 : 0)} <small class="muted">/ ${fmtNum(l.qty, l.qty % 1 ? 4 : 0)}</small></span></td>
-      <td data-label="수수료"><span class="v">${fmtMoney(l.fee, cur)}</span></td>
-      <td data-label="현재 수익률"><span class="v">${done ? '-' : retTxt}</span></td><td data-label="평가손익"><span class="v">${done ? '-' : unrlTxt}</span></td>
-      <td data-label="보유일"><span class="v">${days}일</span></td>
-      <td class="acts">${noteBtn('lot_' + l.id, true)} <button class="btn sm" data-act="editLot" data-id="${l.id}">수정</button>
-        ${!sold && l.qty > 1 ? `<button class="btn sm" data-act="splitLot" data-id="${l.id}">분할</button>` : ''}
-        ${l.parts && !sold ? `<button class="btn sm" data-act="unmerge" data-id="${l.id}">병합취소</button>` : ''}
-        ${!sold ? `<button class="btn sm danger" data-act="delLot" data-id="${l.id}">삭제</button>` : ''}</td></tr>`;
+    const key = 'lot_' + l.id, has = !!state.noteIdx[key];
+    const open = ui.openLots.has(l.id);
+    const retV = us ? v.retKRW : v.ret;
+    const chip = done ? '<span class="chip off">완료</span>' : retV != null ? `<span class="chip ${retV >= 0 ? 'up' : 'down'}">${fmtPct(retV)}</span>` : '<span class="muted">-</span>';
+    const pnl = done || v.unrl == null ? '<span class="muted">-</span>' : money(us ? v.unrlKRW : v.unrl, 'KRW');
+    const acts = [
+      abtn('note', '📝', has ? '사유 보기' : '사유 쓰기', has ? 'on' : '', `data-key="${key}"`),
+      abtn('editLot', '✎', '수정', '', `data-id="${l.id}"`),
+      !sold && l.qty > 1 ? abtn('splitLot', '✂', '분할', '', `data-id="${l.id}"`) : '',
+      l.parts && !sold ? abtn('unmerge', '⤺', '병합취소', '', `data-id="${l.id}"`) : '',
+      !sold ? abtn('delLot', '🗑', '삭제', 'danger', `data-id="${l.id}"`) : '',
+    ].join('');
+    return `<div class="lrow ${done ? 'done' : ''} ${open ? 'open' : ''}" role="listitem" data-act="lotToggle" data-id="${l.id}">
+      <label class="lchk">${done ? '' : `<input type="checkbox" data-change="selLot" data-id="${l.id}" ${ui.selected.has(l.id) ? 'checked' : ''} aria-label="${l.no}번 선택">`}</label>
+      <b class="lno">${l.no}번${l.parts ? ' <small class="tag">병합</small>' : ''}${has ? ` <button type="button" class="nmark" data-act="note" data-key="${key}" title="사유 보기" aria-label="${l.no}번 사유 보기">📝</button>` : ''}</b>
+      <span class="ldate">${fd(l.date)}<small class="muted"> · ${days}일</small></span>
+      <span class="lqty">${done ? '<span class="muted">매도완료</span>' : `<b>${qn(v.rem)}주</b>${v.rem !== l.qty ? `<small class="muted">/${qn(l.qty)}</small>` : ''}`} <span class="muted">@${fmtNum(l.price, us ? 2 : 0)}</span></span>
+      <span class="lret">${chip}</span><span class="lpnl">${pnl}</span>
+      <span class="acts">${acts}</span>
+      <div class="ldet">수수료 ${fmtMoney(l.fee, cur)} · 수수료 포함 단가 ${fmtMoney(l.price + SM.lotFeePerShare(l), cur)}${us ? ` · 매수환율 ${fmtNum(l.fx, 2)}${!done && v.ret != null ? ` · 달러 기준 ${fmtPct(v.ret)}` : ''}` : ''}${l.note ? ` · ${esc(l.note)}` : ''}${has ? `<div class="nprev">${esc(state.noteIdx[key].t)}</div>` : ''}</div>
+    </div>`;
+  }
+
+  function saleRow(st, s, cur, us) {
+    const key = 'sale_' + s.id, has = !!state.noteIdx[key];
+    const r = s.costKRW > 0 ? s.pnlKRW / s.costKRW : null;
+    return `<div class="srow"><span class="sd">${fd(s.date)}</span><span class="sq"><b>${qn(s.qty)}주</b> <span class="muted">@${fmtNum(s.price, us ? 2 : 0)}${us ? ` (환율 ${fmtNum(s.fx, 0)})` : ''}</span></span>
+      <span class="sl muted">${s.lines.map((l) => `${l.lotNo}번×${qn(l.qty)}`).join(', ')}</span>
+      <span class="sr"><span class="chip ${r >= 0 ? 'up' : 'down'}">${fmtPct(r)}</span> ${money(s.pnlKRW, 'KRW')}</span>
+      <span class="acts inline">${abtn('note', '📝', has ? '사유 보기' : '사유 쓰기', has ? 'on' : '', `data-key="${key}"`)}${abtn('delSale', '🗑', '삭제', 'danger', `data-id="${s.id}"`)}</span></div>`;
   }
 
   /* ---------- 종목/순번 폼 ---------- */
@@ -594,6 +631,19 @@ service cloud.firestore {
       st.sales = st.sales.filter((x) => x.id !== s.id); save(); render();
     },
     closeModal: () => closeModal(),
+    lotToggle: (el, e) => {
+      if (e && e.target.closest('input,button,a,label,select')) return;
+      const id = el.dataset.id;
+      if (ui.openLots.has(id)) ui.openLots.delete(id); else ui.openLots.add(id);
+      el.classList.toggle('open');
+    },
+    lotFilter: (el) => { ui.showSold = el.dataset.v === 'all'; render(); },
+    selAll: () => {
+      const st = curStock();
+      const held = st.lots.filter((l) => SM.lotRem(st, l) > 0);
+      if (held.some((l) => ui.selected.has(l.id))) ui.selected.clear(); else held.forEach((l) => ui.selected.add(l.id));
+      render();
+    },
     goStock: (el) => { ui.stockId = el.dataset.id; ui.selected.clear(); ui.view = 'stocks'; render(); window.scrollTo(0, 0); },
     note: (el) => openNote(el.dataset.key),
     noteEdit: (el) => editNote(el.dataset.key),
@@ -697,6 +747,7 @@ service cloud.firestore {
   const C = A.changeHandlers;
   Object.assign(C, {
     price: (el) => { const st = curStock(); SM.setPrice(st, el.value.trim() === '' ? null : num(el.value)); save(); render(); },
+    lotSort: (el) => { ui.lotSort = el.value; render(); },
     journalOnly: (el) => { ui.journalOnly = el.checked; render(); },
     fxNow: (el) => { state.settings.fxNow = num(el.value, 1400); save(); render(); },
     showSold: (el) => { ui.showSold = el.checked; render(); },
@@ -730,7 +781,12 @@ service cloud.firestore {
     },
   });
 
+  document.addEventListener('toggle', (e) => {
+    const d = e.target;
+    if (d && d.matches && d.matches('details.sec[data-sec]')) ui.sec[d.dataset.sec] = d.open;
+  }, true);
   document.addEventListener('click', (e) => {
+    document.querySelectorAll('details.menu[open]').forEach((d) => { if (!d.contains(e.target) || e.target.closest('.menu-body button')) d.open = false; });
     const el = e.target.closest('[data-act]');
     if (!el) return;
     if (el.tagName === 'A') e.preventDefault();
