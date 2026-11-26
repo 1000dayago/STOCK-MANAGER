@@ -66,8 +66,10 @@
     return `<button class="badge ${c}" data-act="goSettings" title="${esc(s.msg)}">${t}</button>`;
   }
   function renderChrome(body) {
+    const banner = A.banner ? A.banner() : '';
+    const vtag = A.versionTag ? A.versionTag() : '';
     return `<header class="top"><div class="brand">📈 주식 관리</div><nav class="nav-top">${VIEWS.map(([k, l]) => `<button class="${ui.view === k ? 'on' : ''}" data-act="nav" data-v="${k}">${l}</button>`).join('')}</nav><span id="syncBadgeBox">${syncBadge()}</span></header>
-    <main>${body}</main>
+    ${banner}<main>${body}${ui.view === 'home' || ui.view === 'settings' ? vtag : ''}</main>
     <nav class="nav-bottom">${VIEWS.map(([k, l]) => `<button class="${ui.view === k ? 'on' : ''}" data-act="nav" data-v="${k}">${l}</button>`).join('')}</nav>`;
   }
 
@@ -532,6 +534,7 @@ service cloud.firestore {
       <li><b>Firestore Database → 데이터베이스 만들기</b> (프로덕션 모드, 지역은 가까운 곳).</li>
       <li>Firestore <b>규칙(Rules)</b> 탭에 아래 내용을 붙여 넣고 <b>게시</b>합니다. 이 규칙이 “내 계정만 내 데이터 접근”을 보장하는 유일한 장치입니다.<pre id="rulesTxt">${esc(RULES)}</pre><button class="btn sm" data-act="copyRules">규칙 복사</button></li>
       <li>프로젝트 설정(톱니바퀴) → <b>일반 → 내 앱 → 웹 앱(&lt;/&gt;) 추가</b> 후 나오는 <code>firebaseConfig</code> 블록을 위 칸에 붙여 넣습니다.</li></ol></details></section>
+      ${A.updateCard ? A.updateCard() : ''}
       <section class="card"><h2>이 앱에 대하여</h2><p class="hint">휴대폰에서는 브라우저 메뉴의 “홈 화면에 추가”로 앱처럼 설치할 수 있습니다. 백테스트용 가격 데이터는 용량 때문에 동기화되지 않고 기기별로 저장됩니다. 이 앱의 계산 결과는 참고용이며 투자 판단과 세금 신고의 책임은 사용자에게 있습니다.</p></section>`;
   };
 
@@ -802,6 +805,7 @@ service cloud.firestore {
     load();
     render();
     SM.sync.init(syncHooks);
+    if (SM.update) SM.update.boot();
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

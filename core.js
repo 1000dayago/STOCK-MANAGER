@@ -397,6 +397,13 @@
   }
 
 
+  // 'a.b.c' 형식 버전 비교: a>b 이면 1, 같으면 0, 작으면 -1
+  function compareVersions(a, b) {
+    const pa = String(a).split('.').map((x) => parseInt(x, 10) || 0), pb = String(b).split('.').map((x) => parseInt(x, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) { const d = (pa[i] || 0) - (pb[i] || 0); if (d) return d > 0 ? 1 : -1; }
+    return 0;
+  }
+
   /* ---------- 현재가 / 액면분할 / 일정 / 홈 요약 ---------- */
   function setPrice(stock, price) {
     stock.price = price === null || price === '' || price === undefined ? null : num(price);
@@ -477,7 +484,7 @@
   }
 
   Object.assign(SM, {
-    setPrice, priceAge, splitAdjust, addEvent, removeEvent, upcomingEvents, fillLink, linksFor, portfolio, noteKey, noteKeysOfStock,
+    compareVersions, setPrice, priceAge, splitAdjust, addEvent, removeEvent, upcomingEvents, fillLink, linksFor, portfolio, noteKey, noteKeysOfStock,
     DEFAULT_SETTINGS, uid, todayStr, num, isBlank, daysBetween, fmtNum, fmtMoney, fmtPct, curOf, ratesOf,
     newState, normalizeState, newStock, lotSold, lotRem, lotFeePerShare, addLot, updateLot, deleteLot,
     mergeLots, unmergeLot, splitLot, stockSummary, lotView, computeSale, allocate, remainingAfter,

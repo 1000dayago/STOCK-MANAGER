@@ -156,3 +156,9 @@ t('렌코 생성', () => {
   assert(r.bricks.length > 0); console.log('   bricks', r.bricks.map((b) => (b.dir > 0 ? '+' : '-') + b.c).join(' '));
 });
 console.log(ok + ' passed');
+t('버전 비교', () => {
+  assert.equal(SM.compareVersions('1.10.0', '1.9.9'), 1);
+  assert.equal(SM.compareVersions('1.2.0', '1.2.0'), 0);
+  assert.equal(SM.compareVersions('1.2.0', '1.2.1'), -1);
+  assert.equal(SM.compareVersions('2.0', '1.9.9'), 1);
+});

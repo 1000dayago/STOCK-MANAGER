@@ -190,3 +190,12 @@ table.mini { font-size: 12px; } table.mini th, table.mini td { padding: 3px 6px;
   body.printing #print-root { display: block; padding: 0; color: #000; background: #fff; }
   body.printing #print-root .note-body img { max-width: 100%; }
 }
+
+/* ---------- 버전 / 업데이트 ---------- */
+.updbanner { position: static; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 8px 16px; background: var(--accent); color: var(--accent-fg); font-size: 14px; }
+.updbanner .btn { background: rgba(255, 255, 255, .18); color: inherit; border-color: transparent; }
+.updbanner .btn.primary { background: #fff; color: #0f766e; }
+header.top { top: 0; }
+.vtag { text-align: center; color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+.ver { font-size: 20px; }
+.rel { margin: 8px 0; } .rel ul { margin: 4px 0 0; padding-left: 20px; font-size: 13px; }
