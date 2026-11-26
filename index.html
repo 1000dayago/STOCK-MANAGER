@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>주식 관리</title>
+<meta name="description" content="분할매수 순번별 손익·평단가·시뮬레이션·백테스트 주식 관리 앱">
+<meta name="theme-color" content="#0f766e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="주식관리">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app"></div>
+<div id="modal-root"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<noscript>이 앱은 JavaScript가 필요합니다.</noscript>
+<script src="core.js"></script>
+<script src="backtest.js"></script>
+<script src="charts.js"></script>
+<script src="sync.js"></script>
+<script src="ui.js"></script>
+<script src="ui-bt.js"></script>
+<script>SM.app.boot();</script>
+</body>
+</html>
