@@ -74,7 +74,7 @@
   async function onUser(u) {
     S.user = u;
     if (S.unsub) { S.unsub(); S.unsub = null; }
-    if (!u) { setStatus('signedout', '로그인하면 기기 간 동기화가 켜집니다.'); return; }
+    if (!u) { if (SM.media) SM.media.onLogout(); setStatus('signedout', '로그인하면 기기 간 동기화가 켜집니다.'); return; }
     setStatus('syncing', '동기화 중…');
     try {
       const snap = await S.fb.fs.getDoc(docRef());
@@ -103,6 +103,7 @@
         const remote = JSON.parse(s.data().json || '{}');
         if ((remote.updatedAt || 0) > (S.getState().updatedAt || 0) && remote.updatedAt !== S.lastPushed) applyRemote(remote);
       }, (e) => setStatus('error', '동기화 오류: ' + e.message));
+      if (SM.media) SM.media.onLogin(); // 매매 사유(글·사진) 동기화
     } catch (e) {
       console.error(e);
       setStatus('error', '동기화 오류: ' + (e.message || e) + ' (Firestore 데이터베이스와 보안 규칙을 확인하세요)');

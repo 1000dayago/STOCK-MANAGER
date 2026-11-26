@@ -9,6 +9,14 @@
     us: { buyFee: 0.25, sellFee: 0.25, sellTax: 0, taxRate: 22, deduction: 2500000 },
     fxNow: 1400,
     upColor: 'red',
+    // {code}, {name} 자리표시자는 종목 정보로 바뀝니다. 설정에서 수정/추가할 수 있습니다.
+    links: [
+      { id: 'naver', label: '네이버 금융', url: 'https://finance.naver.com/item/main.naver?code={code}', market: 'KR' },
+      { id: 'news', label: '뉴스 검색', url: 'https://search.naver.com/search.naver?where=news&query={name}', market: 'ALL' },
+      { id: 'dart', label: '전자공시(DART)', url: 'https://dart.fss.or.kr/dsab007/main.do?textCrpNm={name}', market: 'KR' },
+      { id: 'yahoo', label: '야후 파이낸스', url: 'https://finance.yahoo.com/quote/{code}', market: 'US' },
+      { id: 'google', label: '구글 검색(실적)', url: 'https://www.google.com/search?q={name}+실적+발표', market: 'ALL' },
+    ],
   });
 
   const uid = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
@@ -43,7 +51,7 @@
 
   /* ---------- 상태 ---------- */
   function newState() {
-    return { v: 1, updatedAt: 0, settings: DEFAULT_SETTINGS(), stocks: [] };
+    return { v: 2, updatedAt: 0, settings: DEFAULT_SETTINGS(), stocks: [], strategies: [], noteIdx: {}, lastBackupAt: 0 };
   }
   function normalizeState(obj) {
     const s = newState();
@@ -56,9 +64,13 @@
       us: Object.assign(d.us, o.us || {}),
       fxNow: o.fxNow || d.fxNow,
       upColor: o.upColor || d.upColor,
+      links: Array.isArray(o.links) ? o.links : d.links,
     };
+    s.strategies = Array.isArray(obj.strategies) ? obj.strategies : [];
+    s.noteIdx = obj.noteIdx && typeof obj.noteIdx === 'object' ? obj.noteIdx : {};
+    s.lastBackupAt = obj.lastBackupAt || 0;
     s.stocks = (obj.stocks || []).map((st) =>
-      Object.assign({ id: uid(), name: '', code: '', market: 'KR', price: null, lots: [], sales: [], nextNo: 1 }, st)
+      Object.assign({ id: uid(), name: '', code: '', market: 'KR', price: null, priceAt: null, lots: [], sales: [], nextNo: 1, events: [], splits: [] }, st)
     );
     s.stocks.forEach((st) => {
       const maxNo = st.lots.reduce((m, l) => Math.max(m, l.no || 0), 0);
@@ -67,7 +79,7 @@
     return s;
   }
   function newStock({ name, code, market }) {
-    return { id: uid(), name: name || '', code: code || '', market: market === 'US' ? 'US' : 'KR', price: null, lots: [], sales: [], nextNo: 1 };
+    return { id: uid(), name: name || '', code: code || '', market: market === 'US' ? 'US' : 'KR', price: null, priceAt: null, lots: [], sales: [], nextNo: 1, events: [], splits: [] };
   }
 
   /* ---------- 순번(lot) ---------- */
@@ -384,7 +396,88 @@
     return d > 0 ? num(avg) / d : null;
   }
 
+
+  /* ---------- 현재가 / 액면분할 / 일정 / 홈 요약 ---------- */
+  function setPrice(stock, price) {
+    stock.price = price === null || price === '' || price === undefined ? null : num(price);
+    stock.priceAt = stock.price ? todayStr() : null;
+  }
+  function priceAge(stock, today) {
+    if (!stock.price) return null;
+    if (!stock.priceAt) return 999;
+    return daysBetween(stock.priceAt, today || todayStr());
+  }
+  // ratio: 기존 1주 → 새 주식 수 (1:5 분할 = 5, 10:1 병합 = 0.1). 금액(손익)은 그대로 유지됩니다.
+  function splitAdjust(stock, ratio, date) {
+    const r = num(ratio);
+    if (!(r > 0) || r === 1) throw new Error('비율은 0보다 크고 1이 아니어야 합니다. (예: 1주가 5주로 분할되면 5)');
+    const fix = (l) => { l.qty = r6(l.qty * r); l.price = l.price / r; };
+    stock.lots.forEach((l) => { fix(l); (l.parts || []).forEach(fix); });
+    stock.sales.forEach((s) => {
+      s.qty = r6(s.qty * r); s.price = s.price / r;
+      s.lines.forEach((ln) => { ln.qty = r6(ln.qty * r); ln.lotPrice = ln.lotPrice / r; });
+    });
+    if (stock.price) stock.price = stock.price / r;
+    stock.splits = (stock.splits || []).concat([{ date: date || todayStr(), ratio: r }]);
+  }
+  function addEvent(stock, { date, title, kind }) {
+    if (!date || !String(title || '').trim()) throw new Error('날짜와 제목을 입력하세요.');
+    const ev = { id: uid(), date, title: String(title).trim(), kind: kind || '기타' };
+    stock.events = (stock.events || []).concat([ev]).sort((a, b) => (a.date < b.date ? -1 : 1));
+    return ev;
+  }
+  function removeEvent(stock, id) { stock.events = (stock.events || []).filter((e) => e.id !== id); }
+  function upcomingEvents(state, today, daysAhead, daysBack) {
+    const t = today || todayStr();
+    const out = [];
+    for (const st of state.stocks) {
+      for (const ev of st.events || []) {
+        const d = daysBetween(t, ev.date);
+        if (d >= -(daysBack == null ? 3 : daysBack) && d <= (daysAhead == null ? 45 : daysAhead)) out.push({ stock: st, ev, days: d });
+      }
+    }
+    return out.sort((a, b) => (a.ev.date < b.ev.date ? -1 : a.ev.date > b.ev.date ? 1 : 0));
+  }
+  function fillLink(tpl, stock) {
+    return String(tpl).replace(/\{code\}/g, encodeURIComponent(stock.code || stock.name)).replace(/\{name\}/g, encodeURIComponent(stock.name));
+  }
+  function linksFor(state, stock) {
+    return (state.settings.links || []).filter((l) => !l.market || l.market === 'ALL' || l.market === stock.market);
+  }
+  function portfolio(state, today) {
+    const t = today || todayStr();
+    const o = { costKRW: 0, pricedCostKRW: 0, valueKRW: 0, realizedAll: 0, realizedYear: 0, realizedMonth: 0, missing: [], stale: [], weights: [], holdings: 0 };
+    for (const st of state.stocks) {
+      const sm = stockSummary(st, state.settings);
+      for (const s of st.sales) {
+        o.realizedAll += s.pnlKRW;
+        if (s.date.slice(0, 4) === t.slice(0, 4)) o.realizedYear += s.pnlKRW;
+        if (s.date.slice(0, 7) === t.slice(0, 7)) o.realizedMonth += s.pnlKRW;
+      }
+      if (sm.qty > 0) {
+        o.holdings++;
+        o.costKRW += sm.costKRW;
+        if (sm.valueKRW != null) {
+          o.pricedCostKRW += sm.costKRW; o.valueKRW += sm.valueKRW;
+          o.weights.push({ id: st.id, name: st.name, valueKRW: sm.valueKRW });
+          if (priceAge(st, t) > 3) o.stale.push(st);
+        } else o.missing.push(st);
+      }
+    }
+    o.unrlKRW = o.valueKRW - o.pricedCostKRW;
+    o.unrlRet = o.pricedCostKRW > 0 ? o.unrlKRW / o.pricedCostKRW : null;
+    return o;
+  }
+  const noteKey = (type, id) => type + '_' + id;
+  function noteKeysOfStock(stock) {
+    const keys = ['stock_' + stock.id];
+    stock.lots.forEach((l) => { keys.push('lot_' + l.id); (l.parts || []).forEach((p) => keys.push('lot_' + p.id)); });
+    stock.sales.forEach((s) => keys.push('sale_' + s.id));
+    return keys;
+  }
+
   Object.assign(SM, {
+    setPrice, priceAge, splitAdjust, addEvent, removeEvent, upcomingEvents, fillLink, linksFor, portfolio, noteKey, noteKeysOfStock,
     DEFAULT_SETTINGS, uid, todayStr, num, isBlank, daysBetween, fmtNum, fmtMoney, fmtPct, curOf, ratesOf,
     newState, normalizeState, newStock, lotSold, lotRem, lotFeePerShare, addLot, updateLot, deleteLot,
     mergeLots, unmergeLot, splitLot, stockSummary, lotView, computeSale, allocate, remainingAfter,

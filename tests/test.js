@@ -81,20 +81,69 @@ function synth(n, seed = 1) {
   }
   return d;
 }
-t('백테스트: 4개 프리셋 실행 / 정합성', () => {
+const mk = (entries, exits, extra = {}) => Object.assign(SM.blankCfg(), { entries: { mode: 'AND', conds: entries }, exits: { mode: 'OR', conds: exits } }, extra);
+const check = (name, r) => {
+  assert(!r.error, name + ' ' + r.error);
+  const s = r.summary;
+  approx(s.total, s.realized + s.unrealized, 1e-6);
+  approx(r.trades.reduce((a, x) => a + x.pnl, 0), s.realized, 1e-6);
+  assert.equal(s.buyCount, s.closed + s.open);
+  console.log('   ', name, 'buys', s.buyCount, 'closed', s.closed, 'total', Math.round(s.total), 'bh', s.bh && Math.round(s.bh.pnl));
+};
+t('백테스트: 여러 조건 실행 / 정합성', () => {
   const data = synth(400);
-  for (const [k, p] of Object.entries(SM.backtestPresets())) {
-    const r = SM.runBacktest(data, p.cfg, S); assert(!r.error, k + r.error);
-    const s = r.summary;
-    approx(s.total, s.realized + s.unrealized, 1e-6);
-    approx(r.trades.reduce((a, x) => a + x.pnl, 0), s.realized, 1e-6);
-    assert.equal(s.buyCount, s.closed + s.open);
-    console.log('   ', p.name, 'buys', s.buyCount, 'closed', s.closed, 'total', Math.round(s.total), 'bh', s.bh && Math.round(s.bh.pnl));
-  }
+  data.frgn = data.d.map((_, i) => (i % 7 < 3 ? 200000 : -150000)); data.inst = data.d.map((_, i) => (i % 5 < 2 ? 50000 : -20000));
+  const cases = {
+    거래량: mk([{ type: 'vol', n: 1000000 }], []),
+    이평교차: mk([{ type: 'maCross', ma: 'sma', s: 5, l: 20, dir: 'up' }], [{ type: 'maCross', ma: 'sma', s: 5, l: 20, dir: 'down' }]),
+    EMA교차: mk([{ type: 'maCross', ma: 'ema', s: 12, l: 26, dir: 'up' }], [{ type: 'maCross', ma: 'ema', s: 12, l: 26, dir: 'down' }]),
+    볼린저: mk([{ type: 'bb', n: 20, k: 2, band: 'lower', basis: 'close' }], [{ type: 'bb', n: 20, k: 2, band: 'upper', basis: 'close' }]),
+    렌코: mk([{ type: 'renkoFlip', dir: 'up' }], [{ type: 'renkoFlip', dir: 'down' }]),
+    RSI: mk([{ type: 'rsi', n: 14, op: 'lte', v: 35 }], [{ type: 'rsi', n: 14, op: 'gte', v: 65 }]),
+    MACD: mk([{ type: 'macd', s: 12, l: 26, sig: 9, dir: 'up' }], [{ type: 'macd', s: 12, l: 26, sig: 9, dir: 'down' }]),
+    신고가: mk([{ type: 'breakout', n: 20, dir: 'high' }], [{ type: 'trail', pct: 8 }]),
+    분할매수: mk([{ type: 'dropLast', pct: 5, basis: 'last', first: 'yes' }], [{ type: 'avgPct', dir: 'up', pct: 4 }]),
+    수급: mk([{ type: 'flow', who: 'frgn', dir: 'buy', mode: 'streak', n: 3 }], [{ type: 'tp', pct: 5 }, { type: 'sl', pct: 5 }]),
+    수급AND: mk([{ type: 'flow', who: 'both', dir: 'buy', mode: 'day', v: 10000 }, { type: 'maState', ma: 'sma', s: 5, l: 20, dir: 'above' }], [{ type: 'holdDays', n: 10 }]),
+  };
+  for (const [k, c] of Object.entries(cases)) check(k, SM.runBacktest(data, c, S));
+});
+t('백테스트: 수급 데이터 없으면 안내 / 거래량 없으면 안내', () => {
+  const data = synth(100);
+  assert(/수급 데이터/.test(SM.runBacktest(data, mk([{ type: 'flow', who: 'frgn', dir: 'buy', mode: 'day', v: 1 }], []), S).error));
+  assert(/매수 조건/.test(SM.runBacktest(data, mk([], []), S).error));
+});
+t('분할매수 조건/최대투입금/수량증가', () => {
+  const n = 120, d = { d: [], o: [], h: [], l: [], c: [], v: [], hasVol: true, hasHL: true };
+  const dt = new Date('2024-01-01'); let p = 10000;
+  for (let i = 0; i < n; i++) { const o = p; p *= 0.985; dt.setDate(dt.getDate() + 1); d.d.push(dt.toISOString().slice(0, 10)); d.o.push(o); d.c.push(p); d.h.push(o); d.l.push(p); d.v.push(1000); }
+  const base = mk([{ type: 'dropLast', pct: 3, basis: 'last', first: 'yes' }], []);
+  const r1 = SM.runBacktest(d, base, S), r2 = SM.runBacktest(d, Object.assign({}, base, { maxInvest: 500000 }), S), r3 = SM.runBacktest(d, Object.assign({}, base, { growth: 1.5 }), S);
+  assert(r1.summary.buyCount > 3);
+  assert(r2.summary.peakInvested <= 500000 + 1e-6, 'peak ' + r2.summary.peakInvested);
+  assert(r2.summary.skipped > 0);
+  assert(r3.buys[2].qty > r3.buys[0].qty);
+  // 매수 간격이 항상 직전 매수가 대비 3% 이상 하락인지
+  for (let i = 1; i < r1.buys.length; i++) assert(r1.buys[i].price <= r1.buys[i - 1].price * 0.97 + 1e-9);
+});
+t('기간 분할 검증', () => {
+  const data = synth(400);
+  const v = SM.runSplitValidation(data, mk([{ type: 'maCross', ma: 'sma', s: 5, l: 20, dir: 'up' }], [{ type: 'maCross', ma: 'sma', s: 5, l: 20, dir: 'down' }]), S, data.d[250]);
+  assert(!v.a.error && !v.b.error);
+  assert(v.a.endIdx < v.b.startIdx);
+});
+t('수급 표 불러오기(열 추정/병합)', () => {
+  const data = { d: ['2025-01-02', '2025-01-03', '2025-01-06'], o: [1, 1, 1], h: [1, 1, 1], l: [1, 1, 1], c: [1, 1, 1], v: [1, 1, 1] };
+  const tb = SM.parseTable('날짜\t종가\t기관\t외국인\t외국인보유율\n2025.01.06\t10\t-1,200\t+3,400\t50.1%\n2025.01.03\t10\t(500)\t▼700\t50.0%\n2025.01.02\t10\t0\t10\t49.9%\n2024.12.30\t10\t1\t1\t1');
+  const cols = SM.guessFlowCols(tb.header);
+  assert.deepEqual([cols.date, cols.inst, cols.frgn, cols.indiv], [0, 2, 3, -1]);
+  const m = SM.mergeFlow(data, tb, cols);
+  assert.equal(m.matched, 3); assert.equal(m.unmatched, 1);
+  assert.deepEqual(m.arrs.frgn, [10, -700, 3400]); assert.deepEqual(m.arrs.inst, [0, -500, -1200]);
 });
 t('백테스트: 손으로 만든 예 (체결가=다음날 시가, TP)', () => {
   const data = { d: ['2025-01-01','2025-01-02','2025-01-03','2025-01-04','2025-01-05','2025-01-06'], o: [10,10,20,20,22,22], h: [10,10,20,20,22,22], l: [10,10,20,20,22,22], c: [10,10,20,20,22,22], v: [0,5,5,0,0,0], hasVol: true, hasHL: true };
-  const cfg = { market: 'KR', qty: 1, fill: 'nextOpen', entries: { mode: 'AND', conds: [{ type: 'vol', n: 5 }] }, exits: { conds: [{ type: 'tp', pct: 5 }] }, renko: {} };
+  const cfg = mk([{ type: 'vol', n: 5 }], [{ type: 'tp', pct: 5 }], { qty: 1, fill: 'nextOpen' });
   const z = SM.DEFAULT_SETTINGS(); z.kr = { buyFee: 0, sellFee: 0, sellTax: 0 };
   const r = SM.runBacktest(data, cfg, z);
   // 01-02 신호 → 01-03 시가 20에 매수(1번), 01-03 신호 → 01-04 시가 20에 매수(2번). 01-03 종가20 → 수익0 이라 TP 없음. 01-05 종가22(+10%) → 01-06 시가 22 매도

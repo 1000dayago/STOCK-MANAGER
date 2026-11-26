@@ -8,7 +8,7 @@
 
   let state = SM.newState();
   const ui = (A.ui = {
-    view: 'stocks', stockId: null, showSold: false, selected: new Set(),
+    view: 'home', stockId: null, showSold: false, journalOnly: false, selected: new Set(),
     pnl: { group: 'month', stockId: 'all', from: '', to: '' },
     calc: { market: 'KR', baseQty: '', baseAvg: '', feeOn: true, buys: [{ qty: '', price: '' }, { qty: '', price: '' }], target: '', tprice: '', beAvg: '' },
   });
@@ -58,7 +58,7 @@
   }
 
   /* ---------- 헤더/내비 ---------- */
-  const VIEWS = [['stocks', '종목'], ['pnl', '손익'], ['calc', '계산기'], ['backtest', '백테스트'], ['settings', '설정']];
+  const VIEWS = [['home', '홈'], ['stocks', '종목'], ['pnl', '손익'], ['calc', '계산기'], ['backtest', '백테스트'], ['settings', '설정']];
   function syncBadge() {
     const s = SM.sync.S;
     const map = { off: ['이 기기에만 저장', 'off'], connecting: ['연결 중', 'warn'], signedout: ['로그인 필요', 'warn'], syncing: ['동기화 중', 'warn'], synced: ['동기화됨', 'ok'], error: ['동기화 오류', 'err'] };
@@ -73,7 +73,7 @@
 
   function render() {
     document.body.classList.toggle('up-green', state.settings.upColor === 'green');
-    const fn = A.renderers[ui.view] || A.renderers.stocks;
+    const fn = A.renderers[ui.view] || A.renderers.home;
     const keepScroll = window.scrollY;
     document.getElementById('app').innerHTML = renderChrome(fn());
     if (A.afterRender[ui.view]) A.afterRender[ui.view]();
@@ -81,19 +81,127 @@
   }
   A.render = render;
 
+  /* ---------- 매매 사유(노트) 연결 ---------- */
+  const EVENT_KINDS = ['실적 발표', '배당', '주총', '공시', '기타'];
+  function findByKey(key) {
+    const [type, id] = [key.slice(0, key.indexOf('_')), key.slice(key.indexOf('_') + 1)];
+    for (const st of state.stocks) {
+      if (type === 'stock' && st.id === id) return { st, type };
+      if (type === 'lot') { const l = st.lots.find((x) => x.id === id); if (l) return { st, type, lot: l }; }
+      if (type === 'sale') { const s = st.sales.find((x) => x.id === id); if (s) return { st, type, sale: s }; }
+    }
+    return null;
+  }
+  function noteInfo(key) {
+    const f = findByKey(key);
+    if (!f) return { title: '매매 사유', kind: 'buy', header: '' };
+    const cur = SM.curOf(f.st);
+    if (f.type === 'lot') {
+      const v = SM.lotView(f.st, f.lot, state.settings);
+      return { title: `${f.st.name} ${f.lot.no}번 매수 사유`, kind: 'buy', header: `${f.lot.date} 매수 · ${fmtNum(f.lot.qty, f.lot.qty % 1 ? 4 : 0)}주 @ ${fmtMoney(f.lot.price, cur)}${v.ret != null ? ' · 현재 ' + fmtPct(v.ret) : ''}` };
+    }
+    if (f.type === 'sale') {
+      const s = f.sale;
+      return { title: `${f.st.name} ${s.date} 매도 사유`, kind: 'sell', header: `${s.date} 매도 · ${fmtNum(s.qty, s.qty % 1 ? 4 : 0)}주 @ ${fmtMoney(s.price, cur)} · ${s.lines.map((l) => l.lotNo + '번').join(',')} · 실현손익 ${fmtMoney(s.pnlKRW, 'KRW')} (${fmtPct(s.costKRW > 0 ? s.pnlKRW / s.costKRW : null)})` };
+    }
+    return { title: `${f.st.name} 종목 메모`, kind: 'stock', header: `${f.st.name} ${f.st.code || ''}` };
+  }
+  function editNote(key) {
+    const i = noteInfo(key);
+    SM.editor.open({ key, title: i.title, kind: i.kind, onSaved: () => render(), onClose: () => render() });
+  }
+  function openNote(key) {
+    if (state.noteIdx[key]) { const i = noteInfo(key); SM.editor.view(key, { title: i.title, header: esc(i.header), onEdit: () => editNote(key) }); }
+    else editNote(key);
+  }
+  A.editNote = editNote; A.openNote = openNote;
+  const noteBtn = (key, short) => {
+    const e = state.noteIdx[key];
+    return `<button class="btn sm ${e ? 'has' : ''}" data-act="note" data-key="${key}" title="${e ? esc(e.t) : '작성'}">📝 ${e ? (short ? '보기' : '사유 보기') : (short ? '쓰기' : '사유 쓰기')}${e && e.n ? ' 🖼' + e.n : ''}</button>`;
+  };
+  const noteLine = (key) => (state.noteIdx[key] ? `<div class="nprev">${esc(state.noteIdx[key].t)}</div>` : '');
+  SM.media.hooks.index = (key, entry, remote) => {
+    if (entry) state.noteIdx[key] = entry; else delete state.noteIdx[key];
+    if (remote) { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ignore */ } } else save();
+  };
+  SM.media.hooks.refresh = () => render();
+  async function mergeNotes(parts, merged) {
+    const chunks = [];
+    for (const p of parts) { const rec = await SM.media.getNote('lot_' + p.id); if (rec) chunks.push(`<h3>${p.no}번 매수 사유 (${p.date})</h3>` + rec.html); }
+    if (chunks.length) { await SM.media.saveNote('lot_' + merged.id, chunks.join('<hr>')); render(); }
+  }
+  const delNotes = (keys) => keys.forEach((k) => { if (state.noteIdx[k]) SM.media.deleteNote(k); });
+
+  /* ---------- 홈 ---------- */
+  const PALETTE = ['#0f766e', '#2563eb', '#d97706', '#9333ea', '#be185d', '#65a30d', '#0891b2', '#dc2626'];
+  A.renderers.home = function () {
+    if (!state.stocks.length) return `<section class="card empty"><h2>시작하기</h2><p>종목을 추가하면 종목마다 탭이 만들어지고, 매수할 때마다 <b>순번(1번, 2번…)</b>이 따로 기록됩니다. 매수·매도할 때마다 <b>사유와 사진</b>을 남길 수 있어 나중에 복기하기 좋습니다.</p><p><button class="btn primary" data-act="addStock">첫 종목 추가</button></p><p class="muted">여러 기기에서 쓰려면 <a href="#" data-act="goSettings">설정</a>에서 Firebase 동기화를 연결하세요. 연결 전에는 이 기기에만 저장됩니다.</p></section>`;
+    const pf = SM.portfolio(state);
+    const today = todayStr();
+    let h = `<section class="card"><div class="row between wrap"><h2>내 자산 요약 <small class="muted">(원화 기준)</small></h2><button class="btn sm primary" data-act="priceAll">현재가 한 번에 입력</button></div>
+      <div class="cards"><div class="stat"><span>총 매입금</span><b>${fmtMoney(pf.costKRW, 'KRW')}</b><small>보유 ${pf.holdings}종목</small></div>
+      <div class="stat"><span>총 평가금액</span><b>${pf.pricedCostKRW ? fmtMoney(pf.valueKRW, 'KRW') : '<span class="muted">현재가 입력</span>'}</b></div>
+      <div class="stat"><span>평가손익</span><b>${pf.pricedCostKRW ? money(pf.unrlKRW, 'KRW') + ' ' + pct(pf.unrlRet) : '-'}</b><small>현재가 입력된 종목 기준</small></div>
+      <div class="stat"><span>실현손익 (올해)</span><b>${money(pf.realizedYear, 'KRW')}</b><small>이번 달 ${fmtMoney(pf.realizedMonth, 'KRW')}</small></div>
+      <div class="stat"><span>실현손익 (누적)</span><b>${money(pf.realizedAll, 'KRW')}</b></div></div>`;
+    const warn = [];
+    if (pf.missing.length) warn.push(`현재가가 없는 종목: ${pf.missing.map((s) => esc(s.name)).join(', ')} (평가금액에서 빠져 있습니다)`);
+    if (pf.stale.length) warn.push(`현재가가 3일 넘게 갱신되지 않은 종목: ${pf.stale.map((s) => esc(s.name) + '(' + (SM.priceAge(s) > 365 ? '입력일 불명' : SM.priceAge(s) + '일 전') + ')').join(', ')}`);
+    const bk = state.lastBackupAt ? SM.daysBetween(new Date(state.lastBackupAt).toISOString().slice(0, 10), today) : null;
+    if (bk === null) warn.push('아직 백업한 적이 없습니다. <a href="#" data-act="goSettings">설정</a>에서 백업을 내려받아 두세요.');
+    else if (bk > 30) warn.push(`마지막 백업이 ${bk}일 전입니다.`);
+    if (warn.length) h += `<div class="warnbox">${warn.map((w) => `<div>⚠ ${w}</div>`).join('')}</div>`;
+    if (pf.weights.length > 1) {
+      const tot = pf.weights.reduce((a, w) => a + w.valueKRW, 0);
+      h += `<h4>종목 비중 <small class="muted">(평가금액 기준)</small></h4><div class="wbar">${pf.weights.map((w, i) => `<span style="width:${(w.valueKRW / tot) * 100}%;background:${PALETTE[i % PALETTE.length]}" title="${esc(w.name)} ${(w.valueKRW / tot * 100).toFixed(1)}%"></span>`).join('')}</div>
+        <div class="wleg">${pf.weights.map((w, i) => `<span><i style="background:${PALETTE[i % PALETTE.length]}"></i>${esc(w.name)} ${(w.valueKRW / tot * 100).toFixed(0)}%</span>`).join('')}</div>`;
+    }
+    h += `</section>`;
+    // 종목 카드
+    h += `<div class="row between wrap"><h2 class="sec">내 종목</h2><button class="btn sm" data-act="addStock">＋ 종목 추가</button></div><div class="scards">`;
+    for (const st of state.stocks) {
+      const sm = SM.stockSummary(st, state.settings), cur = SM.curOf(st);
+      const age = SM.priceAge(st);
+      const lots = st.lots.filter((l) => SM.lotRem(st, l) > 0).sort((a, b) => a.no - b.no);
+      const mem = state.noteIdx['stock_' + st.id];
+      h += `<article class="scard" data-act="goStock" data-id="${st.id}" tabindex="0"><div class="row between"><b>${esc(st.name)} <small class="muted">${esc(st.code)}${st.market === 'US' ? ' · US' : ''}</small></b>${sm.value != null ? `<span class="chip ${SM.num(sm.unrlRetKRW) >= 0 ? 'up' : 'down'}">${fmtPct(sm.unrlRetKRW)}</span>` : ''}</div>
+        ${sm.qty > 0 ? `<div class="sline">보유 <b>${fmtNum(sm.qty, sm.qty % 1 ? 4 : 0)}주</b> · 평단 <b>${fmtMoney(sm.avg, cur)}</b>${st.price ? ` · 현재가 <b>${fmtMoney(st.price, cur)}</b> <small class="${age > 3 ? 'stale' : 'muted'}">(${age > 365 ? '입력일 불명' : age === 0 ? '오늘' : age + '일 전'})</small>` : ' · <span class="stale">현재가 미입력</span>'}</div>
+        ${sm.value != null ? `<div class="sline">평가손익 ${money(sm.unrlKRW, 'KRW')}</div>` : ''}
+        <div class="lchips">${lots.map((l) => { const v = SM.lotView(st, l, state.settings); return `<span class="lchip"><b>${l.no}번</b> ${fmtNum(v.rem, v.rem % 1 ? 4 : 0)}주 @${fmtNum(l.price, cur === 'USD' ? 2 : 0)}${v.ret != null ? ` <em class="${cls(v.ret)}">${fmtPct(v.ret)}</em>` : ''}${state.noteIdx['lot_' + l.id] ? ' 📝' : ''}</span>`; }).join('')}</div>` : '<div class="sline muted">보유 수량 없음</div>'}
+        ${mem ? `<div class="nprev">📌 ${esc(mem.t)}</div>` : ''}</article>`;
+    }
+    h += `</div>`;
+    // 일정
+    const evs = SM.upcomingEvents(state, today, 45, 3);
+    h += `<section class="card"><h2>다가오는 일정</h2>${evs.length ? `<ul class="evlist">${evs.map((e) => `<li class="${e.days < 0 ? 'past' : e.days <= 3 ? 'soon' : ''}"><span class="evd">${e.ev.date.slice(5)}</span><span class="evk">${esc(e.ev.kind)}</span><b>${esc(e.stock.name)}</b> ${esc(e.ev.title)} <small class="muted">${e.days === 0 ? '오늘' : e.days > 0 ? e.days + '일 후' : -e.days + '일 지남'}</small></li>`).join('')}</ul>` : '<p class="muted">앞으로 45일 안에 등록된 일정이 없습니다. 종목 화면의 “일정”에서 실적 발표일 등을 등록하세요.</p>'}</section>`;
+    // 최근 매매
+    const recent = [];
+    for (const st of state.stocks) {
+      st.lots.forEach((l) => recent.push({ st, type: 'lot', date: l.date, lot: l }));
+      st.sales.forEach((s) => recent.push({ st, type: 'sale', date: s.date, sale: s }));
+    }
+    recent.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    h += `<section class="card"><h2>최근 매매</h2>${recent.length ? recent.slice(0, 6).map((r) => {
+      const cur = SM.curOf(r.st), key = r.type === 'lot' ? 'lot_' + r.lot.id : 'sale_' + r.sale.id;
+      return `<div class="tl"><div class="tl-h"><span class="tl-d">${r.date}</span> <b>${esc(r.st.name)}</b> ${r.type === 'lot' ? `<span class="tag buy">매수 ${r.lot.no}번</span> ${fmtNum(r.lot.qty, r.lot.qty % 1 ? 4 : 0)}주 @ ${fmtMoney(r.lot.price, cur)}` : `<span class="tag sell">매도</span> ${fmtNum(r.sale.qty, r.sale.qty % 1 ? 4 : 0)}주 @ ${fmtMoney(r.sale.price, cur)} · ${money(r.sale.pnlKRW, 'KRW')}`}</div>${noteLine(key)}<div>${noteBtn(key, true)}</div></div>`;
+    }).join('') : '<p class="muted">매매 기록이 없습니다.</p>'}</section>`;
+    return h;
+  };
+
   /* ---------- 종목 화면 ---------- */
   A.renderers.stocks = function () {
     const st = curStock();
     let h = `<div class="tabs">${state.stocks.map((s) => `<button class="tab ${s.id === ui.stockId ? 'on' : ''}" data-act="tab" data-id="${s.id}">${esc(s.name)}${s.market === 'US' ? ' <small>US</small>' : ''}</button>`).join('')}<button class="tab add" data-act="addStock">＋ 종목 추가</button></div>`;
-    if (!st) {
-      return h + `<section class="card empty"><h2>시작하기</h2><p>종목을 추가하면 종목마다 탭이 만들어지고, 매수할 때마다 <b>순번(1번, 2번…)</b>이 따로 기록됩니다.</p><p><button class="btn primary" data-act="addStock">첫 종목 추가</button></p><p class="muted">여러 기기에서 쓰려면 <a href="#" data-act="goSettings">설정</a>에서 Firebase 동기화를 연결하세요. 연결 전에는 이 기기에만 저장됩니다.</p></section>`;
-    }
+    if (!st) return h + `<section class="card empty"><h2>종목이 없습니다</h2><p><button class="btn primary" data-act="addStock">첫 종목 추가</button></p></section>`;
     const cur = SM.curOf(st), us = st.market === 'US';
     const sm = SM.stockSummary(st, state.settings);
     const realized = st.sales.reduce((a, s) => a + s.pnlKRW, 0);
-    h += `<section class="card"><div class="row between"><div><h2>${esc(st.name)} <small class="muted">${esc(st.code)} · ${us ? '해외(USD)' : '국내(KRW)'}</small></h2></div>
-      <div class="row gap"><button class="btn sm" data-act="editStock">수정</button><button class="btn sm danger" data-act="delStock">삭제</button></div></div>
-      <div class="row gap wrap pricebox"><label>현재가 (${cur})<input class="inp" data-change="price" value="${st.price == null ? '' : st.price}" inputmode="decimal" placeholder="직접 입력"></label>
+    const age = SM.priceAge(st);
+    const links = SM.linksFor(state, st);
+    h += `<section class="card"><div class="row between wrap"><div><h2>${esc(st.name)} <small class="muted">${esc(st.code)} · ${us ? '해외(USD)' : '국내(KRW)'}</small></h2></div>
+      <div class="row gap wrap"><button class="btn sm" data-act="editStock">수정</button><button class="btn sm" data-act="splitAdj">액면분할 조정</button><button class="btn sm danger" data-act="delStock">삭제</button></div></div>
+      ${links.length ? `<div class="links">${links.map((l) => `<a class="lnk" href="${esc(SM.fillLink(l.url, st))}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join('')}</div>` : ''}
+      <div class="row gap wrap pricebox"><label>현재가 (${cur})<input class="inp" data-change="price" value="${st.price == null ? '' : st.price}" inputmode="decimal" placeholder="직접 입력"><small class="${age > 3 ? 'stale' : 'muted'}">${st.price ? (age > 365 ? '입력일 불명' : age === 0 ? '오늘 입력' : age + '일 전 입력') : ''}</small></label>
       ${us ? `<label>현재 환율 (원/$) <input class="inp" data-change="fxNow" value="${state.settings.fxNow}" inputmode="decimal"></label>` : ''}</div>
       <div class="cards">
         <div class="stat"><span>보유 수량</span><b>${fmtNum(sm.qty, sm.qty % 1 ? 4 : 0)}주</b></div>
@@ -102,7 +210,6 @@
         <div class="stat"><span>평가손익${us ? ' (원화)' : ''}</span><b>${sm.value != null ? money(sm.unrlKRW, 'KRW') + ' ' + pct(sm.unrlRetKRW) : '<span class="muted">현재가 입력</span>'}</b>${us && sm.value != null ? `<small>달러 ${money(sm.unrl, 'USD')} ${pct(sm.unrlRet)}</small>` : ''}</div>
         <div class="stat"><span>누적 실현손익</span><b>${money(realized, 'KRW')}</b><small>${st.sales.length}건</small></div>
       </div></section>`;
-    // 순번 표
     const lots = st.lots.slice().sort((a, b) => a.no - b.no);
     const visible = lots.filter((l) => ui.showSold || SM.lotRem(st, l) > 0);
     const selLots = lots.filter((l) => ui.selected.has(l.id) && SM.lotRem(st, l) > 0);
@@ -123,10 +230,29 @@
       <div class="tablewrap"><table class="lots"><thead><tr><th></th><th>순번</th><th>매수일</th><th>매수가</th><th>수량(잔여/전체)</th><th>수수료</th><th>현재 수익률</th><th>평가손익</th><th>보유일</th><th></th></tr></thead><tbody>
       ${visible.length ? visible.map((l) => lotRow(st, l, cur, us)).join('') : `<tr><td colspan="10" class="muted center">매수 기록이 없습니다. “＋ 매수 추가”를 눌러 첫 순번을 기록하세요.</td></tr>`}
       </tbody></table></div>
-      <p class="hint">수익률은 매수 수수료를 포함한 원가 기준이며 매도 비용(수수료·세금)은 매도/시뮬레이션 화면에서 반영됩니다.${us ? ' 해외주식은 달러 기준과 원화(환율 반영) 기준을 함께 표시합니다.' : ''}</p></section>`;
+      <p class="hint">수익률은 매수 수수료를 포함한 원가 기준이며 매도 비용(수수료·세금)은 매도/시뮬레이션 화면에서 반영됩니다.${us ? ' 해외주식은 달러 기준과 원화(환율 반영) 기준을 함께 표시합니다.' : ''}${(st.splits || []).length ? ` 액면분할 조정 이력: ${st.splits.map((x) => x.date + ' ×' + +x.ratio.toFixed(6)).join(', ')}` : ''}</p></section>`;
     h += `<section class="card"><h2>매도 기록</h2>${st.sales.length ? `<div class="tablewrap"><table><thead><tr><th>매도일</th><th>매도가</th><th>수량</th><th>사용 순번</th><th>실현손익(원)</th><th>수익률</th><th></th></tr></thead><tbody>
-      ${st.sales.slice().reverse().map((s) => `<tr><td data-label="매도일"><span class="v">${s.date}</span></td><td data-label="매도가"><span class="v">${fmtMoney(s.price, cur)}${us ? `<br><small class="muted">환율 ${fmtNum(s.fx, 2)}</small>` : ''}</span></td><td data-label="수량"><span class="v">${fmtNum(s.qty, s.qty % 1 ? 4 : 0)}</span></td><td data-label="사용 순번"><span class="v">${s.lines.map((l) => `${l.lotNo}번×${fmtNum(l.qty, l.qty % 1 ? 4 : 0)}`).join(', ')}</span></td><td data-label="실현손익"><span class="v">${money(s.pnlKRW, 'KRW')}</span></td><td data-label="수익률"><span class="v">${pct(s.costKRW > 0 ? s.pnlKRW / s.costKRW : null)}</span></td><td><button class="btn sm danger" data-act="delSale" data-id="${s.id}">삭제</button></td></tr>`).join('')}
+      ${st.sales.slice().reverse().map((s) => `<tr><td data-label="매도일"><span class="v">${s.date}</span></td><td data-label="매도가"><span class="v">${fmtMoney(s.price, cur)}${us ? `<br><small class="muted">환율 ${fmtNum(s.fx, 2)}</small>` : ''}</span></td><td data-label="수량"><span class="v">${fmtNum(s.qty, s.qty % 1 ? 4 : 0)}</span></td><td data-label="사용 순번"><span class="v">${s.lines.map((l) => `${l.lotNo}번×${fmtNum(l.qty, l.qty % 1 ? 4 : 0)}`).join(', ')}</span></td><td data-label="실현손익"><span class="v">${money(s.pnlKRW, 'KRW')}</span></td><td data-label="수익률"><span class="v">${pct(s.costKRW > 0 ? s.pnlKRW / s.costKRW : null)}</span></td><td class="acts">${noteBtn('sale_' + s.id, true)} <button class="btn sm danger" data-act="delSale" data-id="${s.id}">삭제</button></td></tr>`).join('')}
       </tbody></table></div><p class="hint">매도 기록을 삭제하면 해당 순번의 잔여 수량이 원래대로 돌아옵니다.</p>` : '<p class="muted">아직 매도 기록이 없습니다.</p>'}</section>`;
+    // 일정
+    const evs = (st.events || []).slice();
+    h += `<section class="card"><h2>일정 <small class="muted">(실적 발표 · 배당 · 주총 등)</small></h2>
+      ${evs.length ? `<ul class="evlist">${evs.map((e) => { const d = SM.daysBetween(todayStr(), e.date); return `<li class="${d < 0 ? 'past' : d <= 3 ? 'soon' : ''}"><span class="evd">${e.date}</span><span class="evk">${esc(e.kind)}</span>${esc(e.title)} <small class="muted">${d === 0 ? '오늘' : d > 0 ? d + '일 후' : -d + '일 지남'}</small> <button class="btn sm danger" data-act="delEvent" data-id="${e.id}">삭제</button></li>`; }).join('')}</ul>` : '<p class="muted">등록된 일정이 없습니다.</p>'}
+      <div class="evform"><input type="date" id="evDate" class="inp" value="${todayStr()}"><select id="evKind" class="inp">${EVENT_KINDS.map((k) => `<option>${k}</option>`).join('')}</select><input id="evTitle" class="inp" placeholder="예: 3분기 실적 발표"><button class="btn primary" data-act="addEvent">추가</button></div></section>`;
+    // 종목 메모
+    const mkey = 'stock_' + st.id;
+    h += `<section class="card"><div class="row between wrap"><h2>종목 메모</h2><div>${noteBtn(mkey)} ${state.noteIdx[mkey] ? `<button class="btn sm" data-act="noteEdit" data-key="${mkey}">수정</button>` : ''}</div></div>${noteLine(mkey) || '<p class="muted">투자 아이디어, 체크할 것 등을 자유롭게 적어 두세요 (서식·표·사진 가능).</p>'}</section>`;
+    // 매매 일지
+    const tl = [];
+    st.lots.forEach((l) => tl.push({ type: 'lot', date: l.date, lot: l }));
+    st.sales.forEach((s) => tl.push({ type: 'sale', date: s.date, sale: s }));
+    tl.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    const shown = ui.journalOnly ? tl.filter((r) => state.noteIdx[(r.type === 'lot' ? 'lot_' + r.lot.id : 'sale_' + r.sale.id)]) : tl;
+    h += `<section class="card"><div class="row between wrap"><h2>매매 일지 <small class="muted">(복기)</small></h2><label class="chk"><input type="checkbox" data-change="journalOnly" ${ui.journalOnly ? 'checked' : ''}> 사유가 있는 것만</label></div>
+      ${shown.length ? shown.map((r) => {
+        const key = r.type === 'lot' ? 'lot_' + r.lot.id : 'sale_' + r.sale.id;
+        return `<div class="tl"><div class="tl-h"><span class="tl-d">${r.date}</span> ${r.type === 'lot' ? `<span class="tag buy">매수 ${r.lot.no}번</span> ${fmtNum(r.lot.qty, r.lot.qty % 1 ? 4 : 0)}주 @ ${fmtMoney(r.lot.price, cur)}` : `<span class="tag sell">매도</span> ${fmtNum(r.sale.qty, r.sale.qty % 1 ? 4 : 0)}주 @ ${fmtMoney(r.sale.price, cur)} · ${money(r.sale.pnlKRW, 'KRW')} ${pct(r.sale.costKRW > 0 ? r.sale.pnlKRW / r.sale.costKRW : null)}`}</div>${noteLine(key)}<div>${noteBtn(key)} ${state.noteIdx[key] ? `<button class="btn sm" data-act="noteEdit" data-key="${key}">수정</button>` : ''}</div></div>`;
+      }).join('') : '<p class="muted">표시할 기록이 없습니다.</p>'}</section>`;
     return h;
   };
 
@@ -146,7 +272,7 @@
       <td data-label="수수료"><span class="v">${fmtMoney(l.fee, cur)}</span></td>
       <td data-label="현재 수익률"><span class="v">${done ? '-' : retTxt}</span></td><td data-label="평가손익"><span class="v">${done ? '-' : unrlTxt}</span></td>
       <td data-label="보유일"><span class="v">${days}일</span></td>
-      <td class="acts"><button class="btn sm" data-act="editLot" data-id="${l.id}">수정</button>
+      <td class="acts">${noteBtn('lot_' + l.id, true)} <button class="btn sm" data-act="editLot" data-id="${l.id}">수정</button>
         ${!sold && l.qty > 1 ? `<button class="btn sm" data-act="splitLot" data-id="${l.id}">분할</button>` : ''}
         ${l.parts && !sold ? `<button class="btn sm" data-act="unmerge" data-id="${l.id}">병합취소</button>` : ''}
         ${!sold ? `<button class="btn sm danger" data-act="delLot" data-id="${l.id}">삭제</button>` : ''}</td></tr>`;
@@ -177,11 +303,14 @@
       <label>매수 수수료 (${cur})<input name="fee" value="${lot ? lot.fee : ''}" inputmode="decimal" placeholder="비우면 설정 요율로 자동"></label>
       <label>메모<input name="note" value="${esc(lot ? lot.note : '')}" placeholder="선택"></label></div>
       ${lot && lot.parts ? '<p class="hint warn">병합된 순번을 수정하면 “병합 취소”로 되돌릴 수 없게 됩니다.</p>' : ''}
+      <label class="chk"><input type="checkbox" name="writeNote" ${lot ? '' : 'checked'}> 저장 후 매수 사유 작성하기 (서식·표·사진 가능)</label>
       <div class="btns"><button class="btn primary" type="submit">저장</button><button class="btn" type="button" data-act="closeModal">취소</button></div>`, (fd) => {
       const f = Object.fromEntries(fd.entries());
-      try { if (lot) SM.updateLot(st, lot.id, f, state.settings); else SM.addLot(st, f, state.settings); }
+      let saved;
+      try { saved = lot ? SM.updateLot(st, lot.id, f, state.settings) : SM.addLot(st, f, state.settings); }
       catch (e) { return toast(e.message, true); }
       save(); closeModal(); render(); toast(lot ? '수정했습니다' : '매수를 기록했습니다');
+      if (f.writeNote) editNote('lot_' + saved.id);
     });
   }
 
@@ -207,6 +336,7 @@
       <td><input class="sq inp" inputmode="decimal" value="${ui.selected.has(l.id) ? SM.lotRem(st, l) : ''}" style="width:90px"></td><td class="spnl">-</td><td class="sret">-</td></tr>`).join('')}
       </tbody></table></div>
       <div id="sellOut"></div>
+      <label class="chk"><input type="checkbox" id="sNote" checked> 저장 후 매도 사유 작성하기 (서식·표·사진 가능)</label>
       <div class="btns"><button class="btn primary" type="submit">매도 기록 저장</button><button class="btn" type="button" data-act="closeModal">닫기</button></div>`,
       () => saveSale(st), true);
     sellRefresh();
@@ -272,10 +402,12 @@
     if (us(st) && !(num(p.fx) > 0)) return toast('매도 환율을 입력하세요', true);
     const c = SM.computeSale(st, lines, p, state.settings);
     if (!confirm(`${c.lines.map((l) => l.lotNo + '번×' + l.qty).join(', ')}\n${fmtMoney(c.price, SM.curOf(st))} 에 매도, 실현손익 ${fmtMoney(c.pnlKRW, 'KRW')}\n\n기록할까요?`)) return;
-    SM.recordSale(st, c);
-    if (!st.price) st.price = c.price;
+    const sale = SM.recordSale(st, c);
+    if (!st.price) SM.setPrice(st, c.price);
     ui.selected.clear();
+    const writeNote = document.getElementById('sNote') && document.getElementById('sNote').checked;
     save(); closeModal(); render(); toast('매도를 기록했습니다');
+    if (writeNote) editNote('sale_' + sale.id);
   }
   const us = (st) => st.market === 'US';
 
@@ -384,10 +516,15 @@ service cloud.firestore {
       <div class="cols"><div><h4>국내</h4><div class="grid2">${f('kr.buyFee', '매수 수수료')}${f('kr.sellFee', '매도 수수료')}${f('kr.sellTax', '매도 거래세 등')}</div></div>
       <div><h4>해외</h4><div class="grid2">${f('us.buyFee', '매수 수수료')}${f('us.sellFee', '매도 수수료')}${f('us.sellTax', '매도 시 기타 세금')}${f('us.taxRate', '양도세율')}${f('us.deduction', '연 기본공제(원)')}</div></div></div>
       <div class="grid2">${f('fxNow', '현재 환율 (원/$)')}<label>수익 색상<select data-setting="upColor">${opts([['red', '수익=빨강, 손실=파랑 (한국식)'], ['green', '수익=초록, 손실=빨강 (해외식)']], s.upColor)}</select></label></div></section>
+      <section class="card"><h2>종목 바로가기 링크</h2><p class="hint">종목 화면에 보이는 링크입니다. 주소에 <code>{code}</code>(종목코드/티커)와 <code>{name}</code>(종목명)을 넣으면 종목마다 자동으로 바뀝니다. 사이트 주소 형식이 바뀌면 여기서 직접 고치세요.</p>
+      ${s.links.map((l, i) => `<div class="linkrow"><input class="inp" data-link="${i}.label" value="${esc(l.label)}" placeholder="이름"><input class="inp wide" data-link="${i}.url" value="${esc(l.url)}" placeholder="https://..."><select class="inp" data-link="${i}.market">${opts([['ALL', '전체'], ['KR', '국내'], ['US', '해외']], l.market || 'ALL')}</select><button class="btn sm danger" data-act="linkDel" data-i="${i}">✕</button></div>`).join('')}
+      <div class="btns"><button class="btn" data-act="linkAdd">＋ 링크 추가</button><button class="btn sm" data-act="linkReset">기본값으로</button></div></section>
       <section class="card" id="syncCard">${syncCard()}</section>
       <section class="card"><h2>백업 / 복원</h2><p class="hint">동기화를 쓰더라도 정기적으로 백업 파일을 받아두세요. (브라우저 데이터 삭제, 로그인 문제에 대비)</p>
+      <label class="chk"><input type="checkbox" id="expImg" checked> 매매 사유의 사진도 백업에 포함 (파일이 커질 수 있습니다)</label>
       <div class="btns"><button class="btn primary" data-act="export">백업 내려받기 (JSON)</button><label class="btn file">백업 불러오기<input type="file" accept=".json,application/json" data-change="import" hidden></label></div>
-      <div class="btns"><button class="btn danger" data-act="wipe">이 기기의 모든 데이터 삭제</button></div></section>
+      <div class="btns"><button class="btn" data-act="gcImages">사용하지 않는 사진 정리</button><button class="btn danger" data-act="wipe">이 기기의 모든 데이터 삭제</button></div>
+      <p class="hint">${state.lastBackupAt ? '마지막 백업: ' + new Date(state.lastBackupAt).toLocaleString('ko-KR') : '아직 백업한 적이 없습니다.'}</p></section>
       <section class="card"><details><summary><b>Firebase 준비 방법 (처음 한 번)</b></summary>
       <ol class="steps"><li><a href="https://console.firebase.google.com" target="_blank" rel="noopener">Firebase 콘솔</a>에서 프로젝트를 만듭니다 (Google Analytics는 꺼도 됩니다).</li>
       <li><b>Authentication → 시작하기 → Sign-in method</b>에서 <b>Google</b>과 <b>이메일/비밀번호</b>를 사용 설정합니다.</li>
@@ -409,6 +546,7 @@ service cloud.firestore {
     delStock: () => {
       const st = curStock();
       if (!confirm(`“${st.name}” 종목을 삭제할까요?\n\n매수 ${st.lots.length}건과 매도 기록 ${st.sales.length}건, 이 종목의 실현손익 기록이 모두 삭제됩니다. 되돌릴 수 없습니다.`)) return;
+      delNotes(SM.noteKeysOfStock(st));
       state.stocks = state.stocks.filter((s) => s.id !== st.id);
       ui.stockId = state.stocks[0] ? state.stocks[0].id : null; ui.selected.clear();
       save(); render();
@@ -419,6 +557,7 @@ service cloud.firestore {
       const st = curStock(), l = st.lots.find((x) => x.id === el.dataset.id);
       if (!confirm(`${l.no}번 순번을 삭제할까요?`)) return;
       try { SM.deleteLot(st, l.id); } catch (e) { return toast(e.message, true); }
+      delNotes(['lot_' + l.id]);
       ui.selected.delete(l.id); save(); render();
     },
     splitLot: (el) => {
@@ -431,6 +570,7 @@ service cloud.firestore {
     unmerge: (el) => {
       const st = curStock();
       try { SM.unmergeLot(st, el.dataset.id); } catch (e) { return toast(e.message, true); }
+      delNotes(['lot_' + el.dataset.id]); // 병합 때 합쳐 만든 사유는 정리 (원래 순번의 사유는 그대로)
       ui.selected.clear(); save(); render(); toast('병합을 취소하고 원래 순번으로 되돌렸습니다');
     },
     mergeSel: () => {
@@ -438,16 +578,66 @@ service cloud.firestore {
       const ids = [...ui.selected];
       const nums = ids.map((id) => (st.lots.find((l) => l.id === id) || {}).no).filter(Boolean).sort((a, b) => a - b);
       if (!confirm(`${nums.join('번, ')}번을 하나의 순번(평단가 기준)으로 병합할까요?\n병합 후에도 “병합취소”로 원래 순번으로 되돌릴 수 있습니다.`)) return;
-      try { SM.mergeLots(st, ids); } catch (e) { return toast(e.message, true); }
+      let merged;
+      try { merged = SM.mergeLots(st, ids); } catch (e) { return toast(e.message, true); }
+      mergeNotes(merged.parts, merged);
       ui.selected.clear(); save(); render(); toast('병합했습니다');
     },
     openSell: () => openSell(curStock()),
     delSale: (el) => {
       const st = curStock(), s = st.sales.find((x) => x.id === el.dataset.id);
       if (!confirm(`${s.date} 매도 기록(${s.qty}주)을 삭제할까요?\n해당 순번의 잔여 수량이 원래대로 돌아옵니다.`)) return;
+      delNotes(['sale_' + s.id]);
       st.sales = st.sales.filter((x) => x.id !== s.id); save(); render();
     },
     closeModal: () => closeModal(),
+    goStock: (el) => { ui.stockId = el.dataset.id; ui.selected.clear(); ui.view = 'stocks'; render(); window.scrollTo(0, 0); },
+    note: (el) => openNote(el.dataset.key),
+    noteEdit: (el) => editNote(el.dataset.key),
+    addEvent: () => {
+      const st = curStock();
+      try { SM.addEvent(st, { date: document.getElementById('evDate').value, kind: document.getElementById('evKind').value, title: document.getElementById('evTitle').value }); }
+      catch (e) { return toast(e.message, true); }
+      save(); render(); toast('일정을 추가했습니다');
+    },
+    delEvent: (el) => { SM.removeEvent(curStock(), el.dataset.id); save(); render(); },
+    splitAdj: () => {
+      const st = curStock();
+      openModal(`<h3>액면분할 · 병합 조정 · ${esc(st.name)}</h3>
+        <p class="hint">주식 수와 단가를 한 번에 조정합니다. <b>투자 금액과 손익은 그대로</b>이고 모든 순번·매도 기록의 수량과 단가가 같은 비율로 바뀝니다. 분할일 이전에 입력해 둔 기록을 분할 후 기준에 맞출 때 사용하세요.</p>
+        <label>기존 1주가 몇 주가 되나요?<input name="ratio" inputmode="decimal" placeholder="1:5 분할이면 5 · 10주→1주 병합이면 0.1" required></label>
+        <label>분할/병합일<input type="date" name="date" value="${todayStr()}"></label>
+        <p class="hint warn">되돌리려면 반대 비율(예: 5 → 0.2)로 다시 조정하세요. 백테스트용 가격 데이터는 자동으로 바뀌지 않습니다. 조정 전에 백업을 권합니다.</p>
+        <div class="btns"><button class="btn primary" type="submit">조정하기</button><button class="btn" type="button" data-act="closeModal">취소</button></div>`, (fd) => {
+        const r = num(fd.get('ratio'));
+        const before = SM.stockSummary(st, state.settings);
+        if (!confirm(`현재 보유 ${fmtNum(before.qty, 4)}주 → ${fmtNum(before.qty * r, 4)}주 (평단 ${fmtMoney(before.avg, SM.curOf(st))} → ${fmtMoney(before.avg / r, SM.curOf(st))})\n모든 순번과 매도 기록에 적용합니다. 진행할까요?`)) return;
+        try { SM.splitAdjust(st, r, fd.get('date')); } catch (e) { return toast(e.message, true); }
+        save(); closeModal(); render(); toast('조정했습니다');
+      });
+    },
+    priceAll: () => {
+      const hold = state.stocks.filter((st) => SM.stockSummary(st, state.settings).qty > 0);
+      if (!hold.length) return toast('보유 중인 종목이 없습니다', true);
+      const hasUS = hold.some((s) => s.market === 'US');
+      openModal(`<h3>현재가 한 번에 입력</h3><p class="hint">바뀐 값만 저장되고, 입력한 날짜가 함께 기록됩니다.</p>
+        ${hold.map((st) => { const age = SM.priceAge(st); return `<label>${esc(st.name)} (${SM.curOf(st)}) <small class="${age > 3 ? 'stale' : 'muted'}">${st.price ? (age > 365 ? '입력일 불명' : age === 0 ? '오늘 입력' : age + '일 전 입력') : '미입력'}</small><input name="p_${st.id}" value="${st.price == null ? '' : st.price}" inputmode="decimal"></label>`; }).join('')}
+        ${hasUS ? `<label>현재 환율 (원/$)<input name="fx" value="${state.settings.fxNow}" inputmode="decimal"></label>` : ''}
+        <div class="btns"><button class="btn primary" type="submit">저장</button><button class="btn" type="button" data-act="closeModal">취소</button></div>`, (fd) => {
+        let n = 0;
+        for (const st of hold) {
+          const v = fd.get('p_' + st.id);
+          if (String(v).trim() === String(st.price == null ? '' : st.price)) continue;
+          SM.setPrice(st, String(v).trim() === '' ? null : num(v)); n++;
+        }
+        if (hasUS && num(fd.get('fx')) > 0) state.settings.fxNow = num(fd.get('fx'));
+        save(); closeModal(); render(); toast(n ? `${n}개 종목의 현재가를 저장했습니다` : '바뀐 값이 없습니다');
+      });
+    },
+    linkAdd: () => { state.settings.links.push({ id: SM.uid(), label: '새 링크', url: 'https://example.com/?q={name}', market: 'ALL' }); save(); render(); },
+    linkDel: (el) => { state.settings.links.splice(+el.dataset.i, 1); save(); render(); },
+    linkReset: () => { if (!confirm('링크 목록을 기본값으로 되돌릴까요?')) return; state.settings.links = SM.DEFAULT_SETTINGS().links; save(); render(); },
+    gcImages: async () => { const n = await SM.media.gcImages(); toast(n ? `사용하지 않는 사진 ${n}장을 정리했습니다` : '정리할 사진이 없습니다'); },
     sellFill: () => {
       const st = curStock();
       const total = num(document.getElementById('sTotal').value);
@@ -470,17 +660,22 @@ service cloud.firestore {
     },
     calcAdd: () => { ui.calc.buys.push({ qty: '', price: '' }); render(); },
     calcDel: (el) => { ui.calc.buys.splice(+el.dataset.i, 1); if (!ui.calc.buys.length) ui.calc.buys.push({ qty: '', price: '' }); render(); },
-    export: () => {
-      const data = { app: 'stock-manager', exportedAt: new Date().toISOString(), state };
-      const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
+    export: async () => {
+      const withImages = !document.getElementById('expImg') || document.getElementById('expImg').checked;
+      let media = { notes: [], images: [] };
+      try { media = await SM.media.exportAll(withImages); } catch (e) { toast('매매 사유를 읽지 못했습니다: ' + e.message, true); }
+      state.lastBackupAt = Date.now(); save();
+      const data = { app: 'stock-manager', exportedAt: new Date().toISOString(), state, media };
+      const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = `주식관리백업_${todayStr()}.json`; a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+      toast(`백업했습니다 (매매 사유 ${media.notes.length}개${withImages ? ', 사진 ' + media.images.length + '장' : ''})`);
     },
-    wipe: () => {
+    wipe: async () => {
       if (!confirm('이 기기의 모든 데이터를 삭제합니다.\n(동기화가 켜져 있으면 다른 기기와 서버의 데이터는 그대로입니다. 하지만 이후 이 기기에서 저장하면 서버도 빈 데이터로 덮어써질 수 있습니다.)\n\n계속할까요?')) return;
       if (!confirm('정말 삭제할까요? 먼저 백업을 내려받았는지 확인하세요.')) return;
-      state = SM.newState(); ui.stockId = null; save(); render();
+      state = SM.newState(); ui.stockId = null; await SM.media.wipeLocal(); save(); render();
     },
     copyRules: () => { try { navigator.clipboard.writeText(RULES); toast('규칙을 복사했습니다'); } catch (e) { toast('복사하지 못했습니다. 직접 선택해 복사하세요', true); } },
     fbSave: () => {
@@ -498,7 +693,8 @@ service cloud.firestore {
 
   const C = A.changeHandlers;
   Object.assign(C, {
-    price: (el) => { const st = curStock(); st.price = el.value.trim() === '' ? null : num(el.value); save(); render(); },
+    price: (el) => { const st = curStock(); SM.setPrice(st, el.value.trim() === '' ? null : num(el.value)); save(); render(); },
+    journalOnly: (el) => { ui.journalOnly = el.checked; render(); },
     fxNow: (el) => { state.settings.fxNow = num(el.value, 1400); save(); render(); },
     showSold: (el) => { ui.showSold = el.checked; render(); },
     selLot: (el) => { if (el.checked) ui.selected.add(el.dataset.id); else ui.selected.delete(el.dataset.id); render(); },
@@ -514,15 +710,18 @@ service cloud.firestore {
       const file = el.files[0];
       if (!file) return;
       const rd = new FileReader();
-      rd.onload = () => {
+      rd.onload = async () => {
         try {
           const o = JSON.parse(rd.result);
           const incoming = SM.normalizeState(o.state || o);
+          const nn = o.media && o.media.notes ? o.media.notes.length : 0, ni = o.media && o.media.images ? o.media.images.length : 0;
           if (!incoming.stocks.length && !confirm('불러올 종목이 없습니다. 그래도 현재 데이터를 비울까요?')) return;
-          if (!confirm(`백업 파일: 종목 ${incoming.stocks.length}개\n현재 이 기기의 데이터를 이 파일로 교체할까요?`)) return;
+          if (!confirm(`백업 파일: 종목 ${incoming.stocks.length}개, 매매 사유 ${nn}개, 사진 ${ni}장\n현재 이 기기의 데이터를 이 파일로 교체할까요?`)) return;
           state = incoming; ui.stockId = state.stocks[0] ? state.stocks[0].id : null; ui.selected.clear();
+          if (o.media) await SM.media.importAll(o.media);
           save(); render(); toast('복원했습니다');
         } catch (e) { toast('백업 파일을 읽지 못했습니다: ' + e.message, true); }
+        el.value = '';
       };
       rd.readAsText(file);
     },
@@ -538,6 +737,12 @@ service cloud.firestore {
   document.addEventListener('change', (e) => {
     const el = e.target;
     if (el.dataset && el.dataset.change && C[el.dataset.change]) return C[el.dataset.change](el, e);
+    if (el.dataset && el.dataset.link) {
+      const [i, k] = el.dataset.link.split('.');
+      const lk = state.settings.links[+i];
+      if (lk) { lk[k] = el.value.trim(); save(); toast('저장했습니다'); }
+      return;
+    }
     if (el.dataset && el.dataset.setting) {
       const path = el.dataset.setting.split('.'); let o = state.settings;
       for (let i = 0; i < path.length - 1; i++) o = o[path[i]];
