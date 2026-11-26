@@ -199,3 +199,8 @@ header.top { top: 0; }
 .vtag { text-align: center; color: var(--muted); font-size: 12px; margin: 6px 0 0; }
 .ver { font-size: 20px; }
 .rel { margin: 8px 0; } .rel ul { margin: 4px 0 0; padding-left: 20px; font-size: 13px; }
+
+/* 불러오기 열 지정: 모바일에서도 2열 */
+.colgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; margin-top: 8px; }
+.colgrid label.mini { margin-bottom: 6px; } .colgrid select.inp { padding: 6px 6px; font-size: 13px; }
+.stats-line { margin: 8px 0; font-size: 14px; }

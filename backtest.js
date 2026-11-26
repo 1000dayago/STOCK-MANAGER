@@ -4,17 +4,10 @@
   const SM = (root.SM = root.SM || {});
   const num = (v, d = 0) => SM.num(v, d);
 
-  /* ---------- CSV 파싱 ---------- */
-  const ALIAS = {
-    date: ['date', '날짜', '일자', '일시', '거래일', '기준일', 'time', 'datetime'],
-    open: ['open', '시가'],
-    high: ['high', '고가'],
-    low: ['low', '저가'],
-    close: ['close', '종가', '현재가', '종가(원)', 'close/last'],
-    adj: ['adj close', 'adj_close', 'adjclose', '수정종가', '수정주가'],
-    volume: ['volume', '거래량', '거래량(주)', 'vol'],
-  };
-  const norm = (s) => String(s || '').replace(/^﻿/, '').trim().toLowerCase().replace(/\s+/g, ' ');
+  /* ---------- 표 / CSV 읽기 ---------- */
+  // 증권사·거래소·포털마다 제각각인 표를 최대한 자동 인식하고, 틀리면 열을 직접 지정할 수 있게 합니다.
+  const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  const normH = (s) => String(s == null ? '' : s).replace(/^﻿/, '').trim().toLowerCase().replace(/[\s.]+/g, '');
 
   function splitLine(line, delim) {
     if (delim === ' ') return line.trim().split(/\s+/);
@@ -29,19 +22,26 @@
     out.push(cur);
     return out;
   }
-  function detectDelim(first) {
-    if (first.split('\t').length > 2) return '\t';
-    const sc = first.split(';').length, cm = first.split(',').length;
+  function detectDelim(line) {
+    if (line.includes('\t')) return '\t';
+    const sc = line.split(';').length, cm = line.split(',').length;
     if (cm > 2 || sc > 2) return sc > cm ? ';' : ',';
+    if (cm === 2 && !/\s{1,}/.test(line.trim())) return ',';
     return ' ';
   }
 
   function parseDate(s) {
     s = String(s || '').trim().replace(/"/g, '');
-    let m = s.match(/^(\d{4})[-./\s]+(\d{1,2})[-./\s]+(\d{1,2})/);
+    let m = s.match(/^(\d{4})\s*[-./]\s*(\d{1,2})\s*[-./]\s*(\d{1,2})/);
+    if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+    m = s.match(/^(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일?/);
     if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
     m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
     if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    m = s.match(/^([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})/); // Jan 02, 2025
+    if (m && MONTHS[m[1].toLowerCase()]) return `${m[3]}-${String(MONTHS[m[1].toLowerCase()]).padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+    m = s.match(/^(\d{1,2})[- ]([A-Za-z]{3})[a-z]*[- ,]+(\d{4})/); // 02-Jan-2025
+    if (m && MONTHS[m[2].toLowerCase()]) return `${m[3]}-${String(MONTHS[m[2].toLowerCase()]).padStart(2, '0')}-${m[1].padStart(2, '0')}`;
     m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); // 미국식 MM/DD/YYYY
     if (m) return `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
     m = s.match(/^(\d{2})[.](\d{1,2})[.](\d{1,2})$/); // YY.MM.DD
@@ -58,57 +58,103 @@
     const v = parseFloat(s);
     return neg ? -Math.abs(v) : v;
   };
+  const toVol = (s) => { // 1.2M, 350K, 1,234 모두 지원
+    const m = String(s == null ? '' : s).trim().match(/^([\d.,]+)\s*([KkMmBb])$/);
+    if (!m) return toNum(s);
+    return parseFloat(m[1].replace(/,/g, '')) * { k: 1e3, m: 1e6, b: 1e9 }[m[2].toLowerCase()];
+  };
 
-  function parseOHLCV(text, opt = {}) {
-    const warnings = [];
+  const DATE_ALIAS = ['date', '날짜', '일자', '일시', '거래일', '기준일', 'time', 'datetime', 'tradedate', 'tradingdate', '년월일'];
+  function guessCols(header) {
+    const h = header.map(normH), used = new Set(), cols = {};
+    const pick = (key, exact, fuzzy) => {
+      let i = h.findIndex((x, j) => !used.has(j) && exact.includes(x));
+      if (i < 0 && fuzzy) i = h.findIndex((x, j) => !used.has(j) && fuzzy(x));
+      cols[key] = i; if (i >= 0) used.add(i);
+    };
+    pick('date', DATE_ALIAS, (x) => x.includes('날짜') || x.includes('일자'));
+    pick('adj', ['adjclose', 'adj_close', 'adjustedclose', '수정종가', '수정주가'], (x) => x.includes('adj') || x.includes('수정'));
+    pick('close', ['close', '종가', 'close/last', '현재가', 'price', 'last', '종가(원)', 'closeprice'], (x) => x.includes('종가') && !x.includes('전일') && !x.includes('대비'));
+    pick('open', ['open', '시가', '오픈', 'opening', 'openprice'], (x) => x.includes('시가') && !x.includes('총액'));
+    pick('high', ['high', '고가'], (x) => x.includes('고가') || x.includes('high'));
+    pick('low', ['low', '저가'], (x) => x.includes('저가') || x === 'low');
+    pick('volume', ['volume', '거래량', 'vol', '거래량(주)'], (x) => x.includes('거래량') || x.startsWith('vol'));
+    pick('frgn', [], (x) => (x.includes('외국인') || x.includes('foreign')) && !/보유|지분|비율|한도|소진/.test(x));
+    pick('inst', [], (x) => (x.includes('기관') || x.includes('institution')) && !/보유|비율/.test(x));
+    pick('indiv', [], (x) => x.includes('개인') || x.includes('individual') || x.includes('retail'));
+    return cols;
+  }
+  const hasFlowCol = (c) => c.frgn >= 0 || c.inst >= 0 || c.indiv >= 0;
+  function kindOf(c) {
+    const p = c.date >= 0 && c.close >= 0, f = hasFlowCol(c);
+    return p && f ? 'both' : p ? 'price' : c.date >= 0 && f ? 'flow' : 'unknown';
+  }
+
+  // 제목 줄이 몇 번째 줄이든 자동으로 찾습니다(앞에 설명 줄이 있어도 됨). headerLine(1부터)을 주면 그 줄을 제목으로 씁니다.
+  function splitTable(text, headerLine) {
     const lines = String(text).replace(/\r/g, '').split('\n').filter((l) => l.trim() !== '');
     if (lines.length < 2) return { error: '데이터가 비어 있습니다.' };
-    const first = lines[0];
-    const delim = detectDelim(first);
-    const header = splitLine(first, delim).map(norm);
-    const find = (names) => header.findIndex((h) => names.includes(h));
-    const idx = {};
-    for (const k of Object.keys(ALIAS)) idx[k] = find(ALIAS[k]);
-    if (idx.date < 0 || idx.close < 0) {
-      return { error: '날짜/종가 열을 찾지 못했습니다. 첫 줄에 "날짜,시가,고가,저가,종가,거래량" 같은 제목이 있어야 합니다. (인식한 제목: ' + header.join(' | ') + ')' };
+    let hi = -1;
+    const hl = Math.floor(num(headerLine, 0));
+    if (hl > 0) hi = hl - 1;
+    else {
+      for (let i = 0; i < Math.min(lines.length, 40); i++) {
+        const c = guessCols(splitLine(lines[i], detectDelim(lines[i])));
+        if (c.date >= 0 && (c.close >= 0 || hasFlowCol(c))) { hi = i; break; }
+      }
+      if (hi < 0) hi = 0;
     }
-    const useAdj = opt.useAdj !== false && idx.adj >= 0;
+    if (hi >= lines.length - 1) return { error: '제목 줄 번호가 너무 큽니다.' };
+    const delim = detectDelim(lines[hi]);
+    const strip = (l) => (delim === ' ' ? l.replace(/(상승|하락|보합|상한가|하한가)/g, ' ') : l); // 네이버 등에서 복사한 "상승 100" 같은 방향 단어 제거
+    const header = splitLine(lines[hi], delim).map((x) => String(x).trim());
+    const rows = lines.slice(hi + 1).map((l) => splitLine(strip(l), delim));
+    return { header, rows, delim, headerLine: hi + 1 };
+  }
+  const tableSig = (t) => t.header.map(normH).join('|');
+  // saved: { 서명: cols } (이전에 사용자가 지정한 열 설정)
+  function analyzeTable(t, saved) {
+    let cols = guessCols(t.header), fromSaved = false;
+    const sv = saved && saved[tableSig(t)];
+    if (sv && Object.values(sv).every((i) => i < t.header.length)) { cols = Object.assign({}, sv); fromSaved = true; }
+    return { table: t, cols, kind: kindOf(cols), signature: tableSig(t), fromSaved };
+  }
+
+  function buildDataset(t, cols, opt = {}) {
+    const warnings = [];
+    if (cols.date < 0 || cols.close < 0) return { error: '날짜와 종가 열을 지정하세요.' };
+    const useAdj = opt.useAdj !== false && cols.adj >= 0;
     const rows = [];
     let bad = 0;
-    for (let i = 1; i < lines.length; i++) {
-      const c = splitLine(lines[i], delim);
-      const d = parseDate(c[idx.date]);
-      const close = toNum(c[idx.close]);
+    for (const c of t.rows) {
+      const d = parseDate(c[cols.date]);
+      const close = toNum(c[cols.close]);
       if (!d || !isFinite(close)) { bad++; continue; }
-      const o = idx.open >= 0 ? toNum(c[idx.open]) : close;
-      const h = idx.high >= 0 ? toNum(c[idx.high]) : close;
-      const l = idx.low >= 0 ? toNum(c[idx.low]) : close;
-      const v = idx.volume >= 0 ? toNum(c[idx.volume]) : NaN;
+      const o = cols.open >= 0 ? toNum(c[cols.open]) : close;
+      const h = cols.high >= 0 ? toNum(c[cols.high]) : close;
+      const l = cols.low >= 0 ? toNum(c[cols.low]) : close;
+      const v = cols.volume >= 0 ? toVol(c[cols.volume]) : NaN;
       let r = { d, o: isFinite(o) ? o : close, h: isFinite(h) ? h : close, l: isFinite(l) ? l : close, c: close, v: isFinite(v) ? v : 0 };
       if (useAdj) {
-        const a = toNum(c[idx.adj]);
-        if (isFinite(a) && a > 0 && close > 0) {
-          const f = a / close;
-          r = { d, o: r.o * f, h: r.h * f, l: r.l * f, c: a, v: r.v };
-        }
+        const a = toNum(c[cols.adj]);
+        if (isFinite(a) && a > 0 && close > 0) { const f = a / close; r = { d, o: r.o * f, h: r.h * f, l: r.l * f, c: a, v: r.v }; }
       }
+      for (const k of ['frgn', 'inst', 'indiv']) { if (cols[k] >= 0) { const x = toNum(c[cols[k]]); r[k] = isFinite(x) ? x : null; } }
       rows.push(r);
     }
     rows.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0));
     const uniq = [];
     let dup = 0;
-    for (const r of rows) {
-      if (uniq.length && uniq[uniq.length - 1].d === r.d) { dup++; uniq[uniq.length - 1] = r; } else uniq.push(r);
-    }
-    if (uniq.length < 5) return { error: '유효한 데이터가 너무 적습니다 (' + uniq.length + '행).' };
-    if (bad) warnings.push(`${bad}행은 날짜/가격을 읽지 못해 건너뛰었습니다.`);
+    for (const r of rows) { if (uniq.length && uniq[uniq.length - 1].d === r.d) { dup++; uniq[uniq.length - 1] = r; } else uniq.push(r); }
+    if (uniq.length < 5) return { error: '유효한 데이터가 너무 적습니다 (' + uniq.length + '행). 날짜·종가 열 지정을 확인하세요.' };
+    if (bad) warnings.push(`${bad}행은 날짜/가격을 읽지 못해 건너뛰었습니다. (제목 줄이나 합계 줄이면 정상입니다)`);
     if (dup) warnings.push(`중복 날짜 ${dup}건은 마지막 값만 사용했습니다.`);
-    if (idx.high < 0 || idx.low < 0) warnings.push('고가/저가 열이 없어 종가로 대체했습니다. (볼린저 "저가/고가 기준" 터치는 종가 기준으로 계산됩니다)');
-    if (idx.open < 0) warnings.push('시가 열이 없어 종가로 대체했습니다. ("다음날 시가 체결"은 종가로 계산됩니다)');
-    if (idx.volume < 0) warnings.push('거래량 열이 없습니다. 거래량 조건은 사용할 수 없습니다.');
+    if (cols.high < 0 || cols.low < 0) warnings.push('고가/저가 열이 없어 종가로 대체했습니다. (볼린저 "장중 저가/고가" 기준은 종가 기준으로 계산됩니다)');
+    if (cols.open < 0) warnings.push('시가 열이 없어 종가로 대체했습니다. ("다음날 시가 체결"은 종가로 계산됩니다)');
+    if (cols.volume < 0) warnings.push('거래량 열이 없습니다. 거래량 조건은 사용할 수 없습니다.');
     else if (uniq.every((r) => r.v === 0)) warnings.push('거래량이 모두 0입니다. 거래량 열을 확인하세요.');
-    if (idx.adj >= 0 && useAdj) warnings.push('수정종가(Adj Close) 열이 있어 시/고/저/종가를 수정주가 기준으로 보정했습니다.');
-    else if (idx.adj < 0) warnings.push('수정종가 열이 없습니다. 액면분할·배당이 있었다면 가격이 왜곡될 수 있습니다.');
+    if (useAdj) warnings.push('수정종가(Adj Close) 열이 있어 시/고/저/종가를 수정주가 기준으로 보정했습니다.');
+    else if (cols.adj < 0) warnings.push('수정종가 열이 없습니다. 액면분할·배당이 있었다면 가격이 왜곡될 수 있습니다.');
     for (let i = 1; i < uniq.length; i++) {
       const ch = uniq[i].c / uniq[i - 1].c - 1;
       if (Math.abs(ch) > 0.4) { warnings.push(`${uniq[i].d} 종가가 전일 대비 ${(ch * 100).toFixed(0)}% 변동했습니다. 액면분할 등으로 수정되지 않은 가격인지 확인하세요.`); break; }
@@ -116,32 +162,70 @@
     const data = {
       d: uniq.map((r) => r.d), o: uniq.map((r) => r.o), h: uniq.map((r) => r.h),
       l: uniq.map((r) => r.l), c: uniq.map((r) => r.c), v: uniq.map((r) => r.v),
-      hasVol: idx.volume >= 0, hasHL: idx.high >= 0 && idx.low >= 0,
+      hasVol: cols.volume >= 0, hasHL: cols.high >= 0 && cols.low >= 0, hasOpen: cols.open >= 0,
     };
+    const fl = [];
+    for (const k of ['frgn', 'inst', 'indiv']) {
+      if (cols[k] < 0) continue;
+      const arr = uniq.map((r) => (r[k] == null ? null : r[k]));
+      if (arr.some((x) => x != null)) { data[k] = arr; fl.push({ frgn: '외국인', inst: '기관', indiv: '개인' }[k]); }
+    }
+    if (fl.length) warnings.push(`수급 열(${fl.join('·')})도 함께 불러왔습니다. 단위(주/금액)가 출처마다 다르니 확인하세요.`);
     return { data, warnings, count: uniq.length };
   }
 
-  /* ---------- 수급(외국인/기관/개인 순매수) 불러오기 ---------- */
-  // 형식을 모르는 표도 받을 수 있게: 표로 읽은 뒤 사용자가 열을 지정합니다.
-  function parseTable(text, headerLine) {
-    const lines = String(text).replace(/\r/g, '').split('\n').filter((l) => l.trim() !== '');
-    const hl = Math.max(1, Math.floor(num(headerLine, 1)));
-    if (lines.length < hl + 1) return { error: '데이터가 비어 있거나 제목 줄 번호가 너무 큽니다.' };
-    const delim = detectDelim(lines[hl - 1]);
-    const header = splitLine(lines[hl - 1], delim).map((h) => String(h).trim());
-    const rows = lines.slice(hl).map((l) => splitLine(l, delim));
-    return { header, rows, delim };
+  // 예전 호환: 텍스트를 바로 가격 데이터로
+  function parseOHLCV(text, opt = {}) {
+    const t = splitTable(text);
+    if (t.error) return t;
+    const cols = guessCols(t.header);
+    if (cols.date < 0 || cols.close < 0) return { error: '날짜/종가 열을 찾지 못했습니다. 첫 줄에 "날짜,시가,고가,저가,종가,거래량" 같은 제목이 있어야 합니다. (인식한 제목: ' + t.header.join(' | ') + ')' };
+    return buildDataset(t, cols, opt);
   }
-  function guessFlowCols(header) {
-    const h = header.map(norm);
-    const pick = (fn) => h.findIndex(fn);
-    return {
-      date: pick((x) => ALIAS.date.includes(x) || x.includes('날짜') || x.includes('일자')),
-      frgn: pick((x) => (x.includes('외국인') || x.includes('foreign')) && !x.includes('보유') && !x.includes('지분') && !x.includes('비율') && !x.includes('한도')),
-      inst: pick((x) => (x.includes('기관') || x.includes('institution')) && !x.includes('보유') && !x.includes('비율')),
-      indiv: pick((x) => x.includes('개인') || x.includes('individual') || x.includes('retail')),
+
+  // 기존 데이터(a)에 새 데이터(b)를 날짜 기준으로 합칩니다. 같은 날짜는 b가 우선이지만,
+  // b에 시가·고가·저가·거래량 열이 없으면(예: 수급 표) 기존 값은 그대로 두고 있는 값만 갱신합니다.
+  function mergeDatasets(a, b) {
+    const map = new Map();
+    const FK = ['frgn', 'inst', 'indiv'];
+    let overlap = 0, mismatch = 0;
+    const put = (src, isNew) => {
+      for (let i = 0; i < src.d.length; i++) {
+        const d = src.d[i];
+        let r = map.get(d);
+        const existed = !!r;
+        if (!r) { r = { frgn: null, inst: null, indiv: null }; map.set(d, r); }
+        else if (isNew) { overlap++; if (Math.abs(r.c / src.c[i] - 1) > 0.01) mismatch++; }
+        if (!existed || !isNew) Object.assign(r, { d, o: src.o[i], h: src.h[i], l: src.l[i], c: src.c[i], v: src.v[i] });
+        else {
+          r.c = src.c[i];
+          if (src.hasOpen !== false) r.o = src.o[i];
+          if (src.hasHL !== false) { r.h = src.h[i]; r.l = src.l[i]; }
+          if (src.hasVol !== false) r.v = src.v[i];
+        }
+        for (const k of FK) if (src[k] && src[k][i] != null) r[k] = src[k][i];
+      }
     };
+    put(a, false); put(b, true);
+    const rows = [...map.values()].sort((x, y) => (x.d < y.d ? -1 : 1));
+    const data = { d: rows.map((r) => r.d), o: rows.map((r) => r.o), h: rows.map((r) => r.h), l: rows.map((r) => r.l), c: rows.map((r) => r.c), v: rows.map((r) => r.v), hasVol: !!(a.hasVol || b.hasVol), hasHL: !!(a.hasHL && b.hasHL), hasOpen: a.hasOpen !== false && b.hasOpen !== false };
+    for (const k of FK) { const arr = rows.map((r) => r[k]); if (arr.some((x) => x != null)) data[k] = arr; }
+    return { data, added: rows.length - a.d.length, overlap, mismatch, keptOHLC: b.hasHL === false || b.hasOpen === false };
   }
+  // 두 데이터가 같은 종목일 가능성: 겹치는 날짜에서 종가가 1% 이내로 같은 비율
+  function sameStockScore(a, b) {
+    const idx = new Map(a.d.map((d, i) => [d, i]));
+    let overlap = 0, match = 0;
+    for (let j = 0; j < b.d.length; j++) {
+      const i = idx.get(b.d[j]);
+      if (i === undefined) continue;
+      overlap++;
+      if (Math.abs(a.c[i] / b.c[j] - 1) <= 0.01) match++;
+    }
+    return { overlap, match, ratio: overlap ? match / overlap : 0 };
+  }
+
+  /* ---------- 수급만 있는 표를 기존 가격 데이터에 합치기 ---------- */
   function mergeFlow(data, table, cols) {
     const n = data.d.length;
     const idxOfDate = new Map(data.d.map((d, i) => [d, i]));
@@ -164,6 +248,9 @@
     if (!matched) return { error: '가격 데이터와 날짜가 하나도 맞지 않습니다. 날짜 열과 기간을 확인하세요.' };
     return { arrs, matched, unmatched, missing: n - matched };
   }
+  // 예전 호환
+  const parseTable = (text, headerLine) => splitTable(text, headerLine);
+  const guessFlowCols = (header) => { const c = guessCols(header); return { date: c.date, frgn: c.frgn, inst: c.inst, indiv: c.indiv }; };
 
   /* ---------- 지표 ---------- */
   function sma(arr, n) {
@@ -601,6 +688,6 @@
     return { market: 'KR', qty: 10, qtyMode: 'shares', growth: 1, maxInvest: 0, maxLots: 0, fill: 'nextOpen', from: '', to: '', renko: { mode: 'pct', value: 2, period: 14 }, entries: { mode: 'AND', conds: [] }, exits: { mode: 'OR', conds: [] } };
   }
 
-  Object.assign(SM, { parseOHLCV, parseTable, guessFlowCols, mergeFlow, parseDate, sma, ema, rsi, macd, bollinger, buildRenko, COND_DEFS, runBacktest, runSplitValidation, overlayLines, blankCfg, needsFlow });
+  Object.assign(SM, { parseOHLCV, parseTable, guessFlowCols, mergeFlow, parseDate, splitTable, guessCols, kindOf, analyzeTable, buildDataset, mergeDatasets, sameStockScore, sma, ema, rsi, macd, bollinger, buildRenko, COND_DEFS, runBacktest, runSplitValidation, overlayLines, blankCfg, needsFlow });
   if (typeof module !== 'undefined' && module.exports) module.exports = SM;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

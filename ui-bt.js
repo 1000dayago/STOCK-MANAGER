@@ -12,7 +12,37 @@
     try { localStorage.setItem(DS_KEY, JSON.stringify(ds)); return true; }
     catch (e) { toast('가격 데이터를 저장할 공간이 부족합니다. 안 쓰는 데이터를 삭제하세요.', true); return false; }
   }
-  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], flow: null, validate: false, splitPct: 70, strategyId: '' });
+  const newImp = () => ({ autoNote: '', text: '', headerLine: '', an: null, fileNames: [], dest: 'new', destId: '', name: '', market: 'KR', useAdj: true });
+  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', imp: newImp() });
+  const MAP_KEY = 'stockmgr.colmaps';
+  const loadMaps = () => { try { return JSON.parse(localStorage.getItem(MAP_KEY) || '{}'); } catch (e) { return {}; } };
+  function rememberCols(an) { try { const m = loadMaps(); m[an.signature] = an.cols; localStorage.setItem(MAP_KEY, JSON.stringify(m)); } catch (e) { /* ignore */ } }
+  function startImport(table, names) {
+    const imp = bt.imp;
+    imp.an = SM.analyzeTable(table, loadMaps());
+    imp.fileNames = names;
+    const kind = SM.kindOf(imp.an.cols);
+    const ds = loadDS();
+    if (!imp.destId || !ds[imp.destId]) imp.destId = bt.datasetId && ds[bt.datasetId] ? bt.datasetId : Object.keys(ds)[0] || '';
+    imp.dest = kind === 'flow' ? 'merge' : 'new';
+    imp.autoNote = '';
+    if (kind === 'price' || kind === 'both') {
+      const r = SM.buildDataset(imp.an.table, imp.an.cols, { useAdj: imp.useAdj });
+      if (r.data) {
+        for (const id of Object.keys(ds)) {
+          const sc = SM.sameStockScore(ds[id].data, r.data);
+          if (sc.overlap >= 5 && sc.ratio >= 0.8) {
+            imp.dest = 'merge'; imp.destId = id;
+            imp.autoNote = `“${ds[id].name}”와 같은 종목으로 보여(겹치는 ${sc.overlap}일 중 ${sc.match}일의 종가가 일치) 기본값을 “기존 데이터에 이어붙이기”로 정했습니다. 다른 종목이면 “새 데이터로 저장”을 선택하세요.`;
+            break;
+          }
+        }
+      }
+    }
+    bt.warn = [];
+    A.render();
+    toast(kind === 'unknown' ? '열을 자동으로 찾지 못했습니다. 열을 직접 지정하세요.' : '읽었습니다. 아래 내용을 확인하고 저장하세요.', kind === 'unknown');
+  }
   const strategies = () => A.getState().strategies;
 
   function curDS() { const ds = loadDS(); if (!bt.datasetId || !ds[bt.datasetId]) bt.datasetId = Object.keys(ds)[0] || null; return bt.datasetId ? ds[bt.datasetId] : null; }
@@ -46,22 +76,16 @@
     const ds = loadDS(), keys = Object.keys(ds), cur = curDS(), c = bt.cfg;
     const rangeTxt = cur ? `${cur.data.d[0]} ~ ${cur.data.d[cur.data.d.length - 1]} (${cur.data.d.length}일)` : '';
     const st = strategies();
-    const fl = bt.flow;
-    return `<section class="card"><h2>1. 가격 데이터 불러오기</h2>
-      <p class="hint">증권사/거래소/야후 등에서 내려받은 <b>일봉 CSV</b>를 불러옵니다. 제목 줄에 날짜·시가·고가·저가·종가·거래량(한글/영문 모두 가능)이 있어야 합니다. 엑셀에서 복사한 표를 붙여 넣어도 됩니다. 가격·수급 데이터는 용량 때문에 이 기기에만 저장됩니다(동기화 안 됨).</p>
-      <div class="grid2"><label>데이터 이름<input id="dsName" placeholder="예: 한국전력 2025"></label><label>시장 (수수료율 기준)<select id="dsMarket">${opts([['KR', '국내'], ['US', '해외']], 'KR')}</select></label></div>
-      <label class="chk"><input type="checkbox" id="dsAdj" checked> 수정종가(Adj Close) 열이 있으면 그 기준으로 보정</label>
-      <div class="row gap wrap"><label class="btn file">CSV/텍스트 파일 선택<input type="file" accept=".csv,.txt,.tsv,text/csv,text/plain" data-change="btFile" hidden></label></div>
-      <label>또는 여기에 붙여 넣기<textarea id="dsPaste" rows="4" placeholder="날짜,시가,고가,저가,종가,거래량&#10;2025-01-02,..."></textarea></label>
-      <div class="btns"><button class="btn primary" data-act="btPaste">붙여 넣은 데이터 저장</button></div>
+    const imp = bt.imp;
+    return `<section class="card"><h2>1. 데이터 불러오기 <small class="muted">(가격 · 수급)</small></h2>
+      <p class="hint">증권사·거래소·포털에서 받은 <b>일봉 파일(CSV)</b>이나 화면의 <b>표를 복사해서 붙여 넣은 것</b>을 읽습니다. 제목 줄 위치와 열 이름(한글·영문)을 자동으로 찾고, 틀리면 아래에서 열을 직접 고를 수 있습니다. 가격·수급이 한 파일에 같이 있어도, 수급만 따로 있어도 됩니다. 엑셀 파일(.xlsx)은 CSV로 저장하거나 표를 복사해서 붙여 넣으세요. 데이터는 용량 때문에 이 기기에만 저장됩니다.</p>
+      <div class="row gap wrap"><label class="btn file">파일 선택 (여러 개 가능)<input type="file" multiple accept=".csv,.txt,.tsv,text/csv,text/plain" data-change="btFiles" hidden></label>
+        <label class="mini">제목 줄 번호 <small class="muted">(비우면 자동)</small><input class="inp" data-btimp="headerLine" value="${esc(imp.headerLine)}" inputmode="numeric" style="width:90px"></label></div>
+      <label>또는 여기에 붙여 넣기<textarea data-btimp="text" rows="4" placeholder="날짜,시가,고가,저가,종가,거래량&#10;2025-01-02,...">${esc(imp.text)}</textarea></label>
+      <div class="btns"><button class="btn primary" data-act="btAnalyze">읽기</button>${imp.an ? '<button class="btn" data-act="btImpCancel">취소</button>' : ''}</div>
+      ${imp.an ? impPanel() : ''}
       <div id="dsWarn">${bt.warn.map((w) => `<p class="hint warn">⚠ ${esc(w)}</p>`).join('')}</div>
       ${keys.length ? `<h4>저장된 데이터</h4><div class="row gap wrap"><select class="inp" data-change="btDS" style="max-width:260px">${opts(keys.map((k) => [k, ds[k].name]), bt.datasetId)}</select><span class="muted">${rangeTxt}</span><button class="btn sm danger" data-act="btDSDel">삭제</button></div><p class="hint">${flowStatus(cur)}</p>` : '<p class="muted">저장된 데이터가 없습니다.</p>'}
-      ${cur ? `<details ${fl ? 'open' : ''}><summary><b>수급(외국인·기관·개인 순매수) 데이터 불러오기</b> <small class="muted">(선택 · 국내 종목)</small></summary>
-        <p class="hint">증권사/거래소/포털의 <b>일별 투자자별 순매수(순매매량)</b> 표를 파일이나 붙여넣기로 불러옵니다. 읽은 뒤 어느 열이 날짜·외국인·기관·개인인지 확인하는 단계가 있어서 형식이 달라도 쓸 수 있습니다. 출처마다 단위(주/금액)와 범위가 다를 수 있으니 한 출처로 일관되게 쓰고, 증권사 화면과 값이 맞는지 몇 날짜는 직접 대조하세요.</p>
-        <div class="row gap wrap"><label class="btn file">수급 파일 선택<input type="file" accept=".csv,.txt,.tsv,text/csv,text/plain" data-change="btFlowFile" hidden></label><label class="mini">제목 줄 번호<input id="flHead" class="inp" value="1" style="width:70px" inputmode="numeric"></label></div>
-        <label>또는 표를 복사해서 붙여 넣기<textarea id="flPaste" rows="4" placeholder="날짜  기관  외국인 ...&#10;2025.01.06  -1,200  3,400"></textarea></label>
-        <div class="btns"><button class="btn" data-act="btFlowRead">표 읽기</button></div>
-        ${fl ? flowMapHtml(fl) : ''}</details>` : ''}
     </section>
     <section class="card"><h2>2. 전략 설정</h2>
       <p class="hint">조건을 자유롭게 조합하세요. 만든 전략은 이름을 붙여 저장해 두고 나중에 불러오거나 서로 비교할 수 있습니다. (전략은 계정에 저장되어 동기화됩니다)</p>
@@ -90,12 +114,52 @@
       ${bt.cmp ? cmpHtml() : ''}${bt.val ? valHtml() : ''}${bt.result ? resultHtml() : ''}`;
   };
 
-  function flowMapHtml(fl) {
-    const hdr = fl.table.header;
-    const sel = (k, label) => `<label class="mini">${label}<select class="inp" data-change="btFlowCol" data-k="${k}"><option value="-1">(없음)</option>${hdr.map((h, i) => `<option value="${i}" ${fl.cols[k] === i ? 'selected' : ''}>${i + 1}. ${esc(h || '(빈 칸)')}</option>`).join('')}</select></label>`;
-    return `<div class="box"><b>열 지정</b> <small class="muted">(읽은 ${fl.table.rows.length}행)</small><div class="grid2">${sel('date', '날짜 열')}${sel('frgn', '외국인 순매수')}${sel('inst', '기관 순매수')}${sel('indiv', '개인 순매수')}</div>
-      <div class="tablewrap"><table class="mini"><thead><tr>${hdr.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${fl.table.rows.slice(0, 3).map((r) => `<tr>${hdr.map((_, i) => `<td>${esc(r[i] == null ? '' : r[i])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
-      <div class="btns"><button class="btn primary" data-act="btFlowApply">이 열로 가격 데이터에 합치기</button></div></div>`;
+  /* ---------- 불러오기 패널(열 지정 · 미리보기 · 저장 위치) ---------- */
+  const COL_LABELS = [['date', '날짜'], ['close', '종가'], ['open', '시가'], ['high', '고가'], ['low', '저가'], ['volume', '거래량'], ['adj', '수정종가(선택)'], ['frgn', '외국인 순매수'], ['inst', '기관 순매수'], ['indiv', '개인 순매수']];
+  const KIND_TXT = { price: '가격 데이터', flow: '수급 데이터(외국인·기관·개인)', both: '가격 + 수급 데이터', unknown: '형식을 알 수 없음 — 아래에서 열을 지정하세요' };
+  function impPreview(imp) {
+    const an = imp.an, kind = SM.kindOf(an.cols);
+    if (kind === 'price' || kind === 'both') return { kind, build: SM.buildDataset(an.table, an.cols, { useAdj: imp.useAdj }) };
+    if (kind === 'flow') {
+      const dsAll = loadDS(), tgt = dsAll[imp.destId];
+      if (!tgt) return { kind, note: '수급은 기존 가격 데이터에 합칩니다. 먼저 가격 데이터를 저장하거나 아래에서 합칠 데이터를 고르세요.' };
+      const m = SM.mergeFlow(tgt.data, an.table, an.cols);
+      return { kind, flow: m, tgt };
+    }
+    return { kind };
+  }
+  function impPanel() {
+    const imp = bt.imp, an = imp.an, hdr = an.table.header, ds = loadDS(), keys = Object.keys(ds);
+    const pv = impPreview(imp), kind = pv.kind;
+    const sel = (k, label) => `<label class="mini">${label}<select class="inp" data-change="btImpCol" data-k="${k}"><option value="-1">(없음)</option>${hdr.map((h, i) => `<option value="${i}" ${an.cols[k] === i ? 'selected' : ''}>${i + 1}. ${esc(h || '(빈 칸)')}</option>`).join('')}</select></label>`;
+    let summary = '';
+    if (pv.build) {
+      if (pv.build.error) summary = `<p class="hint warn">⚠ ${esc(pv.build.error)}</p>`;
+      else {
+        const d = pv.build.data, mn = Math.min(...d.c), mx = Math.max(...d.c);
+        const last = d.d.length - 1, pick = [0, 1, 2, last - 2, last - 1, last].filter((i, j, a2) => i >= 0 && i <= last && a2.indexOf(i) === j);
+        const f = (v) => (v == null ? '' : fmtNum(v, Math.abs(v) < 100 ? 2 : 0));
+        summary = `<div class="stats-line"><b>${pv.build.count}일</b> · ${d.d[0]} ~ ${d.d[last]} · 종가 ${fmtNum(mn, mn < 100 ? 2 : 0)} ~ ${fmtNum(mx, mx < 100 ? 2 : 0)}${d.frgn || d.inst || d.indiv ? ' · 수급 포함' : ''}</div>
+          ${pv.build.warnings.map((w) => `<p class="hint warn">⚠ ${esc(w)}</p>`).join('')}
+          <div class="tablewrap"><table class="mini"><thead><tr><th>날짜</th><th>시가</th><th>고가</th><th>저가</th><th>종가</th><th>거래량</th>${d.frgn ? '<th>외국인</th>' : ''}${d.inst ? '<th>기관</th>' : ''}${d.indiv ? '<th>개인</th>' : ''}</tr></thead><tbody>${pick.map((i) => `<tr><td>${d.d[i]}</td><td>${f(d.o[i])}</td><td>${f(d.h[i])}</td><td>${f(d.l[i])}</td><td>${f(d.c[i])}</td><td>${f(d.v[i])}</td>${d.frgn ? `<td>${f(d.frgn[i])}</td>` : ''}${d.inst ? `<td>${f(d.inst[i])}</td>` : ''}${d.indiv ? `<td>${f(d.indiv[i])}</td>` : ''}</tr>`).join('')}</tbody></table></div><p class="hint">처음 3일과 마지막 3일입니다. 증권사 화면과 같은 날짜의 값이 맞는지 한두 개는 직접 대조하세요.</p>`;
+      }
+    } else if (pv.flow) {
+      summary = pv.flow.error ? `<p class="hint warn">⚠ ${esc(pv.flow.error)}</p>` : `<div class="stats-line"><b>${pv.flow.matched}일</b>이 가격 데이터와 맞았습니다${pv.flow.unmatched ? ` · 가격 데이터에 없는 날짜 ${pv.flow.unmatched}일은 제외` : ''}${pv.flow.missing ? ` · 수급이 비는 거래일 ${pv.flow.missing}일` : ''}</div>`;
+    } else if (pv.note) summary = `<p class="hint warn">⚠ ${esc(pv.note)}</p>`;
+    const canNew = kind === 'price' || kind === 'both';
+    const dest = canNew ? imp.dest : 'merge';
+    const mergeSel = keys.length ? `<select class="inp" data-change="btImpDest" data-k="destId" style="max-width:260px">${opts(keys.map((k) => [k, ds[k].name]), imp.destId)}</select>` : '<span class="muted">(저장된 데이터 없음)</span>';
+    return `<div class="box"><b>읽은 결과: ${KIND_TXT[kind]}</b> <small class="muted">· ${an.table.rows.length}행${imp.fileNames.length > 1 ? ` · 파일 ${imp.fileNames.length}개` : ''}${an.fromSaved ? ' · 이전에 지정한 열 설정을 불러왔습니다' : ''}</small>
+      <div class="colgrid">${COL_LABELS.map(([k, l]) => sel(k, l)).join('')}</div>
+      ${an.cols.adj >= 0 ? `<label class="chk"><input type="checkbox" data-change="btImpAdj" ${imp.useAdj ? 'checked' : ''}> 수정종가 기준으로 시/고/저/종가 보정</label>` : ''}
+      ${summary}
+      ${kind !== 'unknown' ? `<h4>저장 위치</h4>
+        ${imp.autoNote ? `<p class="hint">💡 ${esc(imp.autoNote)}</p>` : '<p class="hint">같은 종목의 다른 기간 데이터라면 “기존 데이터에 이어붙이기”를 선택하세요.</p>'}
+        ${canNew ? `<label class="chk"><input type="radio" name="impDest" value="new" data-change="btImpDest" data-k="dest" ${dest === 'new' ? 'checked' : ''}> 새 데이터로 저장</label>
+        ${dest === 'new' ? `<div class="grid2"><label>데이터 이름<input class="inp" data-btimp="name" value="${esc(imp.name)}" placeholder="예: 한국전력"></label><label>시장 (수수료율 기준)<select class="inp" data-change="btImpDest" data-k="market">${opts([['KR', '국내'], ['US', '해외']], imp.market)}</select></label></div>` : ''}` : ''}
+        <label class="chk"><input type="radio" name="impDest" value="merge" data-change="btImpDest" data-k="dest" ${dest === 'merge' ? 'checked' : ''} ${keys.length ? '' : 'disabled'}> 기존 데이터에 ${kind === 'flow' ? '수급 합치기' : '이어붙이기(같은 날짜는 새 값으로 덮어씀)'}</label>
+        ${dest === 'merge' ? `<div class="row gap wrap">${mergeSel}</div>` : ''}
+        <div class="btns"><button class="btn primary" data-act="btImpSave">저장</button></div>` : ''}</div>`;
   }
 
   function summaryRow(name, r, cur) {
@@ -162,34 +226,10 @@
   };
 
   /* ---------- 데이터 저장 ---------- */
-  function storeText(text, fileName) {
-    const adj = document.getElementById('dsAdj') ? document.getElementById('dsAdj').checked : true;
-    const res = SM.parseOHLCV(text, { useAdj: adj });
-    if (res.error) { bt.warn = []; A.render(); toast(res.error, true); return; }
-    const nameEl = document.getElementById('dsName');
-    const name = (nameEl && nameEl.value.trim()) || (fileName || '').replace(/\.[^.]+$/, '') || '데이터 ' + new Date().toLocaleDateString('ko-KR');
-    const market = document.getElementById('dsMarket') ? document.getElementById('dsMarket').value : 'KR';
-    const ds = loadDS();
-    const id = SM.uid();
-    ds[id] = { name, market, added: Date.now(), data: res.data };
-    if (!saveDS(ds)) return;
-    bt.datasetId = id; bt.result = null; bt.val = null; bt.cmp = null; bt.flow = null; bt.cfg.market = market;
-    bt.warn = [`${name}: ${res.count}일치 (${res.data.d[0]} ~ ${res.data.d[res.count - 1]}) 불러왔습니다.`].concat(res.warnings);
-    A.render(); toast('불러왔습니다');
-  }
   function decode(buf) {
     try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
     catch (e) { try { return new TextDecoder('euc-kr').decode(buf); } catch (e2) { return new TextDecoder('utf-8').decode(buf); } }
   }
-  function readFlowText(text) {
-    const t = SM.parseTable(text, document.getElementById('flHead') ? document.getElementById('flHead').value : 1);
-    if (t.error) return toast(t.error, true);
-    bt.flow = { table: t, cols: SM.guessFlowCols(t.header) };
-    const miss = ['date', 'frgn', 'inst', 'indiv'].filter((k) => bt.flow.cols[k] < 0);
-    A.render();
-    toast(miss.includes('date') ? '날짜 열을 찾지 못했습니다. 열을 직접 지정하세요.' : '표를 읽었습니다. 열 지정을 확인하세요.', miss.includes('date'));
-  }
-
   /* ---------- 실행 ---------- */
   function cfgForRun() {
     const c = clone(bt.cfg);
@@ -200,23 +240,58 @@
   }
   const H = A.handlers, C = A.changeHandlers;
   Object.assign(H, {
-    btPaste: () => { const t = document.getElementById('dsPaste').value; if (!t.trim()) return toast('붙여 넣을 내용이 없습니다', true); storeText(t, ''); },
-    btDSDel: () => { if (!confirm('이 가격 데이터를 삭제할까요?')) return; const ds = loadDS(); delete ds[bt.datasetId]; saveDS(ds); bt.datasetId = null; bt.result = null; bt.val = null; bt.cmp = null; bt.flow = null; A.render(); },
+    btDSDel: () => { if (!confirm('이 가격 데이터를 삭제할까요?')) return; const ds = loadDS(); delete ds[bt.datasetId]; saveDS(ds); bt.datasetId = null; bt.result = null; bt.val = null; bt.cmp = null; A.render(); },
     btDel: (el) => { bt.cfg[el.dataset.g].conds.splice(+el.dataset.i, 1); A.render(); },
-    btFlowRead: () => { const t = document.getElementById('flPaste').value; if (!t.trim()) return toast('붙여 넣을 표가 없습니다', true); readFlowText(t); },
-    btFlowApply: () => {
-      const ds = loadDS(), cur = ds[bt.datasetId];
-      if (!cur || !bt.flow) return;
-      const c = bt.flow.cols;
-      if (c.date < 0) return toast('날짜 열을 지정하세요', true);
-      if (c.frgn < 0 && c.inst < 0 && c.indiv < 0) return toast('외국인·기관·개인 중 하나 이상의 열을 지정하세요', true);
-      const m = SM.mergeFlow(cur.data, bt.flow.table, c);
-      if (m.error) return toast(m.error, true);
-      ['frgn', 'inst', 'indiv'].forEach((k) => { if (m.arrs[k]) cur.data[k] = m.arrs[k]; });
+    btAnalyze: () => {
+      const imp = bt.imp;
+      if (!imp.text.trim()) return toast('붙여 넣을 내용이 없거나 파일을 먼저 선택하세요', true);
+      const t = SM.splitTable(imp.text, imp.headerLine);
+      if (t.error) return toast(t.error, true);
+      startImport(t, ['붙여넣기']);
+    },
+    btImpCancel: () => { bt.imp.an = null; bt.imp.fileNames = []; A.render(); },
+    btImpSave: () => {
+      const imp = bt.imp, an = imp.an;
+      if (!an) return;
+      const kind = SM.kindOf(an.cols), ds = loadDS();
+      const msgs = [];
+      let targetId = null;
+      if (kind === 'flow') {
+        const tgt = ds[imp.destId];
+        if (!tgt) return toast('수급을 합칠 가격 데이터를 고르세요', true);
+        const m = SM.mergeFlow(tgt.data, an.table, an.cols);
+        if (m.error) return toast(m.error, true);
+        ['frgn', 'inst', 'indiv'].forEach((k) => {
+          if (!m.arrs[k]) return;
+          tgt.data[k] = tgt.data[k] ? tgt.data[k].map((v, i) => (m.arrs[k][i] != null ? m.arrs[k][i] : v)) : m.arrs[k]; // 기존 수급은 유지하고 새 값만 덮어씀
+        });
+        msgs.push(`수급 데이터를 합쳤습니다: ${m.matched}일 매칭` + (m.unmatched ? `, 가격 데이터에 없는 날짜 ${m.unmatched}일은 제외` : '') + (m.missing ? `, 수급이 비는 거래일 ${m.missing}일(해당 날은 수급 조건이 거짓으로 처리됩니다)` : '') + '.');
+        targetId = imp.destId;
+      } else if (kind === 'price' || kind === 'both') {
+        const r = SM.buildDataset(an.table, an.cols, { useAdj: imp.useAdj });
+        if (r.error) return toast(r.error, true);
+        if (imp.dest === 'merge' && imp.destId && ds[imp.destId]) {
+          const tgt = ds[imp.destId];
+          const mg = SM.mergeDatasets(tgt.data, r.data);
+          tgt.data = mg.data;
+          msgs.push(`“${tgt.name}”에 합쳤습니다: 새 날짜 ${mg.added}일 추가, 겹치는 ${mg.overlap}일은 새 값으로 덮어썼습니다. (전체 ${mg.data.d.length}일, ${mg.data.d[0]} ~ ${mg.data.d[mg.data.d.length - 1]})`);
+          if (mg.keptOHLC) msgs.push('이 표에는 시가·고가·저가(또는 일부)가 없어, 겹치는 날짜의 기존 시가·고가·저가는 그대로 두고 종가·거래량·수급만 갱신했습니다.');
+          if (mg.mismatch) msgs.push(`겹치는 날짜 중 ${mg.mismatch}일은 종가가 1% 넘게 달랐습니다. 한쪽이 수정주가가 아니거나 액면분할이 반영 안 됐을 수 있으니 확인하세요.`);
+          targetId = imp.destId;
+        } else {
+          const id = SM.uid();
+          const name = (imp.name || '').trim() || '데이터 ' + new Date().toLocaleDateString('ko-KR');
+          ds[id] = { name, market: imp.market, added: Date.now(), data: r.data };
+          bt.cfg.market = imp.market; targetId = id;
+          msgs.push(`${name}: ${r.count}일치 (${r.data.d[0]} ~ ${r.data.d[r.data.d.length - 1]}) 저장했습니다.`);
+        }
+        msgs.push(...r.warnings);
+      } else return toast('날짜와 종가(또는 수급) 열을 지정하세요', true);
       if (!saveDS(ds)) return;
-      bt.flow = null; bt.result = null; bt.val = null;
-      bt.warn = [`수급 데이터를 합쳤습니다: ${m.matched}일 매칭` + (m.unmatched ? `, 가격 데이터에 없는 날짜 ${m.unmatched}일은 제외` : '') + (m.missing ? `, 수급이 비어 있는 거래일 ${m.missing}일 (해당 날은 수급 조건이 거짓으로 처리됩니다)` : '') + '.'];
-      A.render(); toast('수급 데이터를 합쳤습니다');
+      rememberCols(an);
+      bt.datasetId = targetId; bt.result = null; bt.val = null; bt.cmp = null;
+      bt.imp = newImp(); bt.warn = msgs;
+      A.render(); toast('저장했습니다');
     },
     btStratSave: () => {
       const name = (document.getElementById('stratName').value || '').trim();
@@ -260,20 +335,28 @@
     },
   });
   Object.assign(C, {
-    btFile: (el) => {
-      const f = el.files[0]; if (!f) return;
-      const rd = new FileReader();
-      rd.onload = () => storeText(decode(rd.result), f.name);
-      rd.readAsArrayBuffer(f);
+    btFiles: async (el) => {
+      const files = Array.from(el.files || []);
+      el.value = '';
+      if (!files.length) return;
+      const tables = [];
+      for (const f of files) {
+        const buf = await new Promise((res, rej) => { const rd = new FileReader(); rd.onload = () => res(rd.result); rd.onerror = () => rej(rd.error); rd.readAsArrayBuffer(f); });
+        const t = SM.splitTable(decode(buf), bt.imp.headerLine);
+        if (t.error) return toast(`${f.name}: ${t.error}`, true);
+        tables.push({ name: f.name, t });
+      }
+      const sig = (t) => t.header.map((h) => String(h).trim().toLowerCase().replace(/[\s.]+/g, '')).join('|');
+      const first = tables[0].t;
+      for (const x of tables.slice(1)) if (sig(x.t) !== sig(first)) return toast(`“${x.name}”의 열 구성이 첫 파일과 달라 함께 합칠 수 없습니다. 파일을 하나씩 불러오세요.`, true);
+      const merged = { header: first.header, rows: [].concat(...tables.map((x) => x.t.rows)), delim: first.delim, headerLine: first.headerLine };
+      bt.imp.text = '';
+      startImport(merged, tables.map((x) => x.name));
     },
-    btFlowFile: (el) => {
-      const f = el.files[0]; if (!f) return;
-      const rd = new FileReader();
-      rd.onload = () => readFlowText(decode(rd.result));
-      rd.readAsArrayBuffer(f);
-    },
-    btFlowCol: (el) => { if (bt.flow) bt.flow.cols[el.dataset.k] = +el.value; },
-    btDS: (el) => { bt.datasetId = el.value; bt.result = null; bt.val = null; bt.cmp = null; bt.flow = null; bt.cfg.from = ''; bt.cfg.to = ''; A.render(); },
+    btImpCol: (el) => { bt.imp.an.cols[el.dataset.k] = +el.value; bt.imp.an.fromSaved = false; A.render(); },
+    btImpAdj: (el) => { bt.imp.useAdj = el.checked; A.render(); },
+    btImpDest: (el) => { bt.imp[el.dataset.k] = el.type === 'radio' ? el.value : el.value; A.render(); },
+    btDS: (el) => { bt.datasetId = el.value; bt.result = null; bt.val = null; bt.cmp = null; bt.cfg.from = ''; bt.cfg.to = ''; A.render(); },
     btAdd: (el) => { if (!el.value) return; bt.cfg[el.dataset.g].conds.push(newCond(el.value)); A.render(); },
     btType: (el) => { bt.cfg[el.dataset.g].conds[+el.dataset.i] = newCond(el.value); A.render(); },
     btParam: (el) => { bt.cfg[el.dataset.g].conds[+el.dataset.i][el.dataset.k] = el.value; },
@@ -294,6 +377,7 @@
     else if (el.dataset.btc) bt.cfg[el.dataset.btc] = el.value;
     else if (el.dataset.btr) bt.cfg.renko[el.dataset.btr] = el.value;
     else if (el.dataset.btsplit) bt.splitPct = el.value;
+    else if (el.dataset.btimp) bt.imp[el.dataset.btimp] = el.value;
   };
   document.addEventListener('change', (e) => {
     const el = e.target;

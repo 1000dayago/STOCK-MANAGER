@@ -155,6 +155,74 @@ t('렌코 생성', () => {
   const r = SM.buildRenko(data, { mode: 'fixed', value: 2 });
   assert(r.bricks.length > 0); console.log('   bricks', r.bricks.map((b) => (b.dir > 0 ? '+' : '-') + b.c).join(' '));
 });
+
+const rowsN = (n, f) => Array.from({ length: n }, (_, i) => f(i));
+t('불러오기: 앞에 설명 줄이 있어도 제목 줄 자동 인식', () => {
+  const txt = '한국전력 일별 시세\n조회기간: 2025-01-01 ~ 2025-01-10\n\n일자,종가,대비,등락률,시가,고가,저가,거래량,거래대금,시가총액,상장주식수\n' + rowsN(6, (i) => `2025/01/0${i + 2},"${20000 + i * 100}",100,0.5%,"${19900 + i * 100}","${20100 + i * 100}","${19800 + i * 100}","${1000000 + i}",1,2,3`).join('\n');
+  const r = SM.parseOHLCV(txt); assert(r.data, r.error);
+  assert.equal(r.count, 6); assert.equal(r.data.o[0], 19900); assert.equal(r.data.v[0], 1000000); assert.equal(r.data.c[5], 20500);
+  assert(!r.data.frgn);
+});
+t('불러오기: investing.com 영문 (Jan 02, 2025 / Vol. 1.2M / Price)', () => {
+  const days = ['Jan 06, 2025', 'Jan 03, 2025', 'Jan 02, 2025', 'Dec 31, 2024', 'Dec 30, 2024'];
+  const txt = '"Date","Price","Open","High","Low","Vol.","Change %"\n' + days.map((d, i) => `"${d}","1,${200 - i}.50","1,190.00","1,210.00","1,180.00","${(1.2 + i / 10).toFixed(1)}M","0.5%"`).join('\n');
+  const r = SM.parseOHLCV(txt); assert(r.data, r.error);
+  assert.equal(r.data.d[0], '2024-12-30'); assert.equal(r.data.d[4], '2025-01-06'); approx(r.data.v[4], 1200000); approx(r.data.v[0], 1600000); approx(r.data.c[4], 1200.5);
+});
+t('불러오기: 한글 investing / 2025년 1월 2일 / K 단위', () => {
+  const txt = '날짜,종가,오픈,고가,저가,거래량,변동 %\n' + rowsN(5, (i) => `"2025년 1월 ${2 + i}일","${3000 + i}","2,990","3,100","2,950","${350 + i}K","1%"`).join('\n');
+  const r = SM.parseOHLCV(txt); assert(r.data, r.error);
+  assert.equal(r.data.d[0], '2025-01-02'); assert.equal(r.data.v[0], 350000); assert.equal(r.data.o[0], 2990);
+});
+t('불러오기: 네이버식 공백 구분 붙여넣기("상승 100" 제거)', () => {
+  const txt = '날짜 종가 전일비 등락률 시가 고가 저가 거래량\n' + rowsN(6, (i) => `2025.01.${String(10 - i).padStart(2, '0')} 10,${i}00 ${i % 2 ? '하락' : '상승'} 100 +1.00% 9,900 10,100 9,800 123,456`).join('\n');
+  const r = SM.parseOHLCV(txt); assert(r.data, r.error);
+  assert.equal(r.count, 6); assert.equal(r.data.d[0], '2025-01-05'); assert.equal(r.data.v[0], 123456); assert.equal(r.data.o[0], 9900); assert.equal(r.data.h[0], 10100);
+});
+t('불러오기: 가격+수급이 한 파일에 있으면 함께 읽음', () => {
+  const txt = '날짜\t시가\t고가\t저가\t종가\t거래량\t기관 순매수\t외국인 순매수\t외국인 보유율\n' + rowsN(6, (i) => `2025-01-0${i + 1}\t100\t110\t90\t105\t1,000\t${i * 10 - 20}\t▼${i * 5}\t50.1%`).join('\n');
+  const r = SM.parseOHLCV(txt); assert(r.data, r.error);
+  assert.deepEqual(r.data.inst.slice(0, 3), [-20, -10, 0]); assert.equal(r.data.frgn[1], -5); assert.equal(r.data.frgn[0], 0);
+  assert(r.warnings.some((w) => /수급 열/.test(w)));
+});
+t('열 자동 추정/종류 판별/저장된 열 설정', () => {
+  const tFlow = SM.splitTable('날짜\t기관\t외국인\n2025.01.02\t1\t2\n2025.01.03\t3\t4');
+  const an = SM.analyzeTable(tFlow); assert.equal(an.kind, 'flow');
+  const tPrice = SM.splitTable('Date,Open,High,Low,Close,Volume\n2025-01-02,1,2,0,1,5\n2025-01-03,1,2,0,1,5');
+  assert.equal(SM.analyzeTable(tPrice).kind, 'price');
+  const odd = SM.splitTable('가,나,다\n2025-01-02,1,2');
+  assert.equal(SM.analyzeTable(odd).kind, 'unknown');
+  const sig = SM.analyzeTable(odd).signature;
+  const saved = { [sig]: { date: 0, close: 1, open: -1, high: -1, low: -1, volume: 2, adj: -1, frgn: -1, inst: -1, indiv: -1 } };
+  const an2 = SM.analyzeTable(odd, saved); assert(an2.fromSaved); assert.equal(an2.kind, 'price');
+});
+t('데이터 이어붙이기(겹침/추가/수급 보존/가격 불일치 감지)', () => {
+  const mk2 = (days, base, flow) => ({ d: days, o: days.map(() => base), h: days.map(() => base), l: days.map(() => base), c: days.map(() => base), v: days.map(() => 1), hasVol: true, hasHL: true, frgn: flow ? days.map((_, i) => i) : undefined });
+  const a = mk2(['2025-01-02', '2025-01-03', '2025-01-06'], 100, true);
+  const b = mk2(['2025-01-06', '2025-01-07'], 100.2);
+  const m = SM.mergeDatasets(a, b);
+  assert.equal(m.data.d.length, 4); assert.equal(m.added, 1); assert.equal(m.overlap, 1); assert.equal(m.mismatch, 0);
+  assert.deepEqual(m.data.frgn, [0, 1, 2, null]);  // 기존 수급 유지
+  const c = SM.mergeDatasets(a, mk2(['2025-01-06'], 50)); assert.equal(c.mismatch, 1);
+});
+
+
+t('이어붙이기: 수급 표(시가·고가·저가 없음)는 기존 OHLC를 보존 + 같은 종목 판별', () => {
+  const days = ['2025-01-02', '2025-01-03', '2025-01-06', '2025-01-07', '2025-01-08'];
+  const a = { d: days, o: [10, 11, 12, 13, 14], h: [11, 12, 13, 14, 15], l: [9, 10, 11, 12, 13], c: [10.5, 11.5, 12.5, 13.5, 14.5], v: [100, 100, 100, 100, 100], hasVol: true, hasHL: true, hasOpen: true };
+  const tb = SM.splitTable('날짜\t종가\t거래량\t기관\t외국인\n' + days.map((d, i) => `${d.replace(/-/g, '.')}\t${10.5 + i}\t${200 + i}\t${i}\t${-i}`).join('\n'));
+  const an = SM.analyzeTable(tb); assert.equal(an.kind, 'both');
+  const b = SM.buildDataset(tb, an.cols).data;
+  assert.equal(b.hasOpen, false); assert.equal(b.hasHL, false);
+  const m = SM.mergeDatasets(a, b);
+  assert.deepEqual(m.data.o, a.o); assert.deepEqual(m.data.h, a.h); assert.deepEqual(m.data.l, a.l);   // 보존
+  assert.deepEqual(m.data.v, [200, 201, 202, 203, 204]);                                                // 거래량·수급은 갱신
+  assert.deepEqual(m.data.inst, [0, 1, 2, 3, 4]); assert.deepEqual(m.data.frgn, [0, -1, -2, -3, -4]);
+  assert(m.keptOHLC);
+  const sc = SM.sameStockScore(a, b); assert.equal(sc.overlap, 5); assert.equal(sc.ratio, 1);
+  const other = Object.assign({}, b, { c: b.c.map((x) => x * 3) }); assert.equal(SM.sameStockScore(a, other).ratio, 0);
+});
+
 console.log(ok + ' passed');
 t('버전 비교', () => {
   assert.equal(SM.compareVersions('1.10.0', '1.9.9'), 1);
