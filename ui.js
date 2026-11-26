@@ -3,6 +3,7 @@
   'use strict';
   const SM = root.SM;
   const { fmtNum, fmtMoney, fmtPct, num, todayStr } = SM;
+  const ic = SM.ic;
   const KEY = 'stockmgr.v1';
   const A = (SM.app = { renderers: {}, handlers: {}, changeHandlers: {}, inputHandlers: {}, afterRender: {} });
 
@@ -58,7 +59,7 @@
   }
 
   /* ---------- 헤더/내비 ---------- */
-  const VIEWS = [['home', '홈', '🏠'], ['stocks', '종목', '📈'], ['pnl', '손익', '💰'], ['calc', '계산기', '🧮'], ['backtest', '백테스트', '🧪'], ['settings', '설정', '⚙️']];
+  const VIEWS = [['home', '홈', 'home'], ['stocks', '종목', 'stocks'], ['pnl', '손익', 'bars'], ['calc', '계산기', 'calc'], ['backtest', '백테스트', 'lab'], ['settings', '설정', 'sliders']];
   function syncBadge() {
     const s = SM.sync.S;
     const map = { off: ['이 기기에만 저장', 'off'], connecting: ['연결 중', 'warn'], signedout: ['로그인 필요', 'warn'], syncing: ['동기화 중', 'warn'], synced: ['동기화됨', 'ok'], error: ['동기화 오류', 'err'] };
@@ -68,9 +69,9 @@
   function renderChrome(body) {
     const banner = A.banner ? A.banner() : '';
     const vtag = A.versionTag ? A.versionTag() : '';
-    return `<header class="top"><div class="brand">📈 주식 관리</div><nav class="nav-top">${VIEWS.map(([k, l]) => `<button class="${ui.view === k ? 'on' : ''}" data-act="nav" data-v="${k}">${l}</button>`).join('')}</nav><span id="syncBadgeBox">${syncBadge()}</span></header>
+    return `<header class="top"><div class="brand"><span class="logo">${ic('logo')}</span>주식 관리</div><nav class="nav-top">${VIEWS.map(([k, l]) => `<button class="${ui.view === k ? 'on' : ''}" data-act="nav" data-v="${k}">${l}</button>`).join('')}</nav><span id="syncBadgeBox">${syncBadge()}</span></header>
     ${banner}<main>${body}${ui.view === 'home' || ui.view === 'settings' ? vtag : ''}</main>
-    <nav class="nav-bottom">${VIEWS.map(([k, l, ic]) => `<button class="${ui.view === k ? 'on' : ''}" data-act="nav" data-v="${k}"><i>${ic}</i><span>${l}</span></button>`).join('')}</nav>`;
+    <nav class="nav-bottom">${VIEWS.map(([k, l, nm]) => `<button class="${ui.view === k ? 'on' : ''}" data-act="nav" data-v="${k}"><i>${ic(nm)}</i><span>${l}</span></button>`).join('')}</nav>`;
   }
 
   function render() {
@@ -119,7 +120,7 @@
   A.editNote = editNote; A.openNote = openNote;
   const noteBtn = (key, short) => {
     const e = state.noteIdx[key];
-    return `<button class="btn sm ${e ? 'has' : ''}" data-act="note" data-key="${key}" title="${e ? esc(e.t) : '작성'}">📝 ${e ? (short ? '보기' : '사유 보기') : (short ? '쓰기' : '사유 쓰기')}${e && e.n ? ' 🖼' + e.n : ''}</button>`;
+    return `<button class="btn sm ${e ? 'has' : ''}" data-act="note" data-key="${key}" title="${e ? esc(e.t) : '작성'}">${ic('note')}${e ? (short ? '보기' : '사유 보기') : (short ? '쓰기' : '사유 쓰기')}${e && e.n ? ` <span class="imgc">${ic('image')}${e.n}</span>` : ''}</button>`;
   };
   const noteLine = (key) => (state.noteIdx[key] ? `<div class="nprev">${esc(state.noteIdx[key].t)}</div>` : '');
   SM.media.hooks.index = (key, entry, remote) => {
@@ -152,7 +153,7 @@
     const bk = state.lastBackupAt ? SM.daysBetween(new Date(state.lastBackupAt).toISOString().slice(0, 10), today) : null;
     if (bk === null) warn.push('아직 백업한 적이 없습니다. <a href="#" data-act="goSettings">설정</a>에서 백업을 내려받아 두세요.');
     else if (bk > 30) warn.push(`마지막 백업이 ${bk}일 전입니다.`);
-    if (warn.length) h += `<div class="warnbox">${warn.map((w) => `<div>⚠ ${w}</div>`).join('')}</div>`;
+    if (warn.length) h += `<div class="warnbox">${warn.map((w) => `<div>${ic('alert')}<span>${w}</span></div>`).join('')}</div>`;
     if (pf.weights.length > 1) {
       const tot = pf.weights.reduce((a, w) => a + w.valueKRW, 0);
       h += `<h4>종목 비중 <small class="muted">(평가금액 기준)</small></h4><div class="wbar">${pf.weights.map((w, i) => `<span style="width:${(w.valueKRW / tot) * 100}%;background:${PALETTE[i % PALETTE.length]}" title="${esc(w.name)} ${(w.valueKRW / tot * 100).toFixed(1)}%"></span>`).join('')}</div>
@@ -160,7 +161,7 @@
     }
     h += `</section>`;
     // 종목 카드
-    h += `<div class="row between wrap"><h2 class="sec">내 종목</h2><button class="btn sm" data-act="addStock">＋ 종목 추가</button></div><div class="scards">`;
+    h += `<div class="row between wrap"><h2 class="sec">내 종목</h2><button class="btn sm" data-act="addStock">${ic('plus')}종목 추가</button></div><div class="scards">`;
     for (const st of state.stocks) {
       const sm = SM.stockSummary(st, state.settings), cur = SM.curOf(st);
       const age = SM.priceAge(st);
@@ -169,8 +170,8 @@
       h += `<article class="scard" data-act="goStock" data-id="${st.id}" tabindex="0"><div class="row between"><b>${esc(st.name)} <small class="muted">${esc(st.code)}${st.market === 'US' ? ' · US' : ''}</small></b>${sm.value != null ? `<span class="chip ${SM.num(sm.unrlRetKRW) >= 0 ? 'up' : 'down'}">${fmtPct(sm.unrlRetKRW)}</span>` : ''}</div>
         ${sm.qty > 0 ? `<div class="sline">보유 <b>${fmtNum(sm.qty, sm.qty % 1 ? 4 : 0)}주</b> · 평단 <b>${fmtMoney(sm.avg, cur)}</b>${st.price ? ` · 현재가 <b>${fmtMoney(st.price, cur)}</b> <small class="${age > 3 ? 'stale' : 'muted'}">(${age > 365 ? '입력일 불명' : age === 0 ? '오늘' : age + '일 전'})</small>` : ' · <span class="stale">현재가 미입력</span>'}</div>
         ${sm.value != null ? `<div class="sline">평가손익 ${money(sm.unrlKRW, 'KRW')}</div>` : ''}
-        <div class="lchips">${lots.map((l) => { const v = SM.lotView(st, l, state.settings); return `<span class="lchip"><b>${l.no}번</b> ${fmtNum(v.rem, v.rem % 1 ? 4 : 0)}주 @${fmtNum(l.price, cur === 'USD' ? 2 : 0)}${v.ret != null ? ` <em class="${cls(v.ret)}">${fmtPct(v.ret)}</em>` : ''}${state.noteIdx['lot_' + l.id] ? ' 📝' : ''}</span>`; }).join('')}</div>` : '<div class="sline muted">보유 수량 없음</div>'}
-        ${mem ? `<div class="nprev">📌 ${esc(mem.t)}</div>` : ''}</article>`;
+        <div class="lchips">${lots.map((l) => { const v = SM.lotView(st, l, state.settings); return `<span class="lchip"><b>${l.no}번</b> ${fmtNum(v.rem, v.rem % 1 ? 4 : 0)}주 @${fmtNum(l.price, cur === 'USD' ? 2 : 0)}${v.ret != null ? ` <em class="${cls(v.ret)}">${fmtPct(v.ret)}</em>` : ''}${state.noteIdx['lot_' + l.id] ? ' ' + ic('note') : ''}</span>`; }).join('')}</div>` : '<div class="sline muted">보유 수량 없음</div>'}
+        ${mem ? `<div class="nprev">${ic('pin')} ${esc(mem.t)}</div>` : ''}</article>`;
     }
     h += `</div>`;
     // 일정
@@ -194,12 +195,12 @@
   const fd = (d) => String(d).slice(2).replace(/-/g, '.');   // 2026-10-01 → 26.10.01
   const qn = (x) => fmtNum(x, x % 1 ? 4 : 0);
   const SORTS = [['no', '번호순'], ['retDesc', '수익률 높은순'], ['retAsc', '수익률 낮은순'], ['priceAsc', '단가 낮은순'], ['priceDesc', '단가 높은순'], ['dateDesc', '최근 매수순']];
-  const abtn = (act, icon, label, extra = '', attrs = '') => `<button type="button" class="ab ${extra}" data-act="${act}" ${attrs} title="${label}"><i>${icon}</i><span>${label}</span></button>`;
+  const abtn = (act, icon, label, extra = '', attrs = '') => `<button type="button" class="ab ${extra}" data-act="${act}" ${attrs} title="${label}"><i>${ic(icon)}</i><span>${label}</span></button>`;
   const section = (id, title, count, body) => `<details class="card sec" data-sec="${id}" ${ui.sec[id] ? 'open' : ''}><summary><span class="st">${title}</span>${count != null ? `<span class="count">${count}</span>` : ''}<span class="chev"></span></summary><div class="sec-b">${body}</div></details>`;
 
   A.renderers.stocks = function () {
     const st = curStock();
-    let h = `<div class="tabs">${state.stocks.map((s) => `<button class="tab ${s.id === ui.stockId ? 'on' : ''}" data-act="tab" data-id="${s.id}">${esc(s.name)}${s.market === 'US' ? ' <small>US</small>' : ''}</button>`).join('')}<button class="tab add" data-act="addStock">＋ 종목</button></div>`;
+    let h = `<div class="tabs">${state.stocks.map((s) => `<button class="tab ${s.id === ui.stockId ? 'on' : ''}" data-act="tab" data-id="${s.id}">${esc(s.name)}${s.market === 'US' ? ' <small>US</small>' : ''}</button>`).join('')}<button class="tab add" data-act="addStock">${ic('plus')}종목</button></div>`;
     if (!st) return h + `<section class="card empty"><h2>종목이 없습니다</h2><p><button class="btn primary" data-act="addStock">첫 종목 추가</button></p></section>`;
     const cur = SM.curOf(st), us = st.market === 'US';
     const sm = SM.stockSummary(st, state.settings);
@@ -209,9 +210,9 @@
     h += `<section class="card stockhead"><div class="sh-top"><div class="sh-title"><b class="sh-name">${esc(st.name)}</b> <small class="muted">${esc(st.code)} · ${us ? '해외 USD' : '국내 KRW'}</small></div>
       <div class="sh-right"><label class="px">현재가<input class="inp" data-change="price" value="${st.price == null ? '' : st.price}" inputmode="decimal" placeholder="입력"></label>
       ${us ? `<label class="px">환율<input class="inp" data-change="fxNow" value="${state.settings.fxNow}" inputmode="decimal"></label>` : ''}
-      <details class="menu"><summary aria-label="더보기">⋯</summary><div class="menu-body"><button data-act="editStock">종목 수정</button><button data-act="splitAdj">액면분할 조정</button><button class="danger" data-act="delStock">종목 삭제</button></div></details></div></div>
+      <details class="menu"><summary aria-label="더보기">${ic('more')}</summary><div class="menu-body"><button data-act="editStock">종목 수정</button><button data-act="splitAdj">액면분할 조정</button><button class="danger" data-act="delStock">종목 삭제</button></div></details></div></div>
       <div class="sh-sub"><small class="${age > 3 ? 'stale' : 'muted'}">${st.price ? '현재가 ' + (age > 365 ? '입력일 불명' : age === 0 ? '오늘 입력' : age + '일 전 입력') : '현재가를 입력하면 평가손익이 계산됩니다'}</small>
-        ${links.map((l) => `<a class="lnk" href="${esc(SM.fillLink(l.url, st))}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join('')}</div>
+        ${links.map((l) => `<a class="lnk" href="${esc(SM.fillLink(l.url, st))}" target="_blank" rel="noopener noreferrer">${esc(l.label)}${ic('ext')}</a>`).join('')}</div>
       <div class="cards">
         <div class="stat"><span>보유 수량</span><b>${qn(sm.qty)}주</b></div>
         <div class="stat"><span>전체 평단가</span><b>${fmtMoney(sm.avg, cur)}</b><small>수수료 포함 ${fmtMoney(sm.avgInclFee, cur)}${us && sm.avgKRW ? ` · 원화 ${fmtMoney(sm.avgKRW, 'KRW')}` : ''}</small></div>
@@ -244,11 +245,11 @@
     h += `<section class="card"><div class="sec-h"><h2>매수 순번 <span class="count">${heldN}</span></h2>
       <div class="sec-tools"><div class="seg2"><button class="${!ui.showSold ? 'on' : ''}" data-act="lotFilter" data-v="held">보유</button><button class="${ui.showSold ? 'on' : ''}" data-act="lotFilter" data-v="all">전체</button></div>
       <select class="inp sm" data-change="lotSort" aria-label="정렬">${opts(SORTS, ui.lotSort)}</select></div></div>
-      <div class="toolbar"><button class="btn primary sm" data-act="addLot">＋ 매수</button><button class="btn sm" data-act="mergeSel" ${selLots.length < 2 ? 'disabled' : ''}>선택 병합</button><button class="btn sm accent" data-act="openSell" ${sm.qty > 0 ? '' : 'disabled'}>매도 / 시뮬레이션</button><span class="grow"></span>${rows.some((r) => r.v.rem > 0) ? `<button class="btn sm ghost" data-act="selAll">${selLots.length ? '선택 해제' : '전체 선택'}</button>` : ''}</div>
+      <div class="toolbar"><button class="btn primary sm" data-act="addLot">${ic('plus')}매수</button><button class="btn sm" data-act="mergeSel" ${selLots.length < 2 ? 'disabled' : ''}>병합</button><button class="btn sm accent" data-act="openSell" ${sm.qty > 0 ? '' : 'disabled'}>매도·시뮬레이션</button><span class="grow"></span>${rows.some((r) => r.v.rem > 0) ? `<button class="btn sm ghost" data-act="selAll">${selLots.length ? '선택 해제' : '전체 선택'}</button>` : ''}</div>
       ${selBar}
       <div class="lots" role="list">
         <div class="lhead"><span></span><span>순번</span><span>매수일</span><span>수량 · 단가</span><span>수익률</span><span>평가손익</span><span></span></div>
-        ${rows.length ? rows.map((r) => lotRow(st, r.l, r.v, cur, us)).join('') : `<div class="lempty">매수 기록이 없습니다. “＋ 매수”를 눌러 첫 순번을 기록하세요.</div>`}
+        ${rows.length ? rows.map((r) => lotRow(st, r.l, r.v, cur, us)).join('') : `<div class="lempty">매수 기록이 없습니다. “매수” 버튼을 눌러 첫 순번을 기록하세요.</div>`}
       </div>
       <p class="hint">줄을 누르면 수수료·메모·수정/삭제가 펼쳐집니다. 수익률은 매수 수수료 포함 원가 기준이고 매도 비용은 매도/시뮬레이션에서 반영됩니다.${us ? ' 해외주식은 원화(환율 반영) 기준입니다.' : ''}${(st.splits || []).length ? ` 액면분할 조정: ${st.splits.map((x) => x.date + ' ×' + +x.ratio.toFixed(6)).join(', ')}` : ''}</p></section>`;
 
@@ -260,7 +261,7 @@
     /* 일정 */
     const evs = (st.events || []).slice();
     h += section('events', '일정 <small class="muted">실적·배당·주총</small>', evs.length, `
-      ${evs.length ? `<ul class="evlist">${evs.map((e) => { const d = SM.daysBetween(todayStr(), e.date); return `<li class="${d < 0 ? 'past' : d <= 3 ? 'soon' : ''}"><span class="evd">${e.date}</span><span class="evk">${esc(e.kind)}</span><span class="grow">${esc(e.title)} <small class="muted">${d === 0 ? '오늘' : d > 0 ? d + '일 후' : -d + '일 지남'}</small></span><button class="ab danger" data-act="delEvent" data-id="${e.id}" title="삭제"><i>🗑</i></button></li>`; }).join('')}</ul>` : '<p class="muted">등록된 일정이 없습니다.</p>'}
+      ${evs.length ? `<ul class="evlist">${evs.map((e) => { const d = SM.daysBetween(todayStr(), e.date); return `<li class="${d < 0 ? 'past' : d <= 3 ? 'soon' : ''}"><span class="evd">${e.date}</span><span class="evk">${esc(e.kind)}</span><span class="grow">${esc(e.title)} <small class="muted">${d === 0 ? '오늘' : d > 0 ? d + '일 후' : -d + '일 지남'}</small></span><button class="ab danger" data-act="delEvent" data-id="${e.id}" title="삭제"><i>${ic('trash')}</i></button></li>`; }).join('')}</ul>` : '<p class="muted">등록된 일정이 없습니다.</p>'}
       <div class="evform"><input type="date" id="evDate" class="inp" value="${todayStr()}"><select id="evKind" class="inp">${EVENT_KINDS.map((k) => `<option>${k}</option>`).join('')}</select><input id="evTitle" class="inp" placeholder="예: 3분기 실적 발표"><button class="btn primary sm" data-act="addEvent">추가</button></div>`);
 
     /* 종목 메모 */
@@ -291,15 +292,15 @@
     const chip = done ? '<span class="chip off">완료</span>' : retV != null ? `<span class="chip ${retV >= 0 ? 'up' : 'down'}">${fmtPct(retV)}</span>` : '<span class="muted">-</span>';
     const pnl = done || v.unrl == null ? '<span class="muted">-</span>' : money(us ? v.unrlKRW : v.unrl, 'KRW');
     const acts = [
-      abtn('note', '📝', has ? '사유 보기' : '사유 쓰기', has ? 'on' : '', `data-key="${key}"`),
-      abtn('editLot', '✎', '수정', '', `data-id="${l.id}"`),
-      !sold && l.qty > 1 ? abtn('splitLot', '✂', '분할', '', `data-id="${l.id}"`) : '',
-      l.parts && !sold ? abtn('unmerge', '⤺', '병합취소', '', `data-id="${l.id}"`) : '',
-      !sold ? abtn('delLot', '🗑', '삭제', 'danger', `data-id="${l.id}"`) : '',
+      abtn('note', 'note', has ? '사유 보기' : '사유 쓰기', has ? 'on' : '', `data-key="${key}"`),
+      abtn('editLot', 'edit', '수정', '', `data-id="${l.id}"`),
+      !sold && l.qty > 1 ? abtn('splitLot', 'scissors', '분할', '', `data-id="${l.id}"`) : '',
+      l.parts && !sold ? abtn('unmerge', 'undo', '병합취소', '', `data-id="${l.id}"`) : '',
+      !sold ? abtn('delLot', 'trash', '삭제', 'danger', `data-id="${l.id}"`) : '',
     ].join('');
     return `<div class="lrow ${done ? 'done' : ''} ${open ? 'open' : ''}" role="listitem" data-act="lotToggle" data-id="${l.id}">
       <label class="lchk">${done ? '' : `<input type="checkbox" data-change="selLot" data-id="${l.id}" ${ui.selected.has(l.id) ? 'checked' : ''} aria-label="${l.no}번 선택">`}</label>
-      <b class="lno">${l.no}번${l.parts ? ' <small class="tag">병합</small>' : ''}${has ? ` <button type="button" class="nmark" data-act="note" data-key="${key}" title="사유 보기" aria-label="${l.no}번 사유 보기">📝</button>` : ''}</b>
+      <b class="lno">${l.no}번${l.parts ? ' <small class="tag">병합</small>' : ''}${has ? ` <button type="button" class="nmark" data-act="note" data-key="${key}" title="사유 보기" aria-label="${l.no}번 사유 보기">${ic('note')}</button>` : ''}</b>
       <span class="ldate">${fd(l.date)}<small class="muted"> · ${days}일</small></span>
       <span class="lqty">${done ? '<span class="muted">매도완료</span>' : `<b>${qn(v.rem)}주</b>${v.rem !== l.qty ? `<small class="muted">/${qn(l.qty)}</small>` : ''}`} <span class="muted">@${fmtNum(l.price, us ? 2 : 0)}</span></span>
       <span class="lret">${chip}</span><span class="lpnl">${pnl}</span>
@@ -314,7 +315,7 @@
     return `<div class="srow"><span class="sd">${fd(s.date)}</span><span class="sq"><b>${qn(s.qty)}주</b> <span class="muted">@${fmtNum(s.price, us ? 2 : 0)}${us ? ` (환율 ${fmtNum(s.fx, 0)})` : ''}</span></span>
       <span class="sl muted">${s.lines.map((l) => `${l.lotNo}번×${qn(l.qty)}`).join(', ')}</span>
       <span class="sr"><span class="chip ${r >= 0 ? 'up' : 'down'}">${fmtPct(r)}</span> ${money(s.pnlKRW, 'KRW')}</span>
-      <span class="acts inline">${abtn('note', '📝', has ? '사유 보기' : '사유 쓰기', has ? 'on' : '', `data-key="${key}"`)}${abtn('delSale', '🗑', '삭제', 'danger', `data-id="${s.id}"`)}</span></div>`;
+      <span class="acts inline">${abtn('note', 'note', has ? '사유 보기' : '사유 쓰기', has ? 'on' : '', `data-key="${key}"`)}${abtn('delSale', 'trash', '삭제', 'danger', `data-id="${s.id}"`)}</span></div>`;
   }
 
   /* ---------- 종목/순번 폼 ---------- */
@@ -499,8 +500,8 @@
       <label>현재 보유 수량<input data-calc="baseQty" value="${esc(c.baseQty)}" inputmode="decimal"></label>
       <label>현재 평단가<input data-calc="baseAvg" value="${esc(c.baseAvg)}" inputmode="decimal"></label></div>
       <h4>추가 매수 계획</h4>
-      ${c.buys.map((b, i) => `<div class="row gap buyrow"><span class="idx">${i + 1}</span><input class="inp" data-calcbuy="${i}.qty" value="${esc(b.qty)}" inputmode="decimal" placeholder="수량"><input class="inp" data-calcbuy="${i}.price" value="${esc(b.price)}" inputmode="decimal" placeholder="매수가"><button class="btn sm danger" type="button" data-act="calcDel" data-i="${i}">✕</button></div>`).join('')}
-      <div class="row gap"><button class="btn" data-act="calcAdd">＋ 매수 추가</button><label class="chk"><input type="checkbox" data-calc="feeOn" ${c.feeOn ? 'checked' : ''}> 매수 수수료 포함</label></div>
+      ${c.buys.map((b, i) => `<div class="row gap buyrow"><span class="idx">${i + 1}</span><input class="inp" data-calcbuy="${i}.qty" value="${esc(b.qty)}" inputmode="decimal" placeholder="수량"><input class="inp" data-calcbuy="${i}.price" value="${esc(b.price)}" inputmode="decimal" placeholder="매수가"><button class="btn sm danger" type="button" data-act="calcDel" data-i="${i}" aria-label="삭제">${ic('x')}</button></div>`).join('')}
+      <div class="row gap"><button class="btn" data-act="calcAdd">${ic('plus')}매수 추가</button><label class="chk"><input type="checkbox" data-calc="feeOn" ${c.feeOn ? 'checked' : ''}> 매수 수수료 포함</label></div>
       <div id="calcOut" class="result"></div></section>
       <section class="card"><h2>목표 평단가 역산</h2><p class="hint">목표 평단가에 도달하려면 특정 가격에 몇 주를 더 사야 하는지 계산합니다. (위의 현재 보유 수량/평단 사용)</p>
       <div class="grid2"><label>목표 평단가<input data-calc="target" value="${esc(c.target)}" inputmode="decimal"></label><label>매수 가격<input data-calc="tprice" value="${esc(c.tprice)}" inputmode="decimal"></label></div><div id="targetOut" class="result"></div></section>
@@ -556,8 +557,8 @@ service cloud.firestore {
       <div><h4>해외</h4><div class="grid2">${f('us.buyFee', '매수 수수료')}${f('us.sellFee', '매도 수수료')}${f('us.sellTax', '매도 시 기타 세금')}${f('us.taxRate', '양도세율')}${f('us.deduction', '연 기본공제(원)')}</div></div></div>
       <div class="grid2">${f('fxNow', '현재 환율 (원/$)')}<label>수익 색상<select data-setting="upColor">${opts([['red', '수익=빨강, 손실=파랑 (한국식)'], ['green', '수익=초록, 손실=빨강 (해외식)']], s.upColor)}</select></label></div></section>
       <section class="card"><h2>종목 바로가기 링크</h2><p class="hint">종목 화면에 보이는 링크입니다. 주소에 <code>{code}</code>(종목코드/티커)와 <code>{name}</code>(종목명)을 넣으면 종목마다 자동으로 바뀝니다. 사이트 주소 형식이 바뀌면 여기서 직접 고치세요.</p>
-      ${s.links.map((l, i) => `<div class="linkrow"><input class="inp" data-link="${i}.label" value="${esc(l.label)}" placeholder="이름"><input class="inp wide" data-link="${i}.url" value="${esc(l.url)}" placeholder="https://..."><select class="inp" data-link="${i}.market">${opts([['ALL', '전체'], ['KR', '국내'], ['US', '해외']], l.market || 'ALL')}</select><button class="btn sm danger" data-act="linkDel" data-i="${i}">✕</button></div>`).join('')}
-      <div class="btns"><button class="btn" data-act="linkAdd">＋ 링크 추가</button><button class="btn sm" data-act="linkReset">기본값으로</button></div></section>
+      ${s.links.map((l, i) => `<div class="linkrow"><input class="inp" data-link="${i}.label" value="${esc(l.label)}" placeholder="이름"><input class="inp wide" data-link="${i}.url" value="${esc(l.url)}" placeholder="https://..."><select class="inp" data-link="${i}.market">${opts([['ALL', '전체'], ['KR', '국내'], ['US', '해외']], l.market || 'ALL')}</select><button class="btn sm danger" data-act="linkDel" data-i="${i}" aria-label="삭제">${ic('x')}</button></div>`).join('')}
+      <div class="btns"><button class="btn" data-act="linkAdd">${ic('plus')}링크 추가</button><button class="btn sm" data-act="linkReset">기본값으로</button></div></section>
       <section class="card" id="syncCard">${syncCard()}</section>
       <section class="card"><h2>백업 / 복원</h2><p class="hint">동기화를 쓰더라도 정기적으로 백업 파일을 받아두세요. (브라우저 데이터 삭제, 로그인 문제에 대비)</p>
       <label class="chk"><input type="checkbox" id="expImg" checked> 매매 사유의 사진도 백업에 포함 (파일이 커질 수 있습니다)</label>

@@ -4,6 +4,7 @@
   const SM = root.SM, A = SM.app;
   const { fmtNum, fmtMoney, fmtPct, num } = SM;
   const { esc, opts, money, pct, toast } = A;
+  const ic = SM.ic;
   const DS_KEY = 'stockmgr.datasets';
   const clone = (o) => JSON.parse(JSON.stringify(o));
 
@@ -53,7 +54,7 @@
     const want = g === 'entries' ? (d) => d.use !== 'exit' : (d) => d.use !== 'entry';
     const groups = {};
     Object.entries(SM.COND_DEFS).filter(([, d]) => want(d)).forEach(([k, d]) => { (groups[d.group] = groups[d.group] || []).push([k, d.label]); });
-    return (selected ? '' : '<option value="">＋ 조건 선택…</option>') + Object.entries(groups).map(([gr, list]) => `<optgroup label="${gr}">${list.map(([k, l]) => `<option value="${k}" ${k === selected ? 'selected' : ''}>${esc(l)}</option>`).join('')}</optgroup>`).join('');
+    return (selected ? '' : '<option value="">조건 추가…</option>') + Object.entries(groups).map(([gr, list]) => `<optgroup label="${gr}">${list.map(([k, l]) => `<option value="${k}" ${k === selected ? 'selected' : ''}>${esc(l)}</option>`).join('')}</optgroup>`).join('');
   }
   function condRow(g, i, c) {
     const def = SM.COND_DEFS[c.type];
@@ -61,13 +62,13 @@
       ${def.params.map((p) => p.opts
         ? `<label class="mini">${p.label}<select class="inp" data-change="btParam" data-g="${g}" data-i="${i}" data-k="${p.k}">${opts(p.opts, c[p.k] != null ? c[p.k] : p.def)}</select></label>`
         : `<label class="mini">${p.label}<input class="inp" data-btp="${g}.${i}.${p.k}" value="${esc(c[p.k] != null ? c[p.k] : p.def)}" inputmode="decimal"></label>`).join('')}
-      <button class="btn sm danger" type="button" data-act="btDel" data-g="${g}" data-i="${i}">✕</button></div>`;
+      <button class="btn sm danger" type="button" data-act="btDel" data-g="${g}" data-i="${i}" aria-label="삭제">${ic('x')}</button></div>`;
   }
   const adder = (g) => `<div class="row gap wrap"><select class="inp" data-change="btAdd" data-g="${g}">${typeOptions(g, '')}</select></div>`;
 
   function flowStatus(ds) {
     if (!ds) return '';
-    const d = ds.data, f = (k) => (d[k] ? '✓' : '✗');
+    const d = ds.data, f = (k) => (d[k] ? `<span class="okm">${ic('check')}</span>` : `<span class="nom">${ic('xmark')}</span>`);
     const n = d.frgn ? d.frgn.filter((v) => v != null).length : d.inst ? d.inst.filter((v) => v != null).length : 0;
     return `수급 데이터: 외국인 ${f('frgn')} · 기관 ${f('inst')} · 개인 ${f('indiv')}${n ? ` (${n}일 매칭)` : ''}`;
   }
@@ -80,11 +81,11 @@
     return `<section class="card"><h2>1. 데이터 불러오기 <small class="muted">(가격 · 수급)</small></h2>
       <p class="hint">증권사·거래소·포털에서 받은 <b>일봉 파일(CSV)</b>이나 화면의 <b>표를 복사해서 붙여 넣은 것</b>을 읽습니다. 제목 줄 위치와 열 이름(한글·영문)을 자동으로 찾고, 틀리면 아래에서 열을 직접 고를 수 있습니다. 가격·수급이 한 파일에 같이 있어도, 수급만 따로 있어도 됩니다. 엑셀 파일(.xlsx)은 CSV로 저장하거나 표를 복사해서 붙여 넣으세요. 데이터는 용량 때문에 이 기기에만 저장됩니다.</p>
       <div class="row gap wrap"><label class="btn file">파일 선택 (여러 개 가능)<input type="file" multiple accept=".csv,.txt,.tsv,text/csv,text/plain" data-change="btFiles" hidden></label>
-        <label class="mini">제목 줄 번호 <small class="muted">(비우면 자동)</small><input class="inp" data-btimp="headerLine" value="${esc(imp.headerLine)}" inputmode="numeric" style="width:90px"></label></div>
+        <label class="mini">제목 줄 번호<input class="inp" data-btimp="headerLine" value="${esc(imp.headerLine)}" inputmode="numeric" placeholder="자동" style="width:90px"></label></div>
       <label>또는 여기에 붙여 넣기<textarea data-btimp="text" rows="4" placeholder="날짜,시가,고가,저가,종가,거래량&#10;2025-01-02,...">${esc(imp.text)}</textarea></label>
       <div class="btns"><button class="btn primary" data-act="btAnalyze">읽기</button>${imp.an ? '<button class="btn" data-act="btImpCancel">취소</button>' : ''}</div>
       ${imp.an ? impPanel() : ''}
-      <div id="dsWarn">${bt.warn.map((w) => `<p class="hint warn">⚠ ${esc(w)}</p>`).join('')}</div>
+      <div id="dsWarn">${bt.warn.map((w) => `<p class="hint warn">${ic('alert')} ${esc(w)}</p>`).join('')}</div>
       ${keys.length ? `<h4>저장된 데이터</h4><div class="row gap wrap"><select class="inp" data-change="btDS" style="max-width:260px">${opts(keys.map((k) => [k, ds[k].name]), bt.datasetId)}</select><span class="muted">${rangeTxt}</span><button class="btn sm danger" data-act="btDSDel">삭제</button></div><p class="hint">${flowStatus(cur)}</p>` : '<p class="muted">저장된 데이터가 없습니다.</p>'}
     </section>
     <section class="card"><h2>2. 전략 설정</h2>
@@ -134,18 +135,18 @@
     const sel = (k, label) => `<label class="mini">${label}<select class="inp" data-change="btImpCol" data-k="${k}"><option value="-1">(없음)</option>${hdr.map((h, i) => `<option value="${i}" ${an.cols[k] === i ? 'selected' : ''}>${i + 1}. ${esc(h || '(빈 칸)')}</option>`).join('')}</select></label>`;
     let summary = '';
     if (pv.build) {
-      if (pv.build.error) summary = `<p class="hint warn">⚠ ${esc(pv.build.error)}</p>`;
+      if (pv.build.error) summary = `<p class="hint warn">${ic('alert')} ${esc(pv.build.error)}</p>`;
       else {
         const d = pv.build.data, mn = Math.min(...d.c), mx = Math.max(...d.c);
         const last = d.d.length - 1, pick = [0, 1, 2, last - 2, last - 1, last].filter((i, j, a2) => i >= 0 && i <= last && a2.indexOf(i) === j);
         const f = (v) => (v == null ? '' : fmtNum(v, Math.abs(v) < 100 ? 2 : 0));
         summary = `<div class="stats-line"><b>${pv.build.count}일</b> · ${d.d[0]} ~ ${d.d[last]} · 종가 ${fmtNum(mn, mn < 100 ? 2 : 0)} ~ ${fmtNum(mx, mx < 100 ? 2 : 0)}${d.frgn || d.inst || d.indiv ? ' · 수급 포함' : ''}</div>
-          ${pv.build.warnings.map((w) => `<p class="hint warn">⚠ ${esc(w)}</p>`).join('')}
+          ${pv.build.warnings.map((w) => `<p class="hint warn">${ic('alert')} ${esc(w)}</p>`).join('')}
           <div class="tablewrap"><table class="mini"><thead><tr><th>날짜</th><th>시가</th><th>고가</th><th>저가</th><th>종가</th><th>거래량</th>${d.frgn ? '<th>외국인</th>' : ''}${d.inst ? '<th>기관</th>' : ''}${d.indiv ? '<th>개인</th>' : ''}</tr></thead><tbody>${pick.map((i) => `<tr><td>${d.d[i]}</td><td>${f(d.o[i])}</td><td>${f(d.h[i])}</td><td>${f(d.l[i])}</td><td>${f(d.c[i])}</td><td>${f(d.v[i])}</td>${d.frgn ? `<td>${f(d.frgn[i])}</td>` : ''}${d.inst ? `<td>${f(d.inst[i])}</td>` : ''}${d.indiv ? `<td>${f(d.indiv[i])}</td>` : ''}</tr>`).join('')}</tbody></table></div><p class="hint">처음 3일과 마지막 3일입니다. 증권사 화면과 같은 날짜의 값이 맞는지 한두 개는 직접 대조하세요.</p>`;
       }
     } else if (pv.flow) {
-      summary = pv.flow.error ? `<p class="hint warn">⚠ ${esc(pv.flow.error)}</p>` : `<div class="stats-line"><b>${pv.flow.matched}일</b>이 가격 데이터와 맞았습니다${pv.flow.unmatched ? ` · 가격 데이터에 없는 날짜 ${pv.flow.unmatched}일은 제외` : ''}${pv.flow.missing ? ` · 수급이 비는 거래일 ${pv.flow.missing}일` : ''}</div>`;
-    } else if (pv.note) summary = `<p class="hint warn">⚠ ${esc(pv.note)}</p>`;
+      summary = pv.flow.error ? `<p class="hint warn">${ic('alert')} ${esc(pv.flow.error)}</p>` : `<div class="stats-line"><b>${pv.flow.matched}일</b>이 가격 데이터와 맞았습니다${pv.flow.unmatched ? ` · 가격 데이터에 없는 날짜 ${pv.flow.unmatched}일은 제외` : ''}${pv.flow.missing ? ` · 수급이 비는 거래일 ${pv.flow.missing}일` : ''}</div>`;
+    } else if (pv.note) summary = `<p class="hint warn">${ic('alert')} ${esc(pv.note)}</p>`;
     const canNew = kind === 'price' || kind === 'both';
     const dest = canNew ? imp.dest : 'merge';
     const mergeSel = keys.length ? `<select class="inp" data-change="btImpDest" data-k="destId" style="max-width:260px">${opts(keys.map((k) => [k, ds[k].name]), imp.destId)}</select>` : '<span class="muted">(저장된 데이터 없음)</span>';
@@ -154,7 +155,7 @@
       ${an.cols.adj >= 0 ? `<label class="chk"><input type="checkbox" data-change="btImpAdj" ${imp.useAdj ? 'checked' : ''}> 수정종가 기준으로 시/고/저/종가 보정</label>` : ''}
       ${summary}
       ${kind !== 'unknown' ? `<h4>저장 위치</h4>
-        ${imp.autoNote ? `<p class="hint">💡 ${esc(imp.autoNote)}</p>` : '<p class="hint">같은 종목의 다른 기간 데이터라면 “기존 데이터에 이어붙이기”를 선택하세요.</p>'}
+        ${imp.autoNote ? `<p class="hint">${ic('bulb')} ${esc(imp.autoNote)}</p>` : '<p class="hint">같은 종목의 다른 기간 데이터라면 “기존 데이터에 이어붙이기”를 선택하세요.</p>'}
         ${canNew ? `<label class="chk"><input type="radio" name="impDest" value="new" data-change="btImpDest" data-k="dest" ${dest === 'new' ? 'checked' : ''}> 새 데이터로 저장</label>
         ${dest === 'new' ? `<div class="grid2"><label>데이터 이름<input class="inp" data-btimp="name" value="${esc(imp.name)}" placeholder="예: 한국전력"></label><label>시장 (수수료율 기준)<select class="inp" data-change="btImpDest" data-k="market">${opts([['KR', '국내'], ['US', '해외']], imp.market)}</select></label></div>` : ''}` : ''}
         <label class="chk"><input type="radio" name="impDest" value="merge" data-change="btImpDest" data-k="dest" ${dest === 'merge' ? 'checked' : ''} ${keys.length ? '' : 'disabled'}> 기존 데이터에 ${kind === 'flow' ? '수급 합치기' : '이어붙이기(같은 날짜는 새 값으로 덮어씀)'}</label>

@@ -154,8 +154,9 @@
     // 범례
     let lx = L + 4; ctx.textAlign = 'left';
     for (const ln of lines) { if (!ln.name) continue; ctx.fillStyle = ln.color; ctx.fillText('— ' + ln.name, lx, Tp + 10); lx += ctx.measureText('— ' + ln.name).width + 10; }
-    ctx.fillStyle = '#16a34a'; ctx.fillText('▲매수', lx, Tp + 10); lx += 46;
-    ctx.fillStyle = '#f59e0b'; ctx.fillText('▼매도', lx, Tp + 10);
+    const tri = (x, y, up, color) => { ctx.fillStyle = color; ctx.beginPath(); if (up) { ctx.moveTo(x, y - 8); ctx.lineTo(x - 4, y); ctx.lineTo(x + 4, y); } else { ctx.moveTo(x, y); ctx.lineTo(x - 4, y - 8); ctx.lineTo(x + 4, y - 8); } ctx.closePath(); ctx.fill(); };
+    tri(lx + 4, Tp + 10, true, '#16a34a'); ctx.fillStyle = T.text; ctx.fillText('매수', lx + 12, Tp + 10); lx += 46;
+    tri(lx + 4, Tp + 10, false, '#f59e0b'); ctx.fillStyle = T.text; ctx.fillText('매도', lx + 12, Tp + 10);
     // 툴팁
     canvas.onpointermove = (e) => {
       const r = canvas.getBoundingClientRect();

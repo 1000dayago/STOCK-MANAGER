@@ -2,6 +2,7 @@
 (function (root) {
   'use strict';
   const SM = root.SM, M = SM.media;
+  const ic = SM.ic;
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const E = (SM.editor = {});
   const toast = (m, err) => SM.app && SM.app.toast(m, err);
@@ -20,15 +21,16 @@
   const sel = (name, list) => `<select class="tb sel" data-sel="${name}" title="${list[0][1]}">${list.map(([v, l]) => `<option value="${esc(v)}">${l}</option>`).join('')}</select>`;
 
   function toolbarHtml() {
-    return `<div class="tg">${btn('undo', '↶', '실행 취소')}${btn('redo', '↷', '다시 실행')}</div>
+    const L = (t) => `<span class="lbl">${t}</span>`;
+    return `<div class="tg">${btn('undo', ic('undo'), '실행 취소')}${btn('redo', ic('redo'), '다시 실행')}</div>
       <div class="tg">${sel('block', BLOCKS)}${sel('font', FONTS)}${sel('size', SIZES)}</div>
-      <div class="tg">${btn('bold', '<b>B</b>', '굵게 (Ctrl+B)')}${btn('italic', '<i>I</i>', '기울임 (Ctrl+I)')}${btn('underline', '<u>U</u>', '밑줄 (Ctrl+U)')}${btn('strikeThrough', '<s>S</s>', '취소선')}${btn('superscript', 'x²', '위 첨자')}${btn('subscript', 'x₂', '아래 첨자')}</div>
-      <div class="tg"><label class="tb clr" title="글자색">A<input type="color" data-color="foreColor" value="#d92d20"></label><label class="tb clr hl" title="형광펜(배경색)">▮<input type="color" data-color="hiliteColor" value="#fff176"></label>${ed('yellow', '형광', '노란 형광펜')}${ed('noclr', '색 해제', '글자색·배경 제거')}</div>
-      <div class="tg">${btn('justifyLeft', '⯇', '왼쪽 정렬')}${btn('justifyCenter', '≡', '가운데 정렬')}${btn('justifyRight', '⯈', '오른쪽 정렬')}${btn('justifyFull', '☰', '양쪽 정렬')}</div>
-      <div class="tg">${btn('insertUnorderedList', '• 목록', '글머리 기호')}${btn('insertOrderedList', '1. 목록', '번호 목록')}${ed('chk0', '☐', '체크박스 넣기')}${ed('chk1', '☑', '체크됨 표시 넣기')}${btn('outdent', '⇤', '내어쓰기')}${btn('indent', '⇥', '들여쓰기')}</div>
-      <div class="tg">${ed('table', '표', '표 삽입')}${ed('link', '링크', '링크 걸기')}${btn('insertHorizontalRule', '─', '구분선')}${ed('date', '날짜', '지금 날짜·시간 넣기')}</div>
-      <div class="tg">${ed('photo', '🖼 사진', '사진 넣기(여러 장 가능)')}${ed('camera', '📷', '카메라로 찍어 넣기')}</div>
-      <div class="tg">${btn('removeFormat', '서식 지움', '선택 영역 서식 지우기')}${ed('tpl', '템플릿', '복기용 템플릿 넣기')}</div>`;
+      <div class="tg">${btn('bold', '<b>B</b>', '굵게 (Ctrl+B)')}${btn('italic', '<i>I</i>', '기울임 (Ctrl+I)')}${btn('underline', '<u>U</u>', '밑줄 (Ctrl+U)')}${btn('strikeThrough', '<s>S</s>', '취소선')}${btn('superscript', 'x<sup>2</sup>', '위 첨자')}${btn('subscript', 'x<sub>2</sub>', '아래 첨자')}</div>
+      <div class="tg"><label class="tb clr" title="글자색"><span class="aletter">A</span><i class="bar"></i><input type="color" data-color="foreColor" value="#d92d20"></label><label class="tb clr" title="형광펜 색 고르기">${ic('highlighter')}<input type="color" data-color="hiliteColor" value="#fff176"></label>${ed('yellow', '<i class="dot"></i>', '노란 형광펜')}${ed('noclr', L('색 해제'), '글자색·배경색 제거')}</div>
+      <div class="tg">${btn('justifyLeft', ic('alignL'), '왼쪽 정렬')}${btn('justifyCenter', ic('alignC'), '가운데 정렬')}${btn('justifyRight', ic('alignR'), '오른쪽 정렬')}${btn('justifyFull', ic('alignJ'), '양쪽 정렬')}</div>
+      <div class="tg">${btn('insertUnorderedList', ic('list'), '글머리 기호')}${btn('insertOrderedList', ic('listOl'), '번호 목록')}${ed('chk0', ic('square'), '체크박스 넣기')}${ed('chk1', ic('squareCheck'), '체크됨 표시 넣기')}${btn('outdent', ic('outdent'), '내어쓰기')}${btn('indent', ic('indent'), '들여쓰기')}</div>
+      <div class="tg">${ed('table', ic('table') + L('표'), '표 삽입')}${ed('link', ic('link') + L('링크'), '링크 걸기')}${btn('insertHorizontalRule', ic('minus'), '구분선')}${ed('date', ic('calendar'), '지금 날짜·시간 넣기')}</div>
+      <div class="tg">${ed('photo', ic('image') + L('사진'), '사진 넣기(여러 장 가능)')}${ed('camera', ic('camera'), '카메라로 찍어 넣기')}</div>
+      <div class="tg">${btn('removeFormat', ic('eraser'), '선택 영역 서식 지우기')}${ed('tpl', ic('template') + L('템플릿'), '복기용 템플릿 넣기')}</div>`;
   }
 
   /* ---------- 에디터 ---------- */
@@ -40,11 +42,11 @@
     root0.id = 'edRoot'; root0.className = 'ed-overlay';
     root0.innerHTML = `<div class="ed" role="dialog" aria-modal="true">
       <div class="ed-head"><b class="ed-title">${esc(opts.title || '매매 사유')}</b><span id="edStatus" class="ed-status">불러오는 중…</span>
-        <button type="button" class="btn sm primary" data-ed="save">저장</button><button type="button" class="btn sm" data-ed="close">닫기</button></div>
+        <button type="button" class="btn sm primary" data-ed="save">${ic('check')}저장</button><button type="button" class="btn sm" data-ed="close">${ic('x')}닫기</button></div>
       <div class="ed-tools" id="edTools">${toolbarHtml()}</div>
       <div class="ed-pop" id="edTablePop" hidden>표 크기: <input type="number" id="tRows" value="3" min="1" max="30"> 행 × <input type="number" id="tCols" value="3" min="1" max="12"> 열 <button type="button" class="btn sm primary" data-ed="tableOk">삽입</button><button type="button" class="btn sm" data-ed="tableCancel">취소</button></div>
-      <div class="ed-ctx" id="edTableBar" hidden><b>표</b> <button type="button" class="tb" data-ed="rowAdd">행 추가</button><button type="button" class="tb" data-ed="colAdd">열 추가</button><button type="button" class="tb" data-ed="rowDel">행 삭제</button><button type="button" class="tb" data-ed="colDel">열 삭제</button><button type="button" class="tb" data-ed="tableDel">표 삭제</button></div>
-      <div class="ed-ctx" id="edImgBar" hidden><b>사진</b> <button type="button" class="tb" data-ed="img25">25%</button><button type="button" class="tb" data-ed="img50">50%</button><button type="button" class="tb" data-ed="img75">75%</button><button type="button" class="tb" data-ed="img100">100%</button><button type="button" class="tb" data-ed="imgDel">삭제</button></div>
+      <div class="ed-ctx" id="edTableBar" hidden><b>표</b> <button type="button" class="tb" data-ed="rowAdd">행 추가</button><button type="button" class="tb" data-ed="colAdd">열 추가</button><button type="button" class="tb" data-ed="rowDel">행 삭제</button><button type="button" class="tb" data-ed="colDel">열 삭제</button><button type="button" class="tb" data-ed="tableDel">${ic('trash')}<span class="lbl">표 삭제</span></button></div>
+      <div class="ed-ctx" id="edImgBar" hidden><b>사진</b> <button type="button" class="tb" data-ed="img25">25%</button><button type="button" class="tb" data-ed="img50">50%</button><button type="button" class="tb" data-ed="img75">75%</button><button type="button" class="tb" data-ed="img100">100%</button><button type="button" class="tb" data-ed="imgDel">${ic('trash')}<span class="lbl">삭제</span></button></div>
       <div id="edBody" class="note-body ed-body" contenteditable="true" spellcheck="false" data-ph="여기에 매매 사유를 적어 보세요. 위 메뉴로 글자 서식, 표, 사진을 넣을 수 있습니다."></div>
       <div id="edConfirm" class="ed-confirm" hidden><div class="box">저장하지 않은 내용이 있습니다.<div class="btns"><button type="button" class="btn primary" data-ed="saveClose">저장하고 닫기</button><button type="button" class="btn danger" data-ed="discard">저장 안 하고 닫기</button><button type="button" class="btn" data-ed="stay">계속 편집</button></div></div></div>
       <input type="file" id="edFile" accept="image/*" multiple hidden><input type="file" id="edCam" accept="image/*" capture="environment" hidden>
@@ -246,7 +248,7 @@
     const r = document.createElement('div');
     r.id = 'edRoot'; r.className = 'ed-overlay';
     r.innerHTML = `<div class="ed viewer" role="dialog" aria-modal="true"><div class="ed-head"><b class="ed-title">${esc(opts.title || '매매 사유')}</b><span class="ed-status">${rec ? '수정 ' + new Date(rec.updatedAt).toLocaleString('ko-KR') : ''}</span>
-      <button type="button" class="btn sm" data-v="edit">수정</button><button type="button" class="btn sm" data-v="print">인쇄/PDF</button><button type="button" class="btn sm" data-v="close">닫기</button></div>
+      <button type="button" class="btn sm" data-v="edit">${ic('edit')}수정</button><button type="button" class="btn sm" data-v="print">${ic('printer')}인쇄</button><button type="button" class="btn sm" data-v="close">${ic('x')}닫기</button></div>
       ${opts.header ? `<div class="viewer-meta">${opts.header}</div>` : ''}
       <div class="note-body view-body">${rec ? M.sanitize(rec.html) : '<p class="muted">작성된 내용이 없습니다. “수정”을 눌러 작성하세요.</p>'}</div></div>`;
     document.body.appendChild(r); document.body.classList.add('noscroll');

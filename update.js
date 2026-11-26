@@ -3,6 +3,7 @@
   'use strict';
   const SM = root.SM, A = SM.app;
   const { esc } = A;
+  const ic = SM.ic;
   const APP = root.SM_APP || { version: '0.0.0', date: '', history: [] };
   const LAST_KEY = 'stockmgr.updLast', SEEN_KEY = 'stockmgr.seenVersion';
   const CHECK_EVERY = 6 * 3600 * 1000;
@@ -52,7 +53,7 @@
   /* ---------- 화면 ---------- */
   A.banner = function () {
     if (!U.available) return '<div id="updBanner" hidden></div>';
-    return `<div id="updBanner" class="updbanner"><span>🔔 새 버전 <b>v${esc(U.available.version)}</b>이 있습니다.</span><span class="row gap"><button class="btn sm" data-act="updNotes">변경 내용</button><button class="btn sm primary" data-act="updApply">지금 업데이트</button></span></div>`;
+    return `<div id="updBanner" class="updbanner"><span class="ub-t">${ic('download')}새 버전 <b>v${esc(U.available.version)}</b>이 있습니다.</span><span class="row gap"><button class="btn sm" data-act="updNotes">변경 내용</button><button class="btn sm primary" data-act="updApply">지금 업데이트</button></span></div>`;
   };
   function histHtml(list, max) {
     return list.slice(0, max).map((h) => `<div class="rel"><b>v${esc(h.version)}</b> <small class="muted">${esc(h.date || '')}</small><ul>${(h.notes || []).map((n) => `<li>${esc(n)}</li>`).join('')}</ul></div>`).join('');
@@ -84,7 +85,7 @@
     try { seen = localStorage.getItem(SEEN_KEY); localStorage.setItem(SEEN_KEY, APP.version); } catch (e) { /* ignore */ }
     if (seen && cmp(APP.version, seen) > 0) {
       const list = (APP.history || []).filter((h) => cmp(h.version, seen) > 0);
-      setTimeout(() => A.openModal(`<h3>업데이트되었습니다 🎉</h3><p>v${esc(seen)} → <b>v${esc(APP.version)}</b></p>${histHtml(list, 5)}<div class="btns"><button class="btn primary" type="button" data-act="closeModal">확인</button></div>`, null), 400);
+      setTimeout(() => A.openModal(`<h3>업데이트되었습니다</h3><p>v${esc(seen)} → <b>v${esc(APP.version)}</b></p>${histHtml(list, 5)}<div class="btns"><button class="btn primary" type="button" data-act="closeModal">확인</button></div>`, null), 400);
     }
     const auto = () => { if (Date.now() - U.lastCheck > CHECK_EVERY) U.check(false); };
     setTimeout(auto, 2500);
