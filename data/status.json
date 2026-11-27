@@ -1,0 +1,32 @@
+{
+ "updatedAt": "2026-11-27T03:06:45.198Z",
+ "keys": {
+  "prices": false,
+  "dart": false,
+  "news": false
+ },
+ "skipped": [],
+ "stocks": {
+  "003490": {
+   "prices": {
+    "skipped": "공공데이터 키(DATA_GO_KR_KEY) 없음"
+   },
+   "flow": {
+    "ok": true,
+    "at": "2026-11-27T03:06:46.541Z",
+    "last": "2026-11-26",
+    "count": 60,
+    "msg": "(60일, 마지막 2026-11-26)"
+   },
+   "news": {
+    "skipped": "네이버 키(NAVER_CLIENT_ID/SECRET) 없음"
+   },
+   "dart": {
+    "skipped": "DART 키(DART_API_KEY) 없음"
+   },
+   "fin": {
+    "skipped": "DART 키(DART_API_KEY) 없음"
+   }
+  }
+ }
+}
