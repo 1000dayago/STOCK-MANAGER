@@ -727,3 +727,26 @@ label > .segsel { margin-top: 2px; }
 .suggest .sug-none { border-top: 0; }
 .codehint { min-height: 0; margin: -4px 0 10px; font-size: 13px; }
 .codehint .ok { color: var(--ok); font-weight: 600; } .codehint .warn { color: var(--warn, #b45309); } .codehint .ic { width: 14px; height: 14px; vertical-align: -2px; }
+
+/* ===== 종목 차트 ===== */
+.chartbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 8px; }
+.chartbar .chartseg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
+.chartbar .chartseg button { min-height: 36px; padding: 6px 12px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.chartbar .chartseg button:first-child { border-left: 0; }
+.chartbar .chartseg button.on { background: var(--accent); color: var(--accent-fg); font-weight: 700; }
+.chartbar .btn { margin-left: auto; }
+.chartread { min-height: 40px; margin: 2px 0 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 12.5px; line-height: 1.55; font-variant-numeric: tabular-nums; }
+.chartread .cr-date { font-weight: 700; margin-right: 4px; }
+.chartread .cr-up { color: var(--up); } .chartread .cr-down { color: var(--down); }
+.chartread .cr-who { display: inline-block; padding: 0 6px; border-radius: 999px; color: #fff; background: var(--c, #64748b); font-size: 11px; font-weight: 700; }
+.chartread small { color: var(--muted); }
+.chartwrap { position: relative; width: 100%; overflow: hidden; border-radius: 6px; }
+.chartwrap canvas.stockchart { display: block; width: 100%; cursor: crosshair; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.chartmsg { margin: 6px 0; }
+.chartopts { margin: 8px 0; } .chartopts > summary { cursor: pointer; font-size: 13px; color: var(--muted); padding: 6px 0; }
+.chartopts-b { padding: 6px 0 0; }
+.chartguide { margin-top: 4px; }
+/* 전체 화면 */
+.chartcard.chart-full { position: fixed; inset: 0; z-index: 60; margin: 0; border-radius: 0; overflow-y: auto; background: var(--card); padding-bottom: 24px; }
+.chartcard.chart-full > summary { position: sticky; top: 0; z-index: 2; background: var(--card); }
+body.chart-fullbody { overflow: hidden; }

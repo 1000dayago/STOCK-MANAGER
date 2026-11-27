@@ -134,6 +134,7 @@
     const keepScroll = window.scrollY;
     document.getElementById('app').innerHTML = renderChrome(fn());
     enhanceSelects(document.getElementById('app'));
+    if (ui.view === 'stocks' && A.mountChart) A.mountChart();
     if (A.afterRender[ui.view]) A.afterRender[ui.view]();
     window.scrollTo(0, keepScroll);
   }
@@ -208,6 +209,7 @@
     const bk = state.lastBackupAt ? SM.daysBetween(new Date(state.lastBackupAt).toISOString().slice(0, 10), today) : null;
     if (bk === null) warn.push('아직 백업한 적이 없습니다. <a href="#" data-act="goSettings">설정</a>에서 백업을 내려받아 두세요.');
     else if (bk > 30) warn.push(`마지막 백업이 ${bk}일 전입니다.`);
+    if (A.collectWarnings) warn.push(...A.collectWarnings());
     if (warn.length) h += `<div class="warnbox">${warn.map((w) => `<div>${ic('alert')}<span>${w}</span></div>`).join('')}</div>`;
     if (pf.weights.length > 1) {
       const tot = pf.weights.reduce((a, w) => a + w.valueKRW, 0);
@@ -219,11 +221,11 @@
     h += `<div class="row between wrap"><h2 class="sec">내 종목</h2><button class="btn sm" data-act="addStock">${ic('plus')}종목 추가</button></div><div class="scards">`;
     for (const st of state.stocks.filter((x) => !x.watch)) {
       const sm = SM.stockSummary(st, state.settings), cur = SM.curOf(st);
-      const age = SM.priceAge(st);
+      const age = SM.priceAge(st), pn = SM.priceNote(st);
       const lots = st.lots.filter((l) => SM.lotRem(st, l) > 0).sort((a, b) => a.no - b.no);
       const mem = state.noteIdx['stock_' + st.id];
       h += `<article class="scard" data-act="goStock" data-id="${st.id}" tabindex="0"><div class="row between"><b>${esc(st.name)} <small class="muted">${esc(st.code)}${st.market === 'US' ? ' · US' : ''}</small></b>${sm.value != null ? `<span class="chip ${SM.num(sm.unrlRetKRW) >= 0 ? 'up' : 'down'}">${fmtPct(sm.unrlRetKRW)}</span>` : ''}</div>
-        ${sm.qty > 0 ? `<div class="sline">보유 <b>${fmtNum(sm.qty, sm.qty % 1 ? 4 : 0)}주</b> · 평단 <b>${fmtMoney(sm.avg, cur)}</b>${st.price ? ` · 현재가 <b>${fmtMoney(st.price, cur)}</b> <small class="${age > 3 ? 'stale' : 'muted'}">(${age > 365 ? '입력일 불명' : age === 0 ? '오늘' : age + '일 전'})</small>` : ' · <span class="stale">현재가 미입력</span>'}</div>
+        ${sm.qty > 0 ? `<div class="sline">보유 <b>${fmtNum(sm.qty, sm.qty % 1 ? 4 : 0)}주</b> · 평단 <b>${fmtMoney(sm.avg, cur)}</b>${st.price ? ` · 현재가 <b>${fmtMoney(st.price, cur)}</b> <small class="${pn.stale ? 'stale' : 'muted'}">(${pn.auto ? pn.text : age > 365 ? '입력일 불명' : age === 0 ? '오늘' : age + '일 전'})</small>` : ' · <span class="stale">현재가 미입력</span>'}</div>
         ${sm.value != null ? `<div class="sline">평가손익 ${money(sm.unrlKRW, 'KRW')}</div>` : ''}
         <div class="lchips">${lots.map((l) => { const v = SM.lotView(st, l, state.settings); return `<span class="lchip"><b>${l.no}번</b> ${fmtNum(v.rem, v.rem % 1 ? 4 : 0)}주 @${fmtNum(l.price, cur === 'USD' ? 2 : 0)}${v.ret != null ? ` <em class="${cls(v.ret)}">${fmtPct(v.ret)}</em>` : ''}${state.noteIdx['lot_' + l.id] ? ' ' + ic('note') : ''}</span>`; }).join('')}</div>` : '<div class="sline muted">보유 수량 없음</div>'}
         ${mem ? `<div class="nprev">${ic('pin')} ${esc(mem.t)}</div>` : ''}</article>`;
@@ -267,7 +269,7 @@
     const cur = SM.curOf(st), us = st.market === 'US';
     const sm = SM.stockSummary(st, state.settings);
     const realized = st.sales.reduce((a, s) => a + s.pnlKRW, 0);
-    const age = SM.priceAge(st);
+    const age = SM.priceAge(st), pn = SM.priceNote(st);
     const links = SM.linksFor(state, st);
     const menuItems = ['<button data-act="editStock">종목 수정</button>', '<button data-act="splitAdj">액면분할 조정</button>', '<button data-act="simForStock">백테스트 해보기</button>',
       st.watch ? `<button data-act="toHeld">보유 종목으로 이동</button><button data-act="collectToggle">${st.collect ? '자동 수집 끄기' : '자동 수집 켜기 (공개 저장소)'}</button>` : (!st.lots.length ? '<button data-act="toWatch">관심 종목으로 이동</button>' : ''),
@@ -277,7 +279,7 @@
       ${us ? `<label class="px">환율<input class="inp" data-change="fxNow" value="${state.settings.fxNow}" inputmode="decimal"></label>` : ''}
       <button class="btn sm editbtn" type="button" data-act="editStock" aria-label="종목 수정 (이름·종목코드·시장)">${ic('edit')}수정</button>
       <details class="menu"><summary aria-label="더보기">${ic('more')}</summary><div class="menu-body">${menuItems}</div></details></div></div>
-      <div class="sh-sub"><small class="${age > 3 ? 'stale' : 'muted'}">${st.price ? '현재가 ' + (age > 365 ? '입력일 불명' : age === 0 ? '오늘 입력' : age + '일 전 입력') : '현재가를 입력하면 평가손익이 계산됩니다'}</small>
+      <div class="sh-sub"><small class="${pn.stale ? 'stale' : 'muted'}">${st.price ? '현재가 ' + pn.text : pn.text}</small>
         ${links.map((l) => A.linkA(SM.fillLink(l.url, st), esc(l.label) + ic('ext'), { cls: 'lnk', lid: l.id, title: `${l.label} · ${st.name}` })).join('')}</div>
       ${st.watch ? A.watchCards(st) : `<div class="cards">
         <div class="stat"><span>보유 수량</span><b>${qn(sm.qty)}주</b></div>
@@ -321,6 +323,9 @@
         ${rows.length ? rows.map((r) => lotRow(st, r.l, r.v, cur, us)).join('') : `<div class="lempty">매수 기록이 없습니다. “매수” 버튼을 눌러 첫 순번을 기록하세요.</div>`}
       </div>
       <p class="hint">줄을 누르면 수수료·메모·수정/삭제가 펼쳐집니다. 수익률은 매수 수수료 포함 원가 기준이고 매도 비용은 매도/시뮬레이션에서 반영됩니다.${us ? ' 해외주식은 원화(환율 반영) 기준입니다.' : ''}${(st.splits || []).length ? ` 액면분할 조정: ${st.splits.map((x) => x.date + ' ×' + +x.ratio.toFixed(6)).join(', ')}` : ''}</p></section>`;
+
+    /* 차트: 가격·지표·수급 */
+    h += A.chartSection ? A.chartSection(st) : '';
 
     /* 매도 기록 */
     h += section('sales', '매도 기록', st.sales.length, st.sales.length

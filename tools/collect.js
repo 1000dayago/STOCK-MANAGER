@@ -373,7 +373,7 @@ async function run(opt = {}) {
       }
       if (!m.rows.length) throw new Error('받은 시세가 없습니다');
       const rr = m.rows.filter(inRange);
-      return { source: 'naver', years, range: label, from: m.rows[0].d, last: m.rows[m.rows.length - 1].d, count: m.rows.length, msg: `(네이버, ${label}, ${m.rows.length}일, ${m.rows[0].d} ~ ${m.rows[m.rows.length - 1].d}${pl.skip ? ', 이미 수집됨' : ''})`, inRange: rr.length };
+      return { source: 'naver', years, range: label, from: m.rows[0].d, last: m.rows[m.rows.length - 1].d, close: m.rows[m.rows.length - 1].c, count: m.rows.length, msg: `(네이버, ${label}, ${m.rows.length}일, ${m.rows[0].d} ~ ${m.rows[m.rows.length - 1].d}${pl.skip ? ', 이미 수집됨' : ''})`, inRange: rr.length };
     });
     else await step(s.code, 'prices', !!keys.prices, env.COLLECT_PRICE_NAVER === '0' ? '시세 수집을 껐습니다(COLLECT_PRICE_NAVER=0)' : '', async () => {
       const f = path.join(dir, 'prices', `${s.code}.csv`);
@@ -384,7 +384,7 @@ async function run(opt = {}) {
       const m = mergePrices(old, rows);
       if (!m.rows.length) throw new Error('받은 시세가 없습니다 (종목코드·활용신청 승인을 확인하세요)');
       if (writeIfChanged(f, m.text)) changed++;
-      return { source: 'data.go.kr', from: m.rows[0].d, last: m.rows[m.rows.length - 1].d, count: m.rows.length, msg: `(${m.rows.length}일, 마지막 ${m.rows[m.rows.length - 1].d})` };
+      return { source: 'data.go.kr', from: m.rows[0].d, last: m.rows[m.rows.length - 1].d, close: m.rows[m.rows.length - 1].c, count: m.rows.length, msg: `(${m.rows.length}일, 마지막 ${m.rows[m.rows.length - 1].d})` };
     });
     // 수급 (키 없음, COLLECT_FLOW=0 이면 끔) — 시세와 같은 수집 범위, 과거는 날짜 기준으로 이어 받음
     await step(s.code, 'flow', env.COLLECT_FLOW !== '0' && !rangeErr, rangeErr || '수급 수집을 껐습니다(COLLECT_FLOW=0)', async () => {

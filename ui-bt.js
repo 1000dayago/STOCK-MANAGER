@@ -99,6 +99,12 @@
     repo.inflight[code] = p;
     return p;
   };
+  // 종목에 연결된 가격 데이터(자동 수집 → 내 CSV 순). 차트 등에서 사용
+  A.stockDataset = async (st) => {
+    try { await A.btRepoEnsureFor(st); } catch (e) { /* 저장소를 못 읽어도 내 데이터는 사용 */ }
+    const l = linkedDatasets(st.id).filter(([, d]) => d.data);
+    return l.length ? { id: l[0][0], name: l[0][1].name, data: l[0][1].data } : null;
+  };
   A.btRepoEnsureFor = async (st) => { // 이 종목이 자동 수집 대상이면 데이터를 읽어 둡니다(종가 채우기·비교용)
     const code = String(st.code || '').trim();
     if (st.market !== 'KR' || !/^[0-9A-Z]{6}$/.test(code)) return;

@@ -1,5 +1,5 @@
 const assert = require('assert');
-const SM = require('../core.js'); require('../backtest.js');
+const SM = require('../core.js'); require('../backtest.js'); require('../data.js'); require('../chart-stock.js');
 const S = SM.DEFAULT_SETTINGS();
 let ok = 0; const t = (name, fn) => { try { fn(); ok++; console.log('✓', name); } catch (e) { console.log('✗', name, e.message); process.exitCode = 1; } };
 const approx = (a, b, e = 1e-6) => assert(Math.abs(a - b) < e, `${a} != ${b}`);
@@ -488,6 +488,64 @@ t('종목 검색: 이름 앞부분·포함·초성·코드, 순위, 개수 제�
   assert.equal(D.stockByCode(rows, ' 062040 ').name, '산일전기'); assert.equal(D.stockByCode(rows, '0126z0').name, '삼성에피스홀딩스'); assert.equal(D.stockByCode(rows, '999999'), null); assert.equal(D.stockByCode(null, '062040'), null);
   // 목록이 커도 같은 목록으로 반복 검색할 때 색인을 다시 만들지 않음(숨은 속성), JSON 직렬화에는 영향 없음
   D.searchStocks(rows, '삼성'); assert.equal(JSON.stringify(rows).includes('_idx'), false);
+});
+t('현재가 자동 반영: 직접 입력이 더 최신이면 유지, 종가가 같거나 더 최신이면 갱신, 출처 표시', () => {
+  const st = SM.newStock({ name: 'x', code: '003490', market: 'KR' });
+  assert.equal(SM.applyAutoPrice(st, 29750, '2026-11-26'), true); assert.deepEqual([st.price, st.priceAt, st.priceSrc], [29750, '2026-11-26', 'auto']);
+  assert.equal(SM.applyAutoPrice(st, 29750, '2026-11-26'), false); // 같은 값 → 변경 없음
+  assert.equal(SM.applyAutoPrice(st, 30100, '2026-11-27'), true); assert.equal(st.price, 30100); // 더 최신 종가
+  assert.equal(SM.applyAutoPrice(st, 29000, '2026-11-20'), false); assert.equal(st.price, 30100); // 더 옛날 종가는 무시
+  SM.setPrice(st, 31000); assert.equal(st.priceSrc, 'manual'); assert.equal(st.priceAt, SM.todayStr()); // 직접 입력은 오늘 날짜
+  assert.equal(SM.applyAutoPrice(st, 30500, '2026-11-27'), SM.todayStr() <= '2026-11-27'); // 오늘 입력값이 종가 날짜보다 뒤면 유지
+  const st2 = SM.newStock({ name: 'y', code: '015760', market: 'KR' }); st2.price = 100; st2.priceAt = '2026-11-20'; st2.priceSrc = 'manual';
+  assert.equal(SM.applyAutoPrice(st2, 200, '2026-11-26'), true); assert.equal(st2.priceSrc, 'auto'); // 오래된 직접 입력은 자동 종가가 대체
+  assert.equal(SM.applyAutoPrice(st2, 0, '2026-11-26'), false); assert.equal(SM.applyAutoPrice(st2, 'abc', '2026-11-26'), false); assert.equal(SM.applyAutoPrice(st2, 300, '잘못'), false);
+  const n = SM.priceNote(st2, '2026-11-27'); assert.equal(n.auto, true); assert(/종가 11-26 \(자동 수집\)/.test(n.text)); assert.equal(n.stale, false);
+  assert.equal(SM.priceNote(st2, '2026-12-05').stale, true); // 4일 넘으면 오래됨
+  assert.equal(SM.priceNote(SM.newStock({ name: 'z' })).empty, true);
+  assert.equal(SM.normalizeState({ stocks: [{ id: 'a', name: 'n', price: 5, priceAt: '2026-01-01' }] }).stocks[0].priceSrc, ''); // 예전 데이터는 출처 없음(직접 입력 취급)
+});
+t('차트 계산: 주·월봉 묶기, 이동평균·볼린저, 구간, 누적, 눈금, 표기', () => {
+  // 2026-01-05(월)~01-16(금) 2주 + 02-02, 02-03
+  const days = ['2026-01-05', '2026-01-06', '2026-01-07', '2026-01-08', '2026-01-09', '2026-01-12', '2026-01-13', '2026-01-14', '2026-01-15', '2026-01-16', '2026-02-02', '2026-02-03'];
+  const data = { d: days, o: days.map((_, i) => 100 + i), h: days.map((_, i) => 110 + i), l: days.map((_, i) => 90 + i), c: days.map((_, i) => 105 + i), v: days.map(() => 1000), hasVol: true, flowUnit: 'shares',
+    frgn: days.map((_, i) => (i === 0 ? null : 10 * i)), inst: days.map((_, i) => (i < 5 ? null : 1)), indiv: null };
+  const w = SM.aggregateBars(data, 'W');
+  assert.deepEqual(w.d, ['2026-01-09', '2026-01-16', '2026-02-03']); // 주의 마지막 거래일, 02-02·03은 같은 주
+  assert.deepEqual([w.o[0], w.h[0], w.l[0], w.c[0], w.v[0]], [100, 114, 90, 109, 5000]); // 시가=첫날, 고가=최고, 저가=최저, 종가=마지막, 거래량 합
+  assert.deepEqual(w.frgn, [10 + 20 + 30 + 40, 50 + 60 + 70 + 80 + 90, 100 + 110]); // 합계 (첫날 null은 건너뜀)
+  assert.deepEqual(w.inst, [null, 5, 2]); // 전부 비면 null
+  assert.deepEqual(w.hd, ['2026-01-09', '2026-01-16', '2026-02-03']); // 주봉 최고가가 나온 실제 날짜(고가가 날마다 +1이라 주의 마지막 날)
+  const d2 = { d: ['2026-03-02', '2026-03-03', '2026-03-04'], o: [1, 1, 1], h: [5, 9, 6], l: [1, 0.5, 2], c: [2, 3, 4], v: [1, 1, 1], hasVol: true }; const w2 = SM.aggregateBars(d2, 'W');
+  assert.deepEqual([w2.h[0], w2.hd[0], w2.l[0], w2.ld[0], w2.d[0]], [9, '2026-03-03', 0.5, '2026-03-03', '2026-03-04']); // 봉 날짜는 마지막 거래일, 최고·최저는 실제 날짜
+  assert.equal(w.indiv, null); assert.equal(w.flowUnit, 'shares');
+  const m = SM.aggregateBars(data, 'M'); assert.deepEqual(m.d, ['2026-01-16', '2026-02-03']); assert.equal(m.v[0], 10000); assert.equal(m.c[1], 116);
+  assert.equal(SM.aggregateBars(data, 'D'), data); // 일봉은 그대로
+  // 이동평균·볼린저
+  const ma = SM.chartSma([1, 2, 3, 4, 5], 3); assert.deepEqual(ma, [null, null, 2, 3, 4]);
+  const bb = SM.chartBollinger([2, 4, 4, 4, 5, 5, 7, 9], 8, 2); assert.equal(bb.mid[7], 5); assert(Math.abs(bb.up[7] - 9) < 1e-9 && Math.abs(bb.lo[7] - 1) < 1e-9); // 평균 5, 모집단 표준편차 2
+  assert.equal(bb.up[6], null);
+  // 보이는 구간
+  assert.deepEqual(SM.chartWindow(100, 30, 99), { from: 70, to: 99, count: 30 });
+  assert.deepEqual(SM.chartWindow(100, 30, 10), { from: 0, to: 29, count: 30 }); // 왼쪽 끝 보정
+  assert.deepEqual(SM.chartWindow(100, 500, 99), { from: 0, to: 99, count: 100 }); // 데이터보다 크게 못 늘림
+  assert.equal(SM.chartWindow(100, 1, 99).count, 5); assert.deepEqual(SM.chartWindow(3, 10, 2), { from: 0, to: 2, count: 3 }); assert.equal(SM.chartWindow(100, 30, null).to, 99);
+  assert.equal(SM.chartBarsForMonths('D', 6, 1000), 126); assert.equal(SM.chartBarsForMonths('W', 12, 1000), 52); assert.equal(SM.chartBarsForMonths('M', 36, 1000), 36); assert.equal(SM.chartBarsForMonths('D', 0, 777), 777); assert.equal(SM.chartBarsForMonths('M', 36, 10), 10);
+  // 누적: 구간 시작부터, 빈 값은 0
+  const cu = SM.chartCumulative([5, null, -2, 4, null, 1], 1, 5); assert.deepEqual(cu.cum, [0, -2, 2, 2, 3]); assert.equal(cu.any, true);
+  assert.equal(SM.chartCumulative([null, null, 1], 0, 1).any, false); assert.equal(SM.chartCumulative(null, 0, 2).any, false);
+  assert.deepEqual(SM.chartExtremes([5, 9, 7, 8], [1, 3, 0, 2], 0, 3), { hiIdx: 1, loIdx: 2 }); assert.deepEqual(SM.chartExtremes([5, 9, 7, 8], [1, 3, 0, 2], 2, 3), { hiIdx: 3, loIdx: 2 });
+  // 눈금
+  assert.deepEqual(SM.chartNiceTicks(0, 100, 4), [0, 20, 40, 60, 80, 100]); assert.deepEqual(SM.chartNiceTicks(0, 100, 2), [0, 50, 100]); assert.deepEqual(SM.chartNiceTicks(24000, 33000, 5), [24000, 26000, 28000, 30000, 32000]);
+  assert(SM.chartNiceTicks(-50, 120, 2).includes(0)); assert(SM.chartNiceTicks(5, 5, 3).length >= 1);
+  // 표기
+  const fc = SM.chartFmtCompact; assert.equal(fc(58759000, 'shares'), '58.8M'); assert.equal(fc(-970498, 'shares'), '-970K'); assert.equal(fc(1234, 'shares'), '1K'); assert.equal(fc(999, 'shares'), '999'); assert.equal(fc(0, 'shares'), '0');
+  assert.equal(fc(14215322375, 'krw'), '142억'); assert.equal(fc(-3.2e8, 'krw'), '-3.2억'); assert.equal(fc(5e7, 'krw'), '5,000만');
+  // 실제 데이터 형식과 호환: 데이터셋 → 주봉·월봉에서 값이 보존됨
+  const big = SM.parseOHLCV('date,open,high,low,close,volume\n' + Array.from({ length: 300 }, (_, i) => { const d = new Date(Date.UTC(2026, 0, 1 + i)); if (d.getUTCDay() % 6 === 0) return null; return `${d.toISOString().slice(0, 10)},100,${110 + (i % 7)},90,${100 + (i % 5)},1000`; }).filter(Boolean).join('\n')).data;
+  const wk = SM.aggregateBars(big, 'W'), mo = SM.aggregateBars(big, 'M');
+  assert.equal(wk.v.reduce((a, b) => a + b, 0), big.v.reduce((a, b) => a + b, 0)); assert.equal(mo.v.reduce((a, b) => a + b, 0), big.v.reduce((a, b) => a + b, 0)); // 거래량 합 보존
+  assert.equal(Math.max(...wk.h), Math.max(...big.h)); assert.equal(Math.min(...mo.l), Math.min(...big.l)); assert(wk.d.length < big.d.length / 4 && mo.d.length <= 11);
 });
 t('버전 비교', () => {
   assert.equal(SM.compareVersions('1.10.0', '1.9.9'), 1);

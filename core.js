@@ -80,7 +80,7 @@
     s.noteIdx = obj.noteIdx && typeof obj.noteIdx === 'object' ? obj.noteIdx : {};
     s.lastBackupAt = obj.lastBackupAt || 0;
     s.stocks = (obj.stocks || []).map((st) =>
-      Object.assign({ id: uid(), name: '', code: '', market: 'KR', price: null, priceAt: null, lots: [], sales: [], nextNo: 1, events: [], splits: [], watch: false, target: null, watchAt: 0, collect: false, paper: null, plan: [] }, st)
+      Object.assign({ id: uid(), name: '', code: '', market: 'KR', price: null, priceAt: null, priceSrc: '', lots: [], sales: [], nextNo: 1, events: [], splits: [], watch: false, target: null, watchAt: 0, collect: false, paper: null, plan: [] }, st)
     );
     s.stocks.forEach((st) => {
       const maxNo = st.lots.reduce((m, l) => Math.max(m, l.no || 0), 0);
@@ -93,7 +93,7 @@
     return s;
   }
   function newStock({ name, code, market, watch }) {
-    return { id: uid(), name: name || '', code: code || '', market: market === 'US' ? 'US' : 'KR', price: null, priceAt: null, lots: [], sales: [], nextNo: 1, events: [], splits: [], watch: !!watch, target: null, watchAt: watch ? Date.now() : 0, collect: false, paper: { lots: [], sales: [], nextNo: 1, fee: true }, plan: [] };
+    return { id: uid(), name: name || '', code: code || '', market: market === 'US' ? 'US' : 'KR', price: null, priceAt: null, priceSrc: '', lots: [], sales: [], nextNo: 1, events: [], splits: [], watch: !!watch, target: null, watchAt: watch ? Date.now() : 0, collect: false, paper: { lots: [], sales: [], nextNo: 1, fee: true }, plan: [] };
   }
 
   /* ---------- 순번(lot) ---------- */
@@ -582,6 +582,23 @@
   function setPrice(stock, price) {
     stock.price = price === null || price === '' || price === undefined ? null : num(price);
     stock.priceAt = stock.price ? todayStr() : null;
+    stock.priceSrc = stock.price ? 'manual' : '';
+  }
+  // 자동 수집한 종가를 현재가로 반영합니다. 직접 입력한 값이 더 최신(종가 날짜보다 뒤)이면 그대로 둡니다. 바뀌었으면 true.
+  function applyAutoPrice(stock, close, date) {
+    const c = Number(close);
+    if (!Number.isFinite(c) || c <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return false;
+    if (stock.price && stock.priceAt && stock.priceAt > date) return false;
+    if (stock.price === c && stock.priceAt === date && stock.priceSrc === 'auto') return false;
+    stock.price = c; stock.priceAt = date; stock.priceSrc = 'auto';
+    return true;
+  }
+  // 현재가 옆에 보여 줄 문구와 오래됨 여부
+  function priceNote(stock, today) {
+    if (!stock.price) return { text: '현재가를 입력하면 평가손익이 계산됩니다', stale: false, empty: true };
+    const age = priceAge(stock, today);
+    if (stock.priceSrc === 'auto' && stock.priceAt) return { text: `종가 ${stock.priceAt.slice(5)} (자동 수집)`, stale: age > 4, auto: true };
+    return { text: age > 365 ? '입력일 불명' : age === 0 ? '오늘 입력' : age + '일 전 입력', stale: age > 3 };
   }
   function priceAge(stock, today) {
     if (!stock.price) return null;
@@ -648,7 +665,7 @@
         if (sm.valueKRW != null) {
           o.pricedCostKRW += sm.costKRW; o.valueKRW += sm.valueKRW;
           o.weights.push({ id: st.id, name: st.name, valueKRW: sm.valueKRW });
-          if (priceAge(st, t) > 3) o.stale.push(st);
+          if (priceNote(st, t).stale) o.stale.push(st); // 자동 수집 종가는 주말·휴일을 감안해 4일까지 허용
         } else o.missing.push(st);
       }
     }
@@ -666,7 +683,7 @@
 
   Object.assign(SM, {
     paperStock, paperSettings, paperStats, tagPaper, isPre, watchGap, addPlan, removePlan, planPreview,
-    qtyForAmount, lotPreview, compareVersions, setPrice, priceAge, splitAdjust, addEvent, removeEvent, upcomingEvents, fillLink, linksFor, portfolio, noteKey, noteKeysOfStock,
+    qtyForAmount, lotPreview, compareVersions, setPrice, applyAutoPrice, priceNote, priceAge, splitAdjust, addEvent, removeEvent, upcomingEvents, fillLink, linksFor, portfolio, noteKey, noteKeysOfStock,
     DEFAULT_SETTINGS, uid, todayStr, num, isBlank, daysBetween, fmtNum, fmtMoney, fmtPct, curOf, ratesOf,
     newState, normalizeState, newStock, lotSold, lotRem, lotFeePerShare, addLot, updateLot, deleteLot,
     mergeLots, unmergeLot, splitLot, stockSummary, lotView, computeSale, allocate, remainingAfter,

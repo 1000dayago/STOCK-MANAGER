@@ -115,7 +115,7 @@ const KEYS = { DATA_GO_KR_KEY: 'pub+key/with=chars', DART_API_KEY: 'dartSecret12
     const fin = JSON.parse(fs.readFileSync(path.join(dir, 'fin', '015760.json'), 'utf8'));
     assert.equal(fin.periods.length, 2); assert.equal(fin.periods[0].label, '2026 1분기'); assert.equal(fin.periods[0].revenue, 30000000000000); assert.equal(fin.periods[0].net, -100000); assert.equal(fin.periods[0].fs, '연결');
     const st = JSON.parse(fs.readFileSync(path.join(dir, 'status.json'), 'utf8'));
-    assert.equal(st.stocks['015760'].prices.ok, true); assert.equal(st.stocks['015760'].prices.last, '2026-01-07'); assert.equal(st.skipped.length, 1);
+    assert.equal(st.stocks['015760'].prices.ok, true); assert.equal(st.stocks['015760'].prices.last, '2026-01-07'); assert.equal(st.stocks['015760'].prices.close, 20200); // 마지막 종가를 상태에 기록(앱이 현재가로 사용) assert.equal(st.skipped.length, 1);
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'dart-corp-map.json'), 'utf8')), { '015760': '00159193' });
     assert(f.calls.some((u) => u.includes('corpCode.xml')));
     // 두 번째 실행: 새 거래일만 이어받고, 고유번호/재무는 다시 받지 않음

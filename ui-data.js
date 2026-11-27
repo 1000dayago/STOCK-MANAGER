@@ -211,4 +211,60 @@
     renderSuggest(modal, data, '');
     updateCodeHint(modal, data);
   });
+
+  /* ---------- 앱 시작 때 수집 상태를 읽어 현재가 자동 반영 · 홈 경고에 쓰기 ---------- */
+  A.collect = { loaded: false, status: null, watch: [], raw: null, err: false, at: 0 };
+  function applyAutoPrices() {
+    const st = A.collect.status;
+    if (!st || !st.stocks) return 0;
+    let changed = 0;
+    for (const s of A.getState().stocks) {
+      const code = String(s.code || '').trim(), info = s.market === 'KR' && st.stocks[code] && st.stocks[code].prices;
+      if (info && info.ok && info.close && info.last && SM.applyAutoPrice(s, info.close, info.last)) changed++;
+    }
+    if (changed) A.save();
+    return changed;
+  }
+  function rerenderIfIdle() { // 입력 중이거나 창이 열려 있으면 방해하지 않고 다음 화면 갱신 때 반영
+    const ae = document.activeElement, typing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
+    const modalOpen = document.getElementById('modal-root') && document.getElementById('modal-root').innerHTML.trim() !== '';
+    if (!typing && !modalOpen && ['home', 'stocks', 'pnl'].includes(ui.view)) A.render();
+  }
+  A.collectInit = async (force) => {
+    try {
+      const wl = await D.watchlist(force);
+      const st = wl.length ? await D.status(force) : null;
+      const raw = await D.watchRaw(force);
+      Object.assign(A.collect, { loaded: true, status: st, watch: wl, raw, err: false, at: Date.now() });
+      const n = applyAutoPrices();
+      if (n || ui.view === 'home') rerenderIfIdle();
+    } catch (e) { A.collect.err = true; A.collect.loaded = true; }
+  };
+  // 홈 경고: 수집 실패 / 오래된 수집 / 수집 대상 반영 필요
+  A.collectWarnings = () => {
+    const c = A.collect, out = [];
+    if (!c.loaded || c.err) return out;
+    const stocks = A.getState().stocks, st = c.status;
+    const mine = new Set(stocks.filter((s) => s.market === 'KR').map((s) => String(s.code || '').trim()));
+    if (st && st.stocks) {
+      const bad = [];
+      for (const [code, v] of Object.entries(st.stocks)) {
+        if (!mine.has(code)) continue;
+        const name = (stocks.find((s) => String(s.code || '').trim() === code) || {}).name || code;
+        for (const [k, label] of [['prices', '시세'], ['flow', '수급']]) if (v[k] && v[k].ok === false) bad.push(`${esc(name)} ${label}`);
+      }
+      if (bad.length) out.push(`자동 수집 실패: ${bad.slice(0, 4).join(', ')}${bad.length > 4 ? ' 외' : ''}. <a href="#" data-act="goSettings">설정 › 자동 수집</a>에서 이유를 확인하세요. (네이버 주소가 바뀌었을 수 있습니다)`);
+      const age = st.updatedAt ? Math.floor((Date.now() - Date.parse(st.updatedAt)) / 86400000) : null;
+      if (age != null && age > 5) out.push(`마지막 자동 수집이 ${age}일 전입니다. 저장소 Actions에서 “자료 수집”이 멈췄는지 확인하세요.`);
+    }
+    if (D.repo()) { // 저장소 주소로 열었을 때만(수집 대상 반영 버튼이 가능한 환경)
+      const cs = A.getState().settings, cur = D.watchJson(stocks, { years: cs.collectYears, from: cs.collectFrom, to: cs.collectTo });
+      const eligible = JSON.parse(cur).stocks.length;
+      const d = D.watchDiff(c.raw, cur);
+      if (eligible && c.raw && !d.same) out.push(`수집 대상 목록이 저장소와 다릅니다${d.added.length ? ` (추가 ${d.added.length}개: ${esc(d.added.slice(0, 3).join(', '))}${d.added.length > 3 ? ' 외' : ''})` : ''}. <a href="#" data-act="goSettings">설정 › 자동 수집</a>의 <b>수집 대상 반영</b>을 누르세요.`);
+    }
+    return out;
+  };
+  setTimeout(() => A.collectInit(), 400);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && A.collect.at && Date.now() - A.collect.at > 30 * 60000) A.collectInit(true); });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

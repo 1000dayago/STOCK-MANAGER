@@ -1,0 +1,349 @@
+/* chart-stock.js - 종목 차트: 캔들 + 볼린저·이동평균 + 평단가선 + 외국인·기관·개인 수급(일별 막대 + 누적선) + 거래량
+   - 위쪽 "순수 계산" 함수들은 화면 없이 테스트할 수 있습니다(봉 변환, 지표, 누적, 보이는 구간).
+   - 아래쪽 SM.mountStockChart(...)가 캔버스에 그리고 드래그·핀치·휠·탭(십자선)을 처리합니다. 외부 라이브러리 없음. */
+(function (root) {
+  'use strict';
+  const SM = (root.SM = root.SM || {});
+
+  /* ================= 순수 계산 ================= */
+  const weekKey = (d) => { // 월요일 시작 주의 대표 날짜
+    const t = Date.parse(d + 'T00:00:00Z'), dow = (new Date(t).getUTCDay() + 6) % 7;
+    return new Date(t - dow * 86400000).toISOString().slice(0, 10);
+  };
+  const FK = ['frgn', 'inst', 'indiv'];
+
+  // 일봉 데이터를 주봉('W')·월봉('M')으로 묶습니다. 수급은 기간 합계(전부 비면 null), 날짜는 그 기간의 마지막 거래일.
+  function aggregateBars(data, tf) {
+    if (tf !== 'W' && tf !== 'M') return data;
+    const keyOf = tf === 'W' ? weekKey : (d) => d.slice(0, 7);
+    const out = { d: [], o: [], h: [], l: [], c: [], v: [], hd: [], ld: [], hasVol: data.hasVol, flowUnit: data.flowUnit }; // hd/ld: 그 봉의 최고·최저가가 나온 실제 날짜
+    for (const k of FK) out[k] = data[k] ? [] : null;
+    let key = null;
+    for (let i = 0; i < data.d.length; i++) {
+      const k = keyOf(data.d[i]);
+      if (k !== key) {
+        key = k;
+        out.d.push(data.d[i]); out.o.push(data.o[i]); out.h.push(data.h[i]); out.l.push(data.l[i]); out.c.push(data.c[i]); out.v.push(data.v[i] || 0); out.hd.push(data.d[i]); out.ld.push(data.d[i]);
+        for (const f of FK) if (out[f]) out[f].push(data[f][i] == null ? null : data[f][i]);
+      } else {
+        const j = out.d.length - 1;
+        out.d[j] = data.d[i]; if (data.h[i] > out.h[j]) { out.h[j] = data.h[i]; out.hd[j] = data.d[i]; } if (data.l[i] < out.l[j]) { out.l[j] = data.l[i]; out.ld[j] = data.d[i]; } out.c[j] = data.c[i]; out.v[j] += data.v[i] || 0;
+        for (const f of FK) if (out[f] && data[f][i] != null) out[f][j] = (out[f][j] == null ? 0 : out[f][j]) + data[f][i];
+      }
+    }
+    return out;
+  }
+  function sma(arr, n) {
+    const out = new Array(arr.length).fill(null);
+    let sum = 0;
+    for (let i = 0; i < arr.length; i++) { sum += arr[i]; if (i >= n) sum -= arr[i - n]; if (i >= n - 1) out[i] = sum / n; }
+    return out;
+  }
+  function bollinger(arr, n, k) { // 모집단 표준편차
+    const mid = sma(arr, n), up = new Array(arr.length).fill(null), lo = new Array(arr.length).fill(null);
+    for (let i = n - 1; i < arr.length; i++) {
+      let s = 0;
+      for (let j = i - n + 1; j <= i; j++) s += (arr[j] - mid[i]) ** 2;
+      const sd = Math.sqrt(s / n);
+      up[i] = mid[i] + k * sd; lo[i] = mid[i] - k * sd;
+    }
+    return { mid, up, lo };
+  }
+  // 보이는 구간: end(마지막 봉 위치)와 count(봉 개수)를 데이터 범위 안으로 맞춥니다.
+  function windowRange(n, count, end) {
+    const c = Math.max(Math.min(n, 5), Math.min(n, Math.round(count)));
+    const e = Math.max(c - 1, Math.min(n - 1, end == null ? n - 1 : Math.round(end)));
+    return { from: e - c + 1, to: e, count: c };
+  }
+  // from~to 구간의 누적합(빈 값은 0 취급). any=구간에 실제 값이 하나라도 있는지
+  function cumulative(arr, from, to) {
+    const out = []; let s = 0, any = false;
+    for (let i = from; i <= to; i++) { if (arr && arr[i] != null) { s += arr[i]; any = true; } out.push(s); }
+    return { cum: out, any };
+  }
+  // 개월 수를 봉 개수로(일봉 21일/월, 주봉 4.35주/월, 월봉 1개/월). 0이면 전체.
+  function barsForMonths(tf, months, n) {
+    if (!months) return n;
+    return Math.max(5, Math.min(n, Math.round(months * (tf === 'W' ? 4.35 : tf === 'M' ? 1 : 21))));
+  }
+  function extremes(h, l, from, to) {
+    let hi = from, lo = from;
+    for (let i = from; i <= to; i++) { if (h[i] > h[hi]) hi = i; if (l[i] < l[lo]) lo = i; }
+    return { hiIdx: hi, loIdx: lo };
+  }
+  function niceTicks(min, max, count) {
+    const span = max - min || 1, raw = span / Math.max(1, count), mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const norm = raw / mag, step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+    const out = [];
+    for (let v = Math.ceil(min / step) * step; v <= max + step * 1e-9; v += step) out.push(+v.toPrecision(12));
+    return out;
+  }
+  const fmtInt = (v) => Math.round(v).toLocaleString('ko-KR');
+  const fmtPrice = (v) => (Math.abs(v) >= 100 ? fmtInt(v) : (+v.toFixed(2)).toString());
+  // 수급·거래량의 짧은 표기: 주 단위 → K/M, 금액(원) 단위 → 억
+  function fmtCompact(v, unit) {
+    const a = Math.abs(v), sg = v < 0 ? '-' : '';
+    if (unit === 'krw') return sg + (a >= 1e8 ? (a / 1e8).toFixed(a >= 1e10 ? 0 : 1) + '억' : fmtInt(a / 1e4) + '만');
+    if (a >= 1e6) return sg + (a / 1e6).toFixed(a >= 1e7 ? 1 : 2) + 'M';
+    if (a >= 1e3) return sg + fmtInt(a / 1e3) + 'K';
+    return sg + fmtInt(a);
+  }
+  const signed = (v, f) => (v > 0 ? '+' : '') + f(v);
+
+  Object.assign(SM, { aggregateBars, chartSma: sma, chartBollinger: bollinger, chartWindow: windowRange, chartCumulative: cumulative, chartBarsForMonths: barsForMonths, chartExtremes: extremes, chartNiceTicks: niceTicks, chartFmtCompact: fmtCompact });
+
+  /* ================= 그리기 · 조작 ================= */
+  if (typeof document === 'undefined') return;
+
+  const MA_COLORS = ['#f59e0b', '#ec4899', '#65a30d', '#0d9488', '#0ea5e9', '#8b5cf6'];
+  const WHO = [['frgn', '외국인', '#d946ef'], ['inst', '기관', '#f59e0b'], ['indiv', '개인', '#84cc16']];
+  function theme() {
+    const cs = getComputedStyle(document.documentElement), g = (n) => cs.getPropertyValue(n).trim();
+    return { text: g('--muted'), grid: g('--line'), up: g('--up'), down: g('--down'), fg: g('--fg'), accent: g('--accent'), bg: g('--card') };
+  }
+
+  // host: 캔버스를 넣을 div, readEl: 십자선 값 표시 영역, cfg: { ma:[5,20,..], bb:{on,n,k}, flow:true, vol:true, avg:null, lots:[{date,no}], full:false, onChange }
+  function mountStockChart(host, readEl, cfg0) {
+    const canvas = document.createElement('canvas');
+    canvas.className = 'stockchart';
+    canvas.style.touchAction = 'pan-y'; // 세로 스크롤은 페이지가, 가로 드래그·핀치는 차트가
+    host.appendChild(canvas);
+    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, avg: null, lots: [], full: false }, cfg0 || {}), geom: null };
+
+    function rebuild(keepWindow) {
+      if (!S.raw) { S.bars = null; return; }
+      S.bars = aggregateBars(S.raw, S.tf);
+      const b = S.bars, n = b.d.length;
+      S.ind = { ma: {}, bb: S.cfg.bb.on ? bollinger(b.c, S.cfg.bb.n, S.cfg.bb.k) : null, v5: sma(b.v, 5), v20: sma(b.v, 20) };
+      for (const p of S.cfg.ma) S.ind.ma[p] = sma(b.c, p);
+      if (!keepWindow) { S.end = n - 1; }
+      const w = windowRange(n, S.count, S.end); S.count = w.count; S.end = w.to;
+    }
+    const hasFlow = () => !!(S.bars && FK.some((k) => S.bars[k]));
+    function layout() {
+      const full = S.cfg.full, main = full ? Math.max(300, Math.round(window.innerHeight * 0.42)) : 250, sub = full ? 92 : 80;
+      const P = [{ k: 'main', h: main }];
+      if (S.cfg.flow && hasFlow()) for (const [k, name, color] of WHO) if (S.bars[k]) P.push({ k, h: sub, name, color });
+      if (S.cfg.vol && S.bars.hasVol !== false) P.push({ k: 'vol', h: sub });
+      let y = 0; for (const p of P) { p.y = y; y += p.h; }
+      return { P, H: y + 22 };
+    }
+    const idxToX = (g, i) => g.PL + (i - g.from + 0.5) * g.bw;
+
+    function draw() {
+      if (!S.bars) { const c = canvas.getContext('2d'); c.clearRect(0, 0, canvas.width, canvas.height); return; }
+      const T = theme(), b = S.bars, n = b.d.length, dpr = window.devicePixelRatio || 1;
+      const W = Math.max(280, host.clientWidth || 320), { P, H } = layout();
+      canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); canvas.style.height = H + 'px'; canvas.style.width = W + 'px';
+      const ctx = canvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+      const w = windowRange(n, S.count, S.end), from = w.from, to = w.to;
+      const PL = 6, PR = 72, pw = W - PL - PR, bw = pw / w.count;
+      const g = (S.geom = { W, H, PL, PR, pw, bw, from, to, P });
+      const X = (i) => idxToX(g, i);
+      ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif'; ctx.textBaseline = 'middle';
+      const up = (i) => b.c[i] >= b.o[i];
+      const tagBoxes = []; // 오른쪽 축의 태그 위치(눈금 글자와 겹치지 않게 피하는 데 사용)
+      const label = (txt, x, y, fg, bg, sub) => { // 값 태그: 한 줄 또는 두 줄(sub)
+        const h = sub ? 26 : 16, tw = Math.max(ctx.measureText(txt).width, sub ? ctx.measureText(sub).width : 0) + 8, top = Math.round(y - h / 2);
+        ctx.fillStyle = bg; ctx.fillRect(x, top, Math.min(tw, W - x), h); ctx.fillStyle = fg; ctx.textAlign = 'left';
+        if (sub) { ctx.fillText(txt, x + 4, top + 8); ctx.fillText(sub, x + 4, top + 19); } else ctx.fillText(txt, x + 4, top + 8);
+        tagBoxes.push([top, top + h]);
+      };
+      const nearTag = (y) => tagBoxes.some(([a, b]) => y > a - 7 && y < b + 7);
+      // 세로 격자 + x축 날짜
+      const nx = W < 420 ? 4 : 6, xl = [];
+      for (let k = 0; k < nx; k++) { const i = Math.round(from + (w.count - 1) * (k / (nx - 1 || 1))); xl.push(i); }
+      ctx.strokeStyle = T.grid; ctx.lineWidth = 1; ctx.globalAlpha = 0.6;
+      for (const i of xl) { const x = Math.round(X(i)) + 0.5; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H - 22); ctx.stroke(); }
+      ctx.globalAlpha = 1;
+      for (const p of P) { ctx.strokeStyle = T.grid; ctx.beginPath(); ctx.moveTo(0, p.y + p.h - 0.5); ctx.lineTo(W, p.y + p.h - 0.5); ctx.stroke(); }
+      ctx.fillStyle = T.text; ctx.textAlign = 'center';
+      for (const i of xl) { const d = b.d[i]; ctx.fillText(S.tf === 'M' ? d.slice(2, 7).replace('-', '.') : d.slice(2).replace(/-/g, '.'), Math.min(W - 30, Math.max(30, X(i))), H - 10); }
+      const lastClose = b.c[to], prevClose = to > 0 ? b.c[to - 1] : b.c[to];
+
+      /* ---- 메인: 캔들 + 지표 ---- */
+      const m = P[0], mt = 14, mb = 8, mh = m.h - mt - mb;
+      let lo = Infinity, hi = -Infinity;
+      for (let i = from; i <= to; i++) { if (b.l[i] < lo) lo = b.l[i]; if (b.h[i] > hi) hi = b.h[i]; }
+      const addR = (arr) => { if (!arr) return; for (let i = from; i <= to; i++) if (arr[i] != null) { if (arr[i] < lo) lo = arr[i]; if (arr[i] > hi) hi = arr[i]; } };
+      if (S.ind.bb) { addR(S.ind.bb.up); addR(S.ind.bb.lo); }
+      for (const p of S.cfg.ma) addR(S.ind.ma[p]);
+      if (S.cfg.avg) { lo = Math.min(lo, S.cfg.avg); hi = Math.max(hi, S.cfg.avg); }
+      const pad = (hi - lo) * 0.06 || 1; lo -= pad; hi += pad;
+      const Y = (v) => m.y + mt + ((hi - v) / (hi - lo)) * mh;
+      ctx.strokeStyle = T.grid; ctx.fillStyle = T.text; ctx.textAlign = 'left'; ctx.globalAlpha = 0.7;
+      const priceTicks = niceTicks(lo, hi, 5);
+      for (const v of priceTicks) { const y = Math.round(Y(v)) + 0.5; ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(W - PR, y); ctx.stroke(); }
+      ctx.globalAlpha = 1;
+      const line = (arr, color, lw, dash) => { ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.setLineDash(dash || []); ctx.beginPath(); let on = false; for (let i = from; i <= to; i++) { if (arr[i] == null) { on = false; continue; } const x = X(i), y = Y(arr[i]); if (!on) { ctx.moveTo(x, y); on = true; } else ctx.lineTo(x, y); } ctx.stroke(); ctx.setLineDash([]); };
+      if (S.ind.bb) { // 밴드 안쪽을 옅게 칠하고 상·하한선, 중심선(점선)
+        ctx.fillStyle = 'rgba(148,163,184,0.10)'; ctx.beginPath(); let started = false;
+        for (let i = from; i <= to; i++) if (S.ind.bb.up[i] != null) { const x = X(i), y = Y(S.ind.bb.up[i]); if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y); }
+        for (let i = to; i >= from; i--) if (S.ind.bb.lo[i] != null) ctx.lineTo(X(i), Y(S.ind.bb.lo[i]));
+        ctx.closePath(); ctx.fill();
+        line(S.ind.bb.up, 'rgba(148,163,184,0.9)', 1.6); line(S.ind.bb.lo, 'rgba(148,163,184,0.9)', 1.6); line(S.ind.bb.mid, 'rgba(148,163,184,0.7)', 1, [4, 3]);
+      }
+      // 캔들(봉이 너무 촘촘하면 종가선)
+      if (bw >= 1.3) {
+        for (let i = from; i <= to; i++) {
+          const x = X(i), col = up(i) ? T.up : T.down, bwid = Math.max(1, Math.min(14, bw * 0.7));
+          ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, Y(b.h[i])); ctx.lineTo(Math.round(x) + 0.5, Y(b.l[i])); ctx.stroke();
+          const yo = Y(b.o[i]), yc = Y(b.c[i]); ctx.fillRect(x - bwid / 2, Math.min(yo, yc), bwid, Math.max(1, Math.abs(yo - yc)));
+        }
+      } else {
+        ctx.strokeStyle = T.fg; ctx.lineWidth = 1.2; ctx.beginPath();
+        for (let i = from; i <= to; i++) { const x = X(i), y = Y(b.c[i]); if (i === from) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+        ctx.stroke();
+      }
+      S.cfg.ma.forEach((p, k) => line(S.ind.ma[p], MA_COLORS[k % MA_COLORS.length], p >= 20 ? 1.6 : 1.1));
+      // 매수 순번 표시(보유 중인 순번의 매수일)
+      for (const lt of S.cfg.lots || []) {
+        let i = b.d.findIndex((d) => d >= lt.date); if (i < 0 || i < from || i > to) continue;
+        const x = X(i), y = Y(b.l[i]) + 7; ctx.fillStyle = '#2563eb'; ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x - 5, y + 4); ctx.lineTo(x + 5, y + 4); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = T.fg; ctx.textAlign = 'center'; ctx.fillText(String(lt.no), x, y + 13); ctx.textAlign = 'left';
+      }
+      // 최고·최저 표시 (현재 종가 대비 %)
+      const ex = extremes(b.h, b.l, from, to);
+      const mark = (i, price, isHi) => {
+        const x = X(i), y = Y(price), pct = ((lastClose - price) / price) * 100, day = (isHi ? b.hd : b.ld), txt = `${fmtPrice(price)} (${((day && day[i]) || b.d[i]).slice(2).replace(/-/g, '.')}) ${signed(+pct.toFixed(2), String)}%`;
+        const tw = ctx.measureText(txt).width, right = x + tw + 14 < W - PR;
+        ctx.fillStyle = isHi ? T.up : T.down; ctx.textAlign = right ? 'left' : 'right'; ctx.fillText(txt, right ? x + 10 : x - 10, y + (isHi ? -2 : 2));
+        ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(right ? x + 8 : x - 8, y); ctx.stroke(); ctx.textAlign = 'left';
+      };
+      mark(ex.hiIdx, b.h[ex.hiIdx], true); mark(ex.loIdx, b.l[ex.loIdx], false);
+      // 평단가선
+      let avgY = null;
+      if (S.cfg.avg) { avgY = Y(S.cfg.avg); ctx.strokeStyle = '#1d4ed8'; ctx.lineWidth = 1.2; ctx.setLineDash([6, 3]); ctx.beginPath(); ctx.moveTo(PL, avgY); ctx.lineTo(W - PR, avgY); ctx.stroke(); ctx.setLineDash([]); }
+      { // 현재(마지막 봉) 종가 태그, 평단 태그와 겹치면 서로 밀어냅니다
+        let yc = Y(lastClose), ya = avgY, pc = prevClose ? ((lastClose - prevClose) / prevClose) * 100 : 0;
+        if (ya != null && Math.abs(yc - ya) < 28) { if (yc <= ya) { yc = ya - 28; } else { yc = ya + 28; } }
+        if (ya != null) label('평균단가', W - PR + 2, ya, '#fff', '#1d4ed8', fmtPrice(S.cfg.avg));
+        label(fmtPrice(lastClose), W - PR + 2, yc, '#fff', pc >= 0 ? T.up : T.down, signed(+pc.toFixed(2), String) + '%');
+      }
+      ctx.fillStyle = T.text; ctx.textAlign = 'left';
+      for (const v of priceTicks) { const y = Y(v); if (!nearTag(y)) ctx.fillText(fmtPrice(v), W - PR + 6, y); }
+      // 범례(이동평균·볼린저)
+      { let lx = PL + 2; ctx.textAlign = 'left'; const leg = (txt, c) => { ctx.fillStyle = c; ctx.fillRect(lx, m.y + 3, 10, 3); ctx.fillStyle = T.text; ctx.fillText(txt, lx + 13, m.y + 5); lx += 13 + ctx.measureText(txt).width + 8; };
+        if (S.ind.bb) leg(`BB(${S.cfg.bb.n},${S.cfg.bb.k})`, 'rgba(148,163,184,0.95)'); S.cfg.ma.forEach((p, k) => leg(String(p), MA_COLORS[k % MA_COLORS.length])); }
+
+      /* ---- 수급 패널: 일별 막대 + 누적선 ---- */
+      const unit = b.flowUnit === 'krw' ? 'krw' : 'shares', unitTxt = unit === 'krw' ? '' : '';
+      for (const p of P) {
+        if (!WHO.some((x) => x[0] === p.k)) continue;
+        const arr = b[p.k], ct = 15, cb = 6, ch = p.h - ct - cb, cu = cumulative(arr, from, to);
+        ctx.fillStyle = p.color; ctx.fillRect(PL + 2, p.y + 4, 8, 8); ctx.fillStyle = T.text; ctx.textAlign = 'left'; ctx.fillText(`${p.name} (누적순매수 · 일별)`, PL + 14, p.y + 8);
+        if (!cu.any) { ctx.fillStyle = T.text; ctx.textAlign = 'center'; ctx.fillText('이 구간에는 수급 데이터가 없습니다', PL + pw / 2, p.y + p.h / 2 + 4); ctx.textAlign = 'left'; continue; }
+        let cmin = Math.min(0, ...cu.cum), cmax = Math.max(0, ...cu.cum); if (cmin === cmax) cmax = cmin + 1;
+        const cpad = (cmax - cmin) * 0.08; cmin -= cpad; cmax += cpad;
+        const CY = (v) => p.y + ct + ((cmax - v) / (cmax - cmin)) * ch, zero = CY(0);
+        let amax = 1; for (let i = from; i <= to; i++) if (arr[i] != null) amax = Math.max(amax, Math.abs(arr[i]));
+        const bh = (v) => (Math.abs(v) / amax) * (ch * 0.45);
+        // 없는 날 표시(옅은 회색 띠)
+        ctx.fillStyle = 'rgba(148,163,184,0.10)'; for (let i = from; i <= to; i++) if (arr[i] == null) ctx.fillRect(X(i) - bw / 2, p.y + ct, Math.max(1, bw), ch);
+        ctx.globalAlpha = 0.6;
+        for (let i = from; i <= to; i++) { const v = arr[i]; if (v == null) continue; const x = X(i), h = Math.max(0.5, bh(v)); ctx.fillStyle = v >= 0 ? T.up : T.down; ctx.fillRect(x - Math.max(0.6, bw * 0.38), v >= 0 ? zero - h : zero, Math.max(1, bw * 0.76), h); }
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = T.grid; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(PL, Math.round(zero) + 0.5); ctx.lineTo(W - PR, Math.round(zero) + 0.5); ctx.stroke(); ctx.setLineDash([]);
+        ctx.strokeStyle = p.color; ctx.lineWidth = 1.8; ctx.beginPath(); cu.cum.forEach((v, k) => { const x = X(from + k), y = CY(v); if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }); ctx.stroke();
+        const lastCum = cu.cum[cu.cum.length - 1], ty = Math.min(p.y + p.h - 10, Math.max(p.y + 22, CY(lastCum)));
+        label(fmtCompact(lastCum, unit), W - PR + 2, ty, '#fff', p.color);
+        ctx.fillStyle = T.text; ctx.textAlign = 'left';
+        for (const v of niceTicks(cmin, cmax, 2)) { const y = CY(v); if (nearTag(y) || y < p.y + 12 || y > p.y + p.h - 6) continue; ctx.fillText(Math.abs(v) < 1e-9 ? '0' : fmtCompact(v, unit), W - PR + 6, y); }
+      }
+
+      /* ---- 거래량 패널 ---- */
+      const vp = P.find((p) => p.k === 'vol');
+      if (vp) {
+        const vt = 15, vb = 6, vh = vp.h - vt - vb; let vmax = 1; for (let i = from; i <= to; i++) vmax = Math.max(vmax, b.v[i] || 0);
+        const VY = (v) => vp.y + vt + (1 - v / vmax) * vh;
+        ctx.fillStyle = T.text; ctx.textAlign = 'left'; ctx.fillText('거래량', PL + 2, vp.y + 8);
+        ctx.fillStyle = '#0ea5e9'; ctx.fillRect(PL + 44, vp.y + 7, 10, 3); ctx.fillStyle = T.text; ctx.fillText('5', PL + 57, vp.y + 8);
+        ctx.fillStyle = '#ec4899'; ctx.fillRect(PL + 70, vp.y + 7, 10, 3); ctx.fillStyle = T.text; ctx.fillText('20', PL + 83, vp.y + 8);
+        ctx.globalAlpha = 0.65;
+        for (let i = from; i <= to; i++) { const v = b.v[i] || 0; ctx.fillStyle = i > 0 && b.c[i] < b.c[i - 1] ? T.down : T.up; const y = VY(v); ctx.fillRect(X(i) - Math.max(0.6, bw * 0.38), y, Math.max(1, bw * 0.76), vp.y + vt + vh - y); }
+        ctx.globalAlpha = 1;
+        const vline = (arr, color) => { ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.beginPath(); let on = false; for (let i = from; i <= to; i++) { if (arr[i] == null) { on = false; continue; } const x = X(i), y = VY(arr[i]); if (!on) { ctx.moveTo(x, y); on = true; } else ctx.lineTo(x, y); } ctx.stroke(); };
+        vline(S.ind.v5, '#0ea5e9'); vline(S.ind.v20, '#ec4899');
+        ctx.fillStyle = T.text; ctx.textAlign = 'left';
+        const vy = Math.min(vp.y + vp.h - 10, Math.max(vp.y + 22, VY(b.v[to] || 0)));
+        label(fmtCompact(b.v[to] || 0, 'shares'), W - PR + 2, vy, '#fff', '#64748b');
+        ctx.fillStyle = T.text; ctx.textAlign = 'left';
+        for (const v of niceTicks(0, vmax, 2)) { const y = VY(v); if (v > 0 && !nearTag(y) && y > vp.y + 12) ctx.fillText(fmtCompact(v, 'shares'), W - PR + 6, y); }
+      }
+
+      /* ---- 십자선 ---- */
+      if (S.cross != null && S.cross >= from && S.cross <= to) {
+        const x = Math.round(X(S.cross)) + 0.5; ctx.strokeStyle = T.fg; ctx.globalAlpha = 0.55; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H - 22); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+      }
+      updateRead(S.cross != null && S.cross >= from && S.cross <= to ? S.cross : to, S.cross != null, from, to);
+    }
+
+    function updateRead(i, pinned, from, to) {
+      if (!readEl || !S.bars) return;
+      const b = S.bars, unit = b.flowUnit === 'krw' ? 'krw' : 'shares', prev = i > 0 ? b.c[i - 1] : b.c[i], pc = prev ? ((b.c[i] - prev) / prev) * 100 : 0;
+      const col = (v) => (v > 0 ? 'cr-up' : v < 0 ? 'cr-down' : '');
+      let h = `<span class="cr-date">${b.d[i]}${pinned ? '' : ' (최근)'}</span> 시 <b>${fmtPrice(b.o[i])}</b> 고 <b>${fmtPrice(b.h[i])}</b> 저 <b>${fmtPrice(b.l[i])}</b> 종 <b class="${col(pc)}">${fmtPrice(b.c[i])}</b> <span class="${col(pc)}">${signed(+pc.toFixed(2), String)}%</span>`;
+      if (b.hasVol !== false) h += ` · 거래량 <b>${fmtInt(b.v[i] || 0)}</b>`;
+      if (hasFlow()) {
+        h += '<br>' + WHO.filter(([k]) => b[k]).map(([k, name, color]) => {
+          const cu = cumulative(b[k], from, i), v = b[k][i];
+          return `<span class="cr-who" style="--c:${color}">${name}</span> <b class="${col(v)}">${v == null ? '-' : signed(v, (x) => fmtCompact(x, unit))}</b> <small>(누적 ${cu.any ? signed(cu.cum[cu.cum.length - 1], (x) => fmtCompact(x, unit)) : '-'})</small>`;
+        }).join(' · ');
+      }
+      readEl.innerHTML = h;
+    }
+
+    /* ---- 조작: 드래그 이동 · 핀치/휠 확대 · 탭(터치)·호버(마우스) 십자선 ---- */
+    const ptrs = new Map(); let pan = null, pinch = null, moved = false;
+    const xToIdx = (clientX) => { const r = canvas.getBoundingClientRect(), g = S.geom; if (!g) return null; return Math.max(g.from, Math.min(g.to, g.from + Math.floor((clientX - r.left - g.PL) / g.bw))); };
+    const setWindow = (count, end) => { const n = S.bars.d.length, w = windowRange(n, count, end); S.count = w.count; S.end = w.to; draw(); if (S.cfg.onChange) S.cfg.onChange(); };
+    canvas.addEventListener('pointerdown', (e) => {
+      if (!S.bars) return;
+      canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); moved = false;
+      if (ptrs.size === 1) pan = { x: e.clientX, end: S.end, count: S.count };
+      if (ptrs.size === 2) { const [a, c] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - c.x, a.y - c.y), count: S.count, end: S.end }; pan = null; }
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!S.bars || !S.geom) return;
+      if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && ptrs.size === 2) { const [a, c] = [...ptrs.values()], d = Math.hypot(a.x - c.x, a.y - c.y); moved = true; if (pinch.d > 0) setWindow(pinch.count * (pinch.d / Math.max(1, d)), pinch.end); return; }
+      if (pan && ptrs.size === 1) {
+        const dx = e.clientX - pan.x;
+        if (Math.abs(dx) > 5) moved = true;
+        if (moved) { S.cross = null; setWindow(pan.count, pan.end - Math.round(dx / S.geom.bw)); }
+        return;
+      }
+      if (e.pointerType === 'mouse' && !ptrs.size) { const i = xToIdx(e.clientX); if (i !== S.cross) { S.cross = i; draw(); } }
+    });
+    const up = (e) => {
+      if (!ptrs.has(e.pointerId)) return;
+      if (ptrs.size === 1 && !moved && S.bars) { const i = xToIdx(e.clientX); S.cross = S.cross === i && e.pointerType !== 'mouse' ? null : i; draw(); }
+      ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (!ptrs.size) pan = null;
+    };
+    canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
+    canvas.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && S.cross != null && !ptrs.size) { S.cross = null; draw(); } });
+    canvas.addEventListener('wheel', (e) => {
+      if (!S.bars) return;
+      e.preventDefault();
+      setWindow(S.count * (e.deltaY > 0 ? 1.18 : 1 / 1.18), S.end); // 오른쪽 끝(최근)을 고정한 채 확대·축소
+    }, { passive: false });
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => draw()) : null;
+    if (ro) ro.observe(host);
+
+    return {
+      state: S,
+      setData(raw) { S.raw = raw; rebuild(false); draw(); },
+      setTf(tf) { // 보이는 기간(개월)은 유지한 채 봉 단위만 바꿉니다
+        const per = (t) => (t === 'W' ? 4.35 : t === 'M' ? 1 : 21), months = S.count / per(S.tf);
+        S.tf = tf; rebuild(false); const n = S.bars.d.length;
+        const w = windowRange(n, Math.max(5, Math.round(months * per(tf))), n - 1); S.count = w.count; S.end = w.to; S.cross = null; draw();
+      },
+      setMonths(months) { if (!S.bars) return; S.count = barsForMonths(S.tf, months, S.bars.d.length); S.end = S.bars.d.length - 1; const w = windowRange(S.bars.d.length, S.count, S.end); S.count = w.count; S.end = w.to; S.cross = null; draw(); },
+      setConfig(c) { Object.assign(S.cfg, c); rebuild(true); draw(); },
+      redraw() { draw(); },
+      destroy() { if (ro) ro.disconnect(); canvas.remove(); },
+    };
+  }
+  SM.mountStockChart = mountStockChart;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
