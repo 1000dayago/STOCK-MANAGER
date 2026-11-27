@@ -14,7 +14,7 @@
     catch (e) { toast('가격 데이터를 저장할 공간이 부족합니다. 안 쓰는 데이터를 삭제하세요.', true); return false; }
   }
   const newImp = () => ({ stockId: '', autoNote: '', text: '', headerLine: '', an: null, fileNames: [], dest: 'new', destId: '', name: '', market: 'KR', useAdj: true, unit: '' });
-  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mode: 'mg', mgOpen: false, mg: { qty: 10, growth: 2, drop: 10, signal: 'drop', vx: 1, trend: false, tn: 30, tk: 5, exit: 'target', target: 5, s: 5, l: 15, maxLots: 0, maxInvest: 0 }, stockId: '', imp: newImp() });
+  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mode: 'mg', mgOpen: false, mg: { qty: 10, growth: 2, drop: 10, signal: 'drop', vx: 1, trend: false, tn: 30, tk: 5, pc: 'none', pn: 30, pv: 40, xtrend: true, xn: 30, xk: 5, exit: 'target', target: 5, s: 5, l: 15, maxLots: 0, maxInvest: 0 }, stockId: '', imp: newImp() });
   const MAP_KEY = 'stockmgr.colmaps';
   const loadMaps = () => { try { return JSON.parse(localStorage.getItem(MAP_KEY) || '{}'); } catch (e) { return {}; } };
   function rememberCols(an) { try { const m = loadMaps(); m[an.signature] = an.cols; localStorage.setItem(MAP_KEY, JSON.stringify(m)); } catch (e) { /* ignore */ } }
@@ -194,16 +194,20 @@
     const row = (k, label, unit, hint) => `<label class="ios-row"><span>${label}${hint ? `<small>${hint}</small>` : ''}</span><span class="rowr"><input class="inp" data-btmg="${k}" value="${esc(m[k])}" inputmode="decimal">${unit ? `<i>${unit}</i>` : ''}</span></label>`;
     const vxTxt = Number(m.vx) > 0 ? `, 거래량이 전일의 <b>${esc(m.vx)}배를 넘을 때</b>` : '';
     const sigTxt = m.signal === 'flow' ? `<b>외국인과 기관이 같은 날 모두 순매수</b>${vxTxt} 매수합니다(신호가 나올 때마다). ` : m.signal === 'flowdrop' ? `<b>외국인·기관 동시 순매수</b>${vxTxt}이면서, 직전 매수가보다 <b>${esc(m.drop)}%</b> 내려가 있을 때 매수합니다(처음은 신호만). ` : `직전 매수가보다 <b>${esc(m.drop)}%</b> 내려갈 때마다 추가 매수합니다(처음 매수는 바로). `;
-    const trTxt = m.trend ? ` 단, <b>${esc(m.tn)}일 이동평균선이 ${esc(m.tk)}일 전보다 높은(상승 중)</b> 때만 삽니다.` : '';
-    const exitTxt = cross ? `${esc(m.s)}일선이 ${esc(m.l)}일선을 아래로 뚫으면(데드크로스) 보유한 순번 전부 매도` : `전체 평단 대비 +${esc(m.target)}%가 되면 전부 매도`;
+    const pcTxt = m.pc === 'ma' ? ` 그리고 <b>종가가 ${esc(m.pn)}일선 아래</b>일 때(눌림목)` : m.pc === 'rsi' ? ` 그리고 <b>RSI(${esc(m.pn)})가 ${esc(m.pv)} 이하</b>일 때` : m.pc === 'bb' ? ` 그리고 <b>종가가 볼린저 하단(${esc(m.pn)}일·${esc(m.pv)}배) 밖</b>일 때` : '';
+    const trTxt0 = m.trend ? ` 단, <b>${esc(m.tn)}일 이동평균선이 ${esc(m.tk)}일 전보다 높은(상승 중)</b> 때만 삽니다.` : '';
+    const trTxt = trTxt0 + pcTxt;
+    const exitTxt = cross ? `${esc(m.s)}일선이 ${esc(m.l)}일선을 아래로 뚫는 날(데드크로스)${m.xtrend ? `, 그리고 <b>${esc(m.xn)}일선이 ${esc(m.xk)}일 전보다 낮은(하락 중)</b> 때` : ''} 보유한 순번 전부 매도` : `전체 평단 대비 +${esc(m.target)}%가 되면 전부 매도`;
     return `<div class="ios-list">
         ${row('qty', '첫 매수', '주', '처음 사는 수량')}${row('growth', '수량 배수', '배', '추가 매수 때마다 곱함 (2 = 10→20→40)')}
         <div class="ios-row stack"><span>매수 신호</span><span class="rowr"><select data-change="btMgSignal" data-seg>${opts([['drop', '하락 시'], ['flow', '수급 신호'], ['flowdrop', '수급 신호 + 하락']], m.signal)}</select></span></div>
         <div class="ios-row stack"><span>추세 조건</span><span class="rowr"><select data-change="btMgTrend" data-seg>${opts([['0', '없음'], ['1', '이동평균선 상승 중']], m.trend ? '1' : '0')}</select></span></div>
         ${m.trend ? row('tn', '이동평균 기간', '일') + row('tk', '상승 판단', '일 전보다 높음', '며칠 전 값과 비교') : ''}
+        <div class="ios-row stack"><span>가격 조건<small>싸게 살 때만 사기</small></span><span class="rowr"><select data-change="btMgPrice" data-seg>${opts([['none', '없음'], ['ma', '이평선 아래'], ['rsi', 'RSI 낮음'], ['bb', '볼린저 하단']], m.pc)}</select></span></div>
+        ${m.pc === 'ma' ? row('pn', '이동평균 기간', '일', '종가가 이 선 아래일 때(눌림목)') : m.pc === 'rsi' ? row('pn', 'RSI 기간', '일') + row('pv', 'RSI 값', '이하', '낮을수록 과매도') : m.pc === 'bb' ? row('pn', '볼린저 기간', '일') + row('pv', '볼린저 배수', '배', '종가가 하단 밖일 때') : ''}
         ${m.signal !== 'drop' ? row('vx', '거래량 조건', '배 초과', '전일 거래량 대비 (1 = 어제보다 높음, 0 = 조건 없음)') : ''}${m.signal !== 'flow' ? row('drop', '추가 매수 조건', '% 하락', '직전 매수가 대비') : ''}
         <div class="ios-row stack"><span>매도 방식</span><span class="rowr"><select data-change="btMgExit" data-seg>${opts([['target', '평단 목표 수익'], ['cross', '이동평균 데드크로스']], m.exit)}</select></span></div>
-        ${cross ? row('s', '단기 이동평균', '일') + row('l', '장기 이동평균', '일') : row('target', '목표 수익률', '%', '평단 대비')}
+        ${cross ? row('s', '단기 이동평균', '일') + row('l', '장기 이동평균', '일') + `<div class="ios-row stack"><span>추세 확인<small>이동평균선이 내려가는 중일 때만 매도</small></span><span class="rowr"><select data-change="btMgXTrend" data-seg>${opts([['0', '없음'], ['1', '이동평균선 하락 중']], m.xtrend ? '1' : '0')}</select></span></div>` + (m.xtrend ? row('xn', '이동평균 기간', '일') + row('xk', '하락 판단', '일 전보다 낮음') : '') : row('target', '목표 수익률', '%', '평단 대비')}
         ${row('maxInvest', '최대 투입금', '원', '0 = 제한 없음')}${row('maxLots', '최대 매수 횟수', '회', '0 = 제한 없음')}
       </div>
       <p class="hint">${sigTxt}${trTxt} 처음 <b>${esc(m.qty)}주</b>, 이후 매수마다 <b>${esc(m.growth)}배</b>씩 늘려 삽니다. ${exitTxt}하고, 다시 신호가 나오면 처음부터 시작합니다.</p>
@@ -572,11 +576,15 @@
       const vx = nz(m.vx, 1); if (vx > 0) { const v = newCond('volPrev'); v.x = vx; ec.push(v); }
     }
     if (m.trend) { const t = newCond('maSlope'); t.ma = 'sma'; t.n = Math.max(2, Math.round(nz(m.tn, 30))); t.k = Math.max(1, Math.round(nz(m.tk, 5))); t.dir = 'up'; ec.push(t); } // 추세 조건: 이동평균선이 상승 중일 때만 매수
+    if (m.pc === 'ma') { const c = newCond('priceMa'); c.ma = 'sma'; c.n = Math.max(2, Math.round(nz(m.pn, 30))); c.dir = 'below'; ec.push(c); } // 싸게 사기: 종가가 이동평균선 아래(눌림목)
+    else if (m.pc === 'rsi') { const c = newCond('rsi'); c.n = Math.max(2, Math.round(nz(m.pn, 14))); c.op = 'lte'; c.v = nz(m.pv, 40); ec.push(c); }
+    else if (m.pc === 'bb') { const c = newCond('bb'); c.n = Math.max(2, Math.round(nz(m.pn, 20))); c.k = Math.max(0.5, nz(m.pv, 2)); c.band = 'lower'; c.basis = 'close'; ec.push(c); }
     if (sig !== 'flow') ec.push(dl); // 하락 조건(수급 신호와 함께면 둘 다 만족할 때 매수)
     let xc;
     if (m.exit === 'cross') { const sh = Math.max(2, Math.round(nz(m.s, 5))), lg = Math.max(sh + 1, Math.round(nz(m.l, 15))); xc = newCond('maCross'); xc.ma = 'sma'; xc.s = sh; xc.l = lg; xc.dir = 'down'; } // 단기선이 장기선을 아래로 뚫음 = 데드크로스
     else { xc = newCond('avgPct'); xc.dir = 'up'; xc.pct = Math.max(0.1, nz(m.target, 5)); }
-    c.entries = { mode: 'AND', conds: ec }; c.exits = { mode: 'OR', conds: [xc] }; c.fill = c.fill || 'nextOpen';
+    c.entries = { mode: 'AND', conds: ec }; c.exits = { mode: 'OR', conds: [xc] };
+    if (m.exit === 'cross' && m.xtrend) { const xs = newCond('maSlope'); xs.ma = 'sma'; xs.n = Math.max(2, Math.round(nz(m.xn, 30))); xs.k = Math.max(1, Math.round(nz(m.xk, 5))); xs.dir = 'down'; c.exits = { mode: 'AND', conds: [xc, xs] }; } // 데드크로스 + 이동평균선이 하락 중일 때만 매도 c.fill = c.fill || 'nextOpen';
     return c;
   }
   function cfgForRun() {
@@ -846,7 +854,7 @@
       }, true);
     },
   });
-  Object.assign(A.changeHandlers, { btMgTrend: (el) => { bt.mg.trend = el.value === '1'; A.render(); }, btMgSignal: (el) => { bt.mg.signal = ['flow', 'flowdrop'].includes(el.value) ? el.value : 'drop'; A.render(); }, btMgExit: (el) => { bt.mg.exit = el.value === 'cross' ? 'cross' : 'target'; bt.mgOpen = true; A.render(); }, btStock: (el) => { A.btPickStock(el.value); A.render(); } });
+  Object.assign(A.changeHandlers, { btMgPrice: (el) => { const v = ['ma', 'rsi', 'bb'].includes(el.value) ? el.value : 'none'; bt.mg.pc = v; if (v === 'ma') bt.mg.pn = 30; else if (v === 'rsi') { bt.mg.pn = 14; bt.mg.pv = 40; } else if (v === 'bb') { bt.mg.pn = 20; bt.mg.pv = 2; } A.render(); }, btMgXTrend: (el) => { bt.mg.xtrend = el.value === '1'; A.render(); }, btMgTrend: (el) => { bt.mg.trend = el.value === '1'; A.render(); }, btMgSignal: (el) => { bt.mg.signal = ['flow', 'flowdrop'].includes(el.value) ? el.value : 'drop'; A.render(); }, btMgExit: (el) => { bt.mg.exit = el.value === 'cross' ? 'cross' : 'target'; bt.mgOpen = true; A.render(); }, btStock: (el) => { A.btPickStock(el.value); A.render(); } });
 
   A.inputHandlers.bt = (el) => {
     if (el.dataset.btp) { const [g, i, k] = el.dataset.btp.split('.'); const c = bt.cfg[g].conds[+i]; if (c) c[k] = el.value; }

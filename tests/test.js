@@ -130,6 +130,18 @@ t('이동평균선 방향(상승 중) 조건', () => {
   assert(upDays.length > 0 && dnDays.length > 0); assert(upDays.every((i) => sma3[i] > sma3[i - 1])); assert(dnDays.every((i) => sma3[i] < sma3[i - 1])); assert(upDays.every((i) => !dnDays.includes(i)));
   assert(upDays.includes(5) && !upDays.includes(2) && !dnDays.includes(5)); assert(Math.max(...upDays) <= 10 && Math.min(...dnDays) >= 11); // 3일 평균은 10일째까지 올라가고 11일째부터 내려감
 });
+t('매도: 데드크로스(5·15일)이면서 30일선이 하락 중일 때만(AND)', () => {
+  const px = []; for (let i = 0; i < 80; i++) px.push(100 + 12 * Math.sin(i / 5) + (i < 40 ? i * 0.5 : 20 - (i - 40) * 0.5)); // 오르다가 내림(진동 포함)
+  const d = { d: [], o: px.slice(), h: px.slice(), l: px.slice(), c: px.slice(), v: px.map(() => 1000), hasVol: true, hasHL: true }, dt = new Date('2024-05-01'); px.forEach(() => { d.d.push(dt.toISOString().slice(0, 10)); dt.setDate(dt.getDate() + 1); });
+  const cross = { type: 'maCross', ma: 'sma', s: 5, l: 15, dir: 'down' }, slope = { type: 'maSlope', ma: 'sma', n: 30, k: 5, dir: 'down' };
+  const buy = [{ type: 'dropLast', pct: 2, basis: 'last', first: 'yes' }];
+  const a = SM.runBacktest(d, Object.assign(mk(buy, [cross], { fill: 'close', qty: 1, growth: 1 })), S);
+  const both = Object.assign(mk(buy, [cross, slope], { fill: 'close', qty: 1, growth: 1 })); both.exits.mode = 'AND';
+  const b = SM.runBacktest(d, both, S);
+  const m30 = SM.sma(px, 30), s5 = SM.sma(px, 5), l15 = SM.sma(px, 15);
+  assert(a.cycles.length > 0 && b.cycles.length > 0); assert(a.cycles.length >= b.cycles.length, '조건이 더 붙으면 청산이 같거나 줄어듦');
+  for (const cy of b.cycles) { const i = cy.endIdx; assert(s5[i - 1] >= l15[i - 1] && s5[i] < l15[i], '데드크로스 날'); assert(m30[i] < m30[i - 5], '30일선이 5일 전보다 낮음'); }
+});
 t('재생: cutRaw는 모든 배열을 같은 길이로 자름', () => {
   const raw = { d: ['2025-01-01', '2025-01-02', '2025-01-03'], o: [1, 2, 3], h: [1, 2, 3], l: [1, 2, 3], c: [1, 2, 3], v: [1, 1, 1], frgn: [5, null, 7], hasVol: true, flowUnit: 'shares' };
   const a = SM.cutRaw(raw, '2025-01-02'); assert.deepEqual(a.d, ['2025-01-01', '2025-01-02']); assert.deepEqual(a.frgn, [5, null]); assert.equal(a.hasVol, true); assert.equal(a.flowUnit, 'shares');

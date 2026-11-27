@@ -12,6 +12,7 @@ try { ({ chromium } = require('playwright')); } catch (e) { console.log('Playwri
 
 const ROOT = path.join(__dirname, '..');
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+const setSel = (page, sel, v) => page.evaluate(([q, val]) => { const e = document.querySelector(q); e.value = val; e.dispatchEvent(new Event('change', { bubbles: true })); }, [sel, v]); // 버튼형으로 바뀐 선택 상자는 값을 직접 지정
 function serve() {
   return new Promise((resolve) => {
     const srv = http.createServer((req, res) => {
@@ -107,7 +108,7 @@ function fixtures() {
       await page.click('[data-act=btRun]'); await page.waitForSelector('table.cyc', { timeout: 10000 });
       const cf = await page.evaluate(() => { const c = SM.app.ui.bt.result.cfg; return { q: c.qty, g: c.growth, mi: c.maxInvest, e: c.entries.conds.map((x) => [x.type, x.pct, x.basis]), x: c.exits.conds.map((x) => [x.type, x.dir, x.pct]) }; });
       ok('물타기 입력 → 실행: 10주·2배·3% 하락마다 추가·평단 +2% 전량 매도·투입금 한도', cf.q === 10 && cf.g === 2 && cf.mi === 50000000 && JSON.stringify(cf.e) === '[["dropLast",3,"last"]]' && JSON.stringify(cf.x) === '[["avgPct","up",2]]', cf);
-      await page.selectOption('[data-change=btMgExit]', 'cross').catch(async () => { await page.click('.sim .ios-row .segsel button:has-text("데드크로스")'); }); await page.waitForTimeout(150);
+      await setSel(page, '[data-change=btMgExit]', 'cross'); await page.waitForTimeout(150);
       await page.fill('[data-btmg=s]', '5'); await page.fill('[data-btmg=l]', '15');
       await page.click('[data-act=btRun]'); await page.waitForSelector('table.cyc', { timeout: 10000 });
       const ct = await page.textContent('#view, main, body'); ok('결과에 사이클 분석(소요일·최대 투입금)이 표시됨', /사이클 분석/.test(ct) && /최대 투입금/.test(ct) && (await page.$$eval('table.cyc tr.cycrow', (e) => e.length)) >= 1, ct.slice(ct.indexOf('사이클 분석'), ct.indexOf('사이클 분석') + 200));
@@ -120,7 +121,7 @@ function fixtures() {
       ok('사이클 줄을 누르면 매수마다의 평단·목표가·수익이 펼쳐짐(1, 1-2…, 매도 ✓)', dn === true && det.hidden === false && row === 'true' && /평단/.test(det.t) && /가격 × 수량/.test(det.t) && /최대 투입금/.test(det.t) && /✓ 매도|진행 중/.test(det.t), det.t.slice(0, 300));
       await page.click('tr.cycrow'); ok('다시 누르면 접힘', (await page.$eval('tr.cycdet', (e) => e.hidden)) === true);
       { const cfgx = await page.evaluate(() => SM.app.ui.bt.result.cfg.exits.conds.map((x) => [x.type, x.ma, x.s, x.l, x.dir]));
-        ok('매도 방식 데드크로스: 5일선이 15일선 아래로(단순 이동평균)로 실행', JSON.stringify(cfgx) === '[["maCross","sma",5,15,"down"]]', cfgx);
+        ok('매도 방식 데드크로스: 5일선이 15일선 아래로(단순 이동평균) + 30일선 하락 중(기본 켜짐)으로 실행', JSON.stringify(cfgx) === '[["maCross","sma",5,15,"down"],["maSlope","sma",null,null,"down"]]', cfgx);
         ok('결과 순서: 차트가 맨 위, 사이클 분석이 그 아래', await page.evaluate(() => { const c = document.getElementById('chartCard'), y = document.querySelector('table.cyc'); return !!(c.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING); }));
         const top = await page.evaluate(() => [...document.querySelectorAll('.cards4 .stat span')].map((e) => e.textContent).join('|'));
         ok('사이클 요약: 매수 횟수·쓴 돈·산 수량·청산까지(평균, 최대)와 횟수 분포', /매수 횟수\(평균\)/.test(top) && /쓴 돈\(평균\)/.test(top) && /산 수량\(평균\)/.test(top) && /청산까지\(평균\)/.test(top) && (await page.$$('.dist-r')).length >= 1, top);
@@ -141,13 +142,21 @@ function fixtures() {
         const d1 = await page.evaluate(() => SM.app._rp.cur); ok('주봉으로 재생: 한 주씩 앞으로', (await page.evaluate(() => SM.app._chart().state.bars.d.length)) >= w0 && d1 > rp0);
         await page.click('[data-act=chartTf][data-v=D]'); await page.click('[data-act=rpEnd]'); await page.waitForTimeout(150); ok('종료: 전체 봉이 다시 보임', (await nBars()) === full && (await page.$('[data-act=rpStart]')) !== null); }
       { // 추세 조건: 30일 이동평균선이 상승 중일 때만 매수
-        await page.selectOption('[data-change=btMgTrend]', '1').catch(async () => { await page.click('.sim .ios-row .segsel button:has-text("이동평균선 상승")'); }); await page.waitForTimeout(200);
+        await setSel(page, '[data-change=btMgTrend]', '1'); await page.waitForTimeout(200);
         ok('추세 조건 선택: 이동평균 기간·상승 판단 칸이 나타남(기본 30일·5일 전보다)', (await page.inputValue('[data-btmg=tn]')) === '30' && (await page.inputValue('[data-btmg=tk]')) === '5');
         await page.click('[data-act=btRun]'); await page.waitForSelector('#chartHost canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(300);
         const tc = await page.evaluate(() => SM.app.ui.bt.result.cfg.entries.conds.map((x) => [x.type, x.n, x.k, x.dir].join(':')));
         ok('실행 조건에 이동평균선 상승(30일, 5일 전 대비)이 매수 조건으로 포함됨', tc.includes('maSlope:30:5:up'), tc); }
+      { // 가격 조건(이평선 아래) + 매도: 데드크로스 AND 30일선 하락 중
+        await setSel(page, '[data-change=btMgPrice]', 'ma'); await page.waitForTimeout(200);
+        ok('가격 조건: 이평선 아래 선택 시 기간 칸(기본 30일)이 나타남', (await page.inputValue('[data-btmg=pn]')) === '30');
+        await page.click('[data-act=btRun]'); await page.waitForSelector('#chartHost canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(300);
+        const ec = await page.evaluate(() => { const c = SM.app.ui.bt.result.cfg; return { e: c.entries.conds.map((x) => [x.type, x.n, x.dir].join(':')), x: c.exits.conds.map((y) => [y.type, y.s, y.l, y.n, y.k, y.dir].join(':')), xm: c.exits.mode }; });
+        ok('실행 조건: 종가가 30일선 아래 + 매도는 데드크로스(5·15) AND 30일선 하락 중(5일 전 대비)', ec.e.includes('priceMa:30:below') && ec.xm === 'AND' && ec.x.includes('maCross:5:15:::down') && ec.x.includes('maSlope:::30:5:down'), ec);
+        await setSel(page, '[data-change=btMgXTrend]', '0');
+        await setSel(page, '[data-change=btMgPrice]', 'none'); await page.waitForTimeout(150); }
       { // 매수 신호: 기관·외국인 동시 순매수 + 거래량이 전일보다 높을 때
-        await page.selectOption('[data-change=btMgSignal]', 'flow').catch(async () => { await page.click('.sim .ios-row .segsel button:has-text("수급 신호")'); }); await page.waitForTimeout(200);
+        await setSel(page, '[data-change=btMgSignal]', 'flow'); await page.waitForTimeout(200);
         ok('매수 신호 선택: 거래량 조건 칸이 나타나고 하락 조건 칸은 숨겨짐', (await page.$('[data-btmg=vx]')) !== null && (await page.$('[data-btmg=drop]')) === null);
         await page.fill('[data-btmg=vx]', '1'); await page.click('[data-act=btRun]'); await page.waitForSelector('#chartHost canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(300);
         const en = await page.evaluate(() => SM.app.ui.bt.result.cfg.entries.conds.filter((x) => x.type !== 'maSlope').map((x) => [x.type, x.who, x.dir, x.mode, x.x].join(':')));
