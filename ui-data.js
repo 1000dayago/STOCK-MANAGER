@@ -139,7 +139,7 @@
   Object.assign(A.handlers, {
     autoTab: (el) => { ui.autoTab = el.dataset.v; fillAuto(false); },
     autoRefresh: () => { D.clear(); const b = document.getElementById('autoBody'); if (b) b.innerHTML = '<p class="muted">불러오는 중…</p>'; fillAuto(true); },
-    autoToBt: (el) => { ui.view = 'backtest'; A.render(); window.scrollTo(0, 0); if (A.btLoadRepo) A.btLoadRepo(el.dataset.code); },
+    autoToBt: (el) => { ui.view = 'backtest'; A.render(); window.scrollTo(0, 0); if (A.btUseRepo) A.btUseRepo(el.dataset.code); },
     copyWatch: async () => {
       const t = document.getElementById('watchJson').value;
       try { await navigator.clipboard.writeText(t); A.toast('수집 대상 목록을 복사했습니다'); }

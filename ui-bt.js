@@ -47,7 +47,71 @@
   }
   const strategies = () => A.getState().strategies;
 
-  function curDS() { const ds = loadDS(); if (!bt.datasetId || !ds[bt.datasetId]) bt.datasetId = Object.keys(ds)[0] || null; return bt.datasetId ? ds[bt.datasetId] : null; }
+  /* ---------- 저장소 자동 수집 데이터: 내 기기에 복사하지 않고 목록에서 바로 선택(항상 최신) ---------- */
+  const repo = (bt.repo = { loaded: false, loading: false, initP: null, list: [], cache: {}, inflight: {}, updatedAt: '', err: '' });
+  const repoId = (code) => 'repo:' + code;
+  const isRepoId = (id) => typeof id === 'string' && id.indexOf('repo:') === 0;
+  const ownStockByCode = (code) => A.getState().stocks.find((x) => x.market === 'KR' && String(x.code || '').trim() === code);
+  function repoEntries() { // 불러오기 전에도 목록에는 보입니다(pending). 고르면 읽어 옵니다.
+    const out = {};
+    for (const w of repo.list) {
+      const c = repo.cache[w.code], own = ownStockByCode(w.code);
+      out[repoId(w.code)] = Object.assign({ name: w.name + ' · 자동 수집', market: 'KR', added: Date.now(), repo: true, code: w.code, info: w, stockId: own ? own.id : null, pending: !c }, c ? { data: c.data, loadedAt: c.loadedAt } : {});
+    }
+    return out;
+  }
+  const allDS = () => Object.assign({}, loadDS(), repoEntries());
+  A.btRepoInit = (force) => {
+    if (repo.initP && !force) return repo.initP;
+    repo.loading = true;
+    repo.initP = (async () => {
+      try {
+        const wl = await SM.data.watchlist(force);
+        const st = wl.length ? await SM.data.status(force) : null;
+        repo.list = wl.filter((w) => st && st.stocks && st.stocks[w.code] && st.stocks[w.code].prices && st.stocks[w.code].prices.ok)
+          .map((w) => ({ code: w.code, name: w.name, prices: st.stocks[w.code].prices, flow: st.stocks[w.code].flow && st.stocks[w.code].flow.ok ? st.stocks[w.code].flow : null }));
+        repo.updatedAt = st ? st.updatedAt : ''; repo.err = '';
+      } catch (e) { repo.err = '저장소의 수집 목록을 읽지 못했습니다.'; }
+      repo.loading = false; repo.loaded = true;
+      if (A.ui.view === 'backtest') A.render();
+    })();
+    return repo.initP;
+  };
+  A.btRepoLoad = (code, force) => {
+    if (!force && repo.cache[code]) return Promise.resolve(repo.cache[code]);
+    if (repo.inflight[code]) return repo.inflight[code];
+    const p = (async () => {
+      try {
+        const rt = await repoText(code, force);
+        if (rt.error) throw new Error(rt.error);
+        if (rt.flowOnly) throw new Error('이 종목은 시세 없이 수급만 수집되어 시뮬레이션 데이터로 쓸 수 없습니다.');
+        const t = SM.splitTable(rt.text);
+        if (t.error) throw new Error(t.error);
+        const an = SM.analyzeTable(t);
+        const r = SM.buildDataset(t, an.cols, { unit: 'shares', useAdj: false });
+        if (r.error) throw new Error(r.error);
+        repo.cache[code] = { data: r.data, loadedAt: Date.now(), names: rt.names };
+      } catch (e) { toast(`자동 수집 데이터(${code})를 읽지 못했습니다: ${e.message}`, true); }
+      delete repo.inflight[code];
+      if (A.ui.view === 'backtest') A.render();
+      return repo.cache[code] || null;
+    })();
+    repo.inflight[code] = p;
+    return p;
+  };
+  A.btRepoEnsureFor = async (st) => { // 이 종목이 자동 수집 대상이면 데이터를 읽어 둡니다(종가 채우기·비교용)
+    const code = String(st.code || '').trim();
+    if (st.market !== 'KR' || !/^\d{6}$/.test(code)) return;
+    await A.btRepoInit();
+    if (repo.list.some((w) => w.code === code)) await A.btRepoLoad(code);
+  };
+  function curDS() {
+    const ds = allDS();
+    if (!bt.datasetId || !ds[bt.datasetId]) bt.datasetId = Object.keys(ds)[0] || null;
+    const d = bt.datasetId ? ds[bt.datasetId] : null;
+    if (d && d.repo && d.pending) { A.btRepoLoad(d.code); return null; } // 불러오는 중
+    return d;
+  }
   function newCond(type) { const c = { type }; SM.COND_DEFS[type].params.forEach((p) => (c[p.k] = p.def)); return c; }
 
   /* ---------- 화면 조각 ---------- */
@@ -67,6 +131,16 @@
   }
   const adder = (g) => `<div class="row gap wrap"><select class="inp" data-change="btAdd" data-g="${g}">${typeOptions(g, '')}</select></div>`;
 
+  function dsSelectOptions(ds, keys) {
+    const o = (k) => `<option value="${esc(k)}" ${k === bt.datasetId ? 'selected' : ''}>${esc(dsLabel(k, ds[k]))}${ds[k].pending ? ' (선택하면 불러옴)' : ''}</option>`;
+    const loc = keys.filter((k) => !isRepoId(k)), rp = keys.filter(isRepoId);
+    return (loc.length ? `<optgroup label="내 기기에 저장">${loc.map(o).join('')}</optgroup>` : '') + (rp.length ? `<optgroup label="자동 수집(저장소) · 항상 최신">${rp.map(o).join('')}</optgroup>` : '');
+  }
+  function repoNote(d) {
+    const i = d.info || {}, when = (iso) => { const x = new Date(iso); return Number.isFinite(+x) ? x.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''; };
+    const last = d.data ? d.data.d[d.data.d.length - 1] : (i.prices && i.prices.last) || '';
+    return `저장소 자동 수집 데이터입니다. 마지막 거래일 <b>${esc(last)}</b>${repo.updatedAt ? ` · 마지막 수집 ${esc(when(repo.updatedAt))}` : ''} · 새 날짜는 수집이 돌 때마다(평일 저녁) 자동으로 늘어납니다.`;
+  }
   const WHO3 = [['frgn', '외국인'], ['inst', '기관'], ['indiv', '개인']];
   function flowStatus(ds) {
     if (!ds) return '';
@@ -102,19 +176,20 @@
   }
 
   A.renderers.btMain = function () {
-    const ds = loadDS(), keys = Object.keys(ds), cur = curDS(), c = bt.cfg;
+    if (!repo.loaded && !repo.loading) setTimeout(() => A.btRepoInit(), 0);
+    const ds = allDS(), keys = Object.keys(ds), cur = curDS(), c = bt.cfg;
     const rangeTxt = cur ? `${cur.data.d[0]} ~ ${cur.data.d[cur.data.d.length - 1]} (${cur.data.d.length}일)` : '';
     const st = strategies();
     const imp = bt.imp;
     return `${stockPickHtml()}<section class="card"><h2>1. 데이터 불러오기 <small class="muted">(가격 · 수급)</small></h2>
       <p class="hint">증권사·거래소·포털에서 받은 <b>일봉 파일(CSV)</b>이나 화면의 <b>표를 복사해서 붙여 넣은 것</b>을 읽습니다. 제목 줄 위치와 열 이름(한글·영문)을 자동으로 찾고, 틀리면 아래에서 열을 직접 고를 수 있습니다. 가격·수급이 한 파일에 같이 있어도, 수급만 따로 있어도 됩니다. 엑셀 파일(.xlsx)은 CSV로 저장하거나 표를 복사해서 붙여 넣으세요. 데이터는 용량 때문에 이 기기에만 저장됩니다.</p>
-      <div class="row gap wrap"><label class="btn file">${ic('download')}파일 선택 (여러 개 가능)<input type="file" multiple accept=".csv,.txt,.tsv,text/csv,text/plain" data-change="btFiles" hidden></label><button class="btn" type="button" data-act="btRepo">${ic('stocks')}자동 수집 시세·수급 불러오기</button>
+      <div class="row gap wrap"><label class="btn file">${ic('download')}파일 선택 (여러 개 가능)<input type="file" multiple accept=".csv,.txt,.tsv,text/csv,text/plain" data-change="btFiles" hidden></label><button class="btn" type="button" data-act="btRepo">${ic('stocks')}자동 수집 데이터를 내 기기에 복사</button>
         <label class="mini">제목 줄 번호<input class="inp" data-btimp="headerLine" value="${esc(imp.headerLine)}" inputmode="numeric" placeholder="자동" style="width:90px"></label></div>
       <label>또는 여기에 붙여 넣기<textarea data-btimp="text" rows="4" placeholder="날짜,시가,고가,저가,종가,거래량&#10;2025-01-02,...">${esc(imp.text)}</textarea></label>
       <div class="btns"><button class="btn primary" data-act="btAnalyze">읽기</button>${imp.an ? '<button class="btn" data-act="btImpCancel">취소</button>' : ''}</div>
       ${imp.an ? impPanel() : ''}
       <div id="dsWarn">${bt.warn.map((w) => `<p class="hint warn">${ic('alert')} ${esc(w)}</p>`).join('')}</div>
-      ${keys.length ? `<h4>저장된 데이터</h4><div class="row gap wrap"><select class="inp" data-change="btDS" style="max-width:260px">${opts(keys.map((k) => [k, dsLabel(k, ds[k])]), bt.datasetId)}</select><span class="muted">${rangeTxt}</span><button class="btn sm danger" data-act="btDSDel">삭제</button></div><p class="hint">${flowStatus(cur)}</p>${dataInfoCard(cur)}` : '<p class="muted">저장된 데이터가 없습니다.</p>'}
+      ${keys.length ? `<h4>저장된 데이터 ${repo.list.length ? '<small class="muted">· “자동 수집”은 복사 없이 저장소의 최신 파일을 바로 읽습니다</small>' : ''}</h4><div class="row gap wrap"><select class="inp" data-change="btDS" style="max-width:300px">${dsSelectOptions(ds, keys)}</select><span class="muted">${rangeTxt}</span>${cur && cur.repo ? '' : '<button class="btn sm danger" data-act="btDSDel">삭제</button>'}${repo.list.length ? `<button class="btn sm" type="button" data-act="btRepoRefresh">${ic('download')}저장소 새로고침</button>` : ''}</div>${bt.datasetId && !cur && isRepoId(bt.datasetId) ? '<p class="hint">저장소에서 불러오는 중…</p>' : ''}${cur && cur.repo ? `<p class="hint">${ic('info')} ${repoNote(cur)}</p>` : ''}<p class="hint">${flowStatus(cur)}</p>${dataInfoCard(cur)}` : '<p class="muted">저장된 데이터가 없습니다.</p>'}
     </section>
     <section class="card"><h2>2. 전략 설정</h2>
       <p class="hint">조건을 자유롭게 조합하세요. 만든 전략은 이름을 붙여 저장해 두고 나중에 불러오거나 서로 비교할 수 있습니다. (전략은 계정에 저장되어 동기화됩니다)</p>
@@ -217,7 +292,7 @@
   }
   function resultHtml() {
     const r = bt.result, s = r.summary, cur = r.cfg.market === 'US' ? 'USD' : 'KRW';
-    const data = (loadDS()[bt.datasetId] || {}).data;
+    const data = (allDS()[bt.datasetId] || {}).data;
     if (!data) return '';
     const bh = s.bh;
     const verdict = bh ? (s.retOnPeak > bh.ret ? `이 기간에는 전략(${fmtPct(s.retOnPeak)})이 단순 보유(${fmtPct(bh.ret)})보다 높았습니다.` : `이 기간에는 단순 보유(${fmtPct(bh.ret)})가 전략(${fmtPct(s.retOnPeak)})보다 같거나 높았습니다.`) : '매수 신호가 없어 비교할 수 없습니다.';
@@ -244,8 +319,8 @@
   A.afterRender.backtest = function () {
     const r = bt.result;
     if (!r) return;
-    const stored = loadDS()[bt.datasetId];
-    if (!stored) return;
+    const stored = allDS()[bt.datasetId];
+    if (!stored || !stored.data) return;
     const data = stored.data, cfg = r.cfg;
     const vc = cfg.entries.conds.concat(cfg.exits.conds).find((c) => c.type === 'vol');
     const canvas = document.getElementById('btCandle');
@@ -257,18 +332,16 @@
   };
 
   /* ---------- 데이터 저장 ---------- */
-  // 저장소(data/)의 시세·수급을 하나의 표로 합쳐 불러옵니다. 시세가 없으면 수급만, 수급이 없으면 시세만 읽습니다.
-  A.btLoadRepo = async (code) => {
-    const st = await SM.data.status(true);
+  // 저장소(data/)의 시세·수급을 하나의 표 텍스트로 합칩니다. 시세가 없으면 수급만, 수급이 없으면 시세만.
+  async function repoText(code, force) {
+    const st = await SM.data.status(!!force);
     const sst = (st && st.stocks && st.stocks[code]) || {};
-    const [pxCsv, flCsv] = await Promise.all([sst.prices && sst.prices.ok ? SM.data.pricesCsv(code, true) : null, sst.flow && sst.flow.ok ? SM.data.flowCsv(code, true) : null]);
-    if (!pxCsv && !flCsv) return toast('저장소에서 시세·수급 파일을 읽지 못했습니다.', true);
-    const wl = await SM.data.watchlist();
-    let text;
+    const [pxCsv, flCsv] = await Promise.all([sst.prices && sst.prices.ok ? SM.data.pricesCsv(code, !!force) : null, sst.flow && sst.flow.ok ? SM.data.flowCsv(code, !!force) : null]);
+    if (!pxCsv && !flCsv) return { error: '저장소에서 시세·수급 파일을 읽지 못했습니다.' };
     const names = [];
     if (pxCsv) {
       const px = SM.splitTable(pxCsv);
-      if (px.error) return toast(px.error, true);
+      if (px.error) return { error: px.error };
       names.push(`저장소 ${code} 시세`);
       const flow = new Map();
       if (flCsv) {
@@ -276,17 +349,29 @@
         if (!ft.error) { for (const r of ft.rows) flow.set(r[0], r.slice(1)); names.push(`수급 ${flow.size}일`); }
       }
       const head = px.header.concat(flow.size ? ['외국인', '기관', '개인'] : []);
-      text = [head.join(',')].concat(px.rows.map((r) => r.concat(flow.size ? (flow.get(r[0]) || ['', '', '']) : []).join(','))).join('\n');
-    } else {
-      names.push(`저장소 ${code} 수급`);
-      text = flCsv.replace(/^date,frgn,inst,indiv/, '날짜,외국인,기관,개인');
+      return { text: [head.join(',')].concat(px.rows.map((r) => r.concat(flow.size ? (flow.get(r[0]) || ['', '', '']) : []).join(','))).join('\n'), names };
     }
-    const t = SM.splitTable(text);
+    return { text: flCsv.replace(/^date,frgn,inst,indiv/, '날짜,외국인,기관,개인'), names: [`저장소 ${code} 수급`], flowOnly: true };
+  }
+  // 종목 화면의 “시뮬레이션으로 불러오기”: 저장소 자동 수집 데이터를 복사 없이 바로 선택
+  A.btUseRepo = async (code) => {
+    await A.btRepoInit(true);
+    if (!repo.list.some((w) => w.code === code)) return A.btLoadRepo(code); // 시세가 없는 종목은 예전 방식(미리보기 후 저장)
+    bt.datasetId = repoId(code); bt.result = null; bt.val = null; bt.cmp = null; bt.cfg.from = ''; bt.cfg.to = '';
+    const own = ownStockByCode(code); if (own) bt.stockId = own.id;
+    A.btRepoLoad(code, true); A.render();
+  };
+  // 내 기기에 복사해 저장하려는 경우(미리보기·이어붙이기 선택)
+  A.btLoadRepo = async (code) => {
+    const rt = await repoText(code, true);
+    if (rt.error) return toast(rt.error, true);
+    const wl = await SM.data.watchlist();
+    const t = SM.splitTable(rt.text);
     if (t.error) return toast(t.error, true);
     bt.imp.text = ''; bt.imp.name = ((wl.find((w) => w.code === code) || {}).name || code); bt.imp.unit = '';
     const own = A.getState().stocks.find((x) => String(x.code || '').trim() === code);
     bt.imp.stockId = own ? own.id : bt.stockId || '';
-    startImport(t, names);
+    startImport(t, rt.names);
   };
   function decode(buf) {
     try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
@@ -302,14 +387,15 @@
   }
   const H = A.handlers, C = A.changeHandlers;
   Object.assign(H, {
-    btDSDel: () => { if (!confirm('이 가격 데이터를 삭제할까요?')) return; const ds = loadDS(); delete ds[bt.datasetId]; saveDS(ds); bt.datasetId = null; bt.result = null; bt.val = null; bt.cmp = null; A.render(); },
+    btRepoRefresh: async () => { SM.data.clear(); repo.cache = {}; repo.initP = null; await A.btRepoInit(true); toast('저장소의 최신 목록을 읽었습니다'); },
+    btDSDel: () => { if (isRepoId(bt.datasetId)) return toast('자동 수집 데이터는 삭제하지 않습니다. 수집 대상에서 빼면 목록에서 사라집니다.', true); if (!confirm('이 가격 데이터를 삭제할까요?')) return; const ds = loadDS(); delete ds[bt.datasetId]; saveDS(ds); bt.datasetId = null; bt.result = null; bt.val = null; bt.cmp = null; A.render(); },
     btDel: (el) => { bt.cfg[el.dataset.g].conds.splice(+el.dataset.i, 1); A.render(); },
     btRepo: async () => {
       const [wl, st] = await Promise.all([SM.data.watchlist(true), SM.data.status(true)]);
       const okOf = (w, k) => st && st.stocks && st.stocks[w.code] && st.stocks[w.code][k] && st.stocks[w.code][k].ok;
       const have = wl.filter((w) => okOf(w, 'prices') || okOf(w, 'flow'));
       if (!have.length) return toast(st ? '수집된 시세·수급이 있는 종목이 없습니다. 설정 > 자동 수집을 확인하세요.' : '아직 자동 수집이 설정되지 않았습니다. 설정 > 자동 수집을 확인하세요.', true);
-      A.openModal(`<h3>자동 수집 시세·수급 불러오기</h3><label>종목<select name="code">${have.map((w) => { const p = st.stocks[w.code].prices, f = st.stocks[w.code].flow; return `<option value="${w.code}">${esc(w.name)} (${w.code}) · ${p && p.ok ? '시세 ' + p.count + '일 · 마지막 ' + p.last : '시세 없음'}${f && f.ok ? ' · 수급 ' + f.count + '일' : ''}</option>`; }).join('')}</select></label><p class="hint">시세는 공공데이터포털 일봉(수정주가 아님), 수급은 네이버 순매수(주)입니다. 읽은 뒤 미리보기에서 확인하고 저장하세요.</p><div class="btns"><button class="btn primary" type="submit">불러오기</button><button class="btn" type="button" data-act="closeModal">취소</button></div>`, (fd) => { A.closeModal(); A.btLoadRepo(fd.get('code')); });
+      A.openModal(`<h3>자동 수집 데이터를 내 기기에 복사</h3><label>종목<select name="code">${have.map((w) => { const p = st.stocks[w.code].prices, f = st.stocks[w.code].flow; return `<option value="${w.code}">${esc(w.name)} (${w.code}) · ${p && p.ok ? '시세 ' + p.count + '일 · 마지막 ' + p.last : '시세 없음'}${f && f.ok ? ' · 수급 ' + f.count + '일' : ''}</option>`; }).join('')}</select></label><p class="hint">시세는 공공데이터포털 일봉(수정주가 아님), 수급은 네이버 순매수(주)입니다. 읽은 뒤 미리보기에서 확인하고 저장하세요.</p><div class="btns"><button class="btn primary" type="submit">불러오기</button><button class="btn" type="button" data-act="closeModal">취소</button></div>`, (fd) => { A.closeModal(); A.btLoadRepo(fd.get('code')); });
     },
     btAnalyze: () => {
       const imp = bt.imp;
@@ -431,7 +517,7 @@
     btImpUnit: (el) => { bt.imp.unit = el.value; A.render(); },
     btImpAdj: (el) => { bt.imp.useAdj = el.checked; A.render(); },
     btImpDest: (el) => { bt.imp[el.dataset.k] = el.type === 'radio' ? el.value : el.value; A.render(); },
-    btDS: (el) => { bt.datasetId = el.value; bt.result = null; bt.val = null; bt.cmp = null; bt.cfg.from = ''; bt.cfg.to = ''; A.render(); },
+    btDS: (el) => { bt.datasetId = el.value; bt.result = null; bt.val = null; bt.cmp = null; bt.cfg.from = ''; bt.cfg.to = ''; if (isRepoId(el.value)) A.btRepoLoad(el.value.slice(5)); A.render(); },
     btAdd: (el) => { if (!el.value) return; bt.cfg[el.dataset.g].conds.push(newCond(el.value)); A.render(); },
     btType: (el) => { bt.cfg[el.dataset.g].conds[+el.dataset.i] = newCond(el.value); A.render(); },
     btParam: (el) => { bt.cfg[el.dataset.g].conds[+el.dataset.i][el.dataset.k] = el.value; },
@@ -449,13 +535,13 @@
   });
   /* ---------- 시뮬레이션 메뉴: 종목 선택 · 데이터 연결 · 가상 매매 현황 · 비교 ---------- */
   const stockName = (id) => { const x = A.getState().stocks.find((q) => q.id === id); return x ? x.name : ''; };
-  const dsLabel = (id, d) => d.name + (d.stockId && stockName(d.stockId) ? ' · ' + stockName(d.stockId) : '');
+  const dsLabel = (id, d) => d.repo ? d.name : d.name + (d.stockId && stockName(d.stockId) ? ' · ' + stockName(d.stockId) : '');
   function stockOptions(sel) {
     const all = A.getState().stocks;
     const grp = (label, list) => (list.length ? `<optgroup label="${label}">${list.map((x) => `<option value="${x.id}" ${x.id === sel ? 'selected' : ''}>${esc(x.name)}${x.code ? ' (' + esc(x.code) + ')' : ''}</option>`).join('')}</optgroup>` : '');
     return `<option value="">연결 안 함</option>${grp('보유 종목', all.filter((x) => !x.watch))}${grp('관심 종목', all.filter((x) => x.watch))}`;
   }
-  function linkedDatasets(stockId) { return Object.entries(loadDS()).filter(([, d]) => d.stockId === stockId).sort((a, b) => (b[1].added || 0) - (a[1].added || 0)); }
+  function linkedDatasets(stockId) { return Object.entries(allDS()).filter(([, d]) => d.stockId === stockId).sort((a, b) => (b[1].added || 0) - (a[1].added || 0)); }
   function stockPickHtml() {
     const stocks = A.getState().stocks;
     if (!stocks.length) return '';
@@ -470,14 +556,15 @@
   A.btPickStock = (id) => {
     bt.stockId = id || '';
     const l = id ? linkedDatasets(id) : [];
-    if (l.length) bt.datasetId = l[0][0];
+    if (l.length) { bt.datasetId = l[0][0]; if (isRepoId(l[0][0])) A.btRepoLoad(l[0][0].slice(5)); }
     const stk = A.getState().stocks.find((x) => x.id === id);
     if (stk && l.length) bt.cfg.market = stk.market;
     bt.result = null; bt.val = null; bt.cmp = null; bt.imp.stockId = id || '';
   };
   // 날짜의 종가: 종목에 연결된 가격 데이터 → 자동 수집 시세 순
   A.closeOn = async (st, date) => {
-    for (const [, d] of linkedDatasets(st.id)) { const r = SM.closeOn(d.data, date); if (r) return Object.assign(r, { src: `가격 데이터 “${d.name}”` }); }
+    try { await A.btRepoEnsureFor(st); } catch (e) { /* 저장소를 못 읽어도 다른 방법으로 */ }
+    for (const [, d] of linkedDatasets(st.id).filter(([, x]) => x.data)) { const r = SM.closeOn(d.data, date); if (r) return Object.assign(r, { src: `가격 데이터 “${d.name}”` }); }
     const code = String(st.code || '').trim();
     if (st.market === 'KR' && /^\d{6}$/.test(code)) {
       try {
@@ -510,13 +597,14 @@
       A.btLoadRepo(code);
     },
     btStockFile: () => { bt.imp.stockId = bt.stockId; const inp = document.querySelector('input[data-change=btFiles]'); if (inp) inp.click(); },
-    paperCompare: (el) => {
+    paperCompare: async (el) => {
       const st = A.getState().stocks.find((x) => x.id === el.dataset.id);
       const stt = A.getState();
       const stats = SM.paperStats(st, stt.settings);
       if (stats.empty) return toast('가상 매매 기록이 없습니다', true);
-      const ds = loadDS();
-      const cand = Object.entries(ds).sort((a, b) => ((b[1].stockId === st.id) - (a[1].stockId === st.id)) || ((b[1].added || 0) - (a[1].added || 0)));
+      try { await A.btRepoEnsureFor(st); } catch (e) { /* 무시 */ }
+      const ds = allDS();
+      const cand = Object.entries(ds).filter(([, x]) => x.data).sort((a, b) => ((b[1].stockId === st.id) - (a[1].stockId === st.id)) || ((b[1].added || 0) - (a[1].added || 0)));
       if (!cand.length) return toast('비교하려면 먼저 시뮬레이션에서 이 종목의 가격 데이터를 불러오세요.', true);
       if (!stt.strategies.length) return toast('비교하려면 먼저 시뮬레이션에서 전략을 만들어 이름을 붙여 저장하세요.', true);
       A.openModal(`<h3>가상 매매 vs 백테스트 · ${esc(st.name)}</h3>
