@@ -60,6 +60,16 @@ function mockFetch(state) {
       return resp(JSON.stringify(fd.map((d, i) => ({ itemCode: '015760', bizdate: d, foreignerPureBuyQuant: i === 0 ? '-970,498' : '+1,000', organPureBuyQuant: '+477,979', individualPureBuyQuant: '+496,820', closePrice: '29,750' }))));
     }
     if (url.includes('corpCode.xml')) return resp(makeZip('CORPCODE.xml', CORP_XML));
+    if (url.includes('/list.json') && url.includes('pblntf_ty=A') && state.filings) {
+      state.filingCalls = (state.filingCalls || 0) + 1;
+      return resp(JSON.stringify({ status: '000', message: '정상', total_page: 1, list: state.filings.map((f) => ({ rcept_dt: f[0], report_nm: f[1], rcept_no: '2026' + f[0] })) }));
+    }
+    if (url.includes('fnlttSinglAcnt') && state.finData) {
+      const code = (url.match(/reprt_code=(\d+)/) || [])[1], year = +(url.match(/bsns_year=(\d+)/) || [])[1], v = state.finData[year + ':' + code];
+      if (!v) return resp(JSON.stringify({ status: '013', message: '조회된 데이터가 없습니다.' }));
+      const row = (nm, amt, add) => ({ fs_div: 'CFS', account_nm: nm, thstrm_amount: String(amt), thstrm_add_amount: add == null ? '' : String(add) });
+      return resp(JSON.stringify({ status: '000', list: [row('매출액', v.rev, v.revAdd), row('영업이익', v.op, v.opAdd), row('당기순이익', v.net, v.netAdd)] }));
+    }
     if (url.includes('/list.json')) return resp(JSON.stringify({ status: '000', message: '정상', total_page: 1, list: [{ rcept_dt: '20261120', report_nm: ' 분기보고서 (2026.09) ', rcept_no: '20261120000123', flr_nm: '한국전력공사' }, { rcept_dt: '20261110', report_nm: '단일판매·공급계약체결', rcept_no: '20261110000045', flr_nm: '한국전력공사' }] }));
     if (url.includes('fnlttSinglAcnt')) {
       const code = (url.match(/reprt_code=(\d+)/) || [])[1], year = (url.match(/bsns_year=(\d+)/) || [])[1];
@@ -321,6 +331,54 @@ const KEYS = { DATA_GO_KR_KEY: 'pub+key/with=chars', DART_API_KEY: 'dartSecret12
     await assert.rejects(() => L.run({ fetch: async () => resp('<html>점검</html>'), file, delayMs: 0 }), /읽지 못했습니다/);
     await assert.rejects(() => L.run({ fetch: async () => resp(JSON.stringify({ nothing: 1 })), file, delayMs: 0 }), /형식이 예상과 다릅니다/);
     assert.equal(fs.readFileSync(file, 'utf8'), keep);
+  });
+  await t('분기 영업이익: 보고서→3개월분 정리(누적 차이·당기금액), 4분기 계산, 결산월, 공시일(정정 제외 최초일)', async () => {
+    const P = (year, report, op, extra) => Object.assign({ year, report, fs: '연결', revenue: op * 10, op, net: op / 2 }, extra || {});
+    // ① 분기·반기 보고서가 3개월분(당기금액)이고 누적금액도 있는 경우 — 누적 차이로 계산해도 같은 값이어야 함
+    const a = [P(2025, '11013', 100, { opAdd: 100 }), P(2025, '11012', 50, { opAdd: 150 }), P(2025, '11014', 80, { opAdd: 230 }), P(2025, '11011', 400)];
+    const f = C.filingDates([{ rcept_dt: '20250515', report_nm: '분기보고서 (2025.03)' }, { rcept_dt: '20250814', report_nm: '반기보고서 (2025.06)' }, { rcept_dt: '20250901', report_nm: '[기재정정]반기보고서 (2025.06)' }, { rcept_dt: '20251114', report_nm: '분기보고서 (2025.09)' }, { rcept_dt: '20260320', report_nm: '사업보고서 (2025.12)' }, { rcept_dt: '20260301', report_nm: '주요사항보고서' }]);
+    assert.deepEqual(f['2025-06'], { date: '2025-08-14', type: '반기보고서' }); // 정정공시(9월)가 있어도 최초 공시일
+    assert.equal(f['2025-12'].type, '사업보고서'); assert.equal(Object.keys(f).length, 4); // 정기공시만
+    let q = C.buildQuarters(a, f, 12);
+    assert.deepEqual(q.map((x) => [x.ym, x.op, x.filed]), [['2025-03', 100, '2025-05-15'], ['2025-06', 50, '2025-08-14'], ['2025-09', 80, '2025-11-14'], ['2025-12', 400 - 100 - 50 - 80, '2026-03-20']]);
+    assert.equal(q[3].derived, true); assert.equal(q[0].derived, undefined); assert.equal(q[1].revenue, 500); assert.equal(q[0].label, '2025 1분기'); assert.equal(q[3].fs, '연결');
+    // ② 누적금액이 없으면 당기금액을 3개월분으로, 일부 분기만 있어도 있는 만큼
+    q = C.buildQuarters([P(2024, '11013', 30), P(2024, '11014', 20)], {}, 12); assert.deepEqual(q.map((x) => [x.ym, x.op, x.filed]), [['2024-03', 30, null], ['2024-09', 20, null]]); // 4분기·반기는 계산 불가 → 없음
+    // ③ 반기 보고서의 당기금액이 누적(6개월)으로 오는 회사: 누적금액이 있으면 그 차이를 써서 올바른 3개월분
+    q = C.buildQuarters([P(2023, '11013', 100, { opAdd: 100 }), P(2023, '11012', 150, { opAdd: 150 }), P(2023, '11014', 230, { opAdd: 230 }), P(2023, '11011', 330)], {}, 12);
+    assert.deepEqual(q.map((x) => x.op), [100, 50, 80, 100]);
+    // ④ 적자·부호, 매출/순이익도 같은 방식
+    q = C.buildQuarters([P(2022, '11013', -10, { opAdd: -10 }), P(2022, '11012', 5, { opAdd: -5 }), P(2022, '11014', -3, { opAdd: -8 }), P(2022, '11011', -20)], {}, 12); assert.deepEqual(q.map((x) => x.op), [-10, 5, -3, -12]); assert.equal(q[3].revenue, -200 - (-100 + 50 - 30));
+    // ⑤ 3월 결산(결산월 3): 사업연도 2025 → 분기 말은 2025-06, 2025-09, 2025-12, 2026-03
+    q = C.buildQuarters([P(2025, '11013', 10), P(2025, '11012', 20), P(2025, '11014', 30), P(2025, '11011', 100)], {}, 3); assert.deepEqual(q.map((x) => x.ym), ['2025-06', '2025-09', '2025-12', '2026-03']);
+    // ⑥ 보고서 이름 해석
+    assert.deepEqual(C.parseFilingName('분기보고서 (2026.09)'), { type: '분기보고서', ym: '2026-09', correction: false }); assert.equal(C.parseFilingName('[기재정정]사업보고서 (2025.12)').correction, true); assert.equal(C.parseFilingName('임원ㆍ주요주주특정증권등소유상황보고서'), null);
+    // ⑦ parseFinancials: 누적금액 기록, 비어 있으면 기록 안 함
+    const pf = C.parseFinancials([{ fs_div: 'CFS', account_nm: '영업이익', thstrm_amount: '5,000', thstrm_add_amount: '12,000' }, { fs_div: 'CFS', account_nm: '매출액', thstrm_amount: '100', thstrm_add_amount: '' }]);
+    assert.equal(pf.op, 5000); assert.equal(pf.opAdd, 12000); assert.equal(pf.revenue, 100); assert.equal(pf.revenueAdd, undefined);
+  });
+  await t('재무 수집 실행: 수집 기간만큼 연도를 받아 분기·공시일 저장, 옛 파일(quarters 없음)은 다시 받음', async () => {
+    const dir = tmp(); fs.writeFileSync(path.join(dir, 'watchlist.json'), JSON.stringify({ years: 5, stocks: [{ code: '015760', name: '한국전력' }] }));
+    const finData = {}; for (const y of [2026, 2025, 2024]) { finData[y + ':11013'] = { rev: 100, op: 10, net: 5, revAdd: 100, opAdd: 10, netAdd: 5 }; finData[y + ':11012'] = { rev: 110, op: 20, net: 6, revAdd: 210, opAdd: 30, netAdd: 11 }; finData[y + ':11014'] = { rev: 120, op: 30, net: 7, revAdd: 330, opAdd: 60, netAdd: 18 }; if (y < 2026) finData[y + ':11011'] = { rev: 500, op: 100, net: 40 }; }
+    const filings = [['20240514', '분기보고서 (2024.03)'], ['20250320', '사업보고서 (2024.12)'], ['20250515', '분기보고서 (2025.03)'], ['20260320', '사업보고서 (2025.12)'], ['20261114', '분기보고서 (2026.09)']];
+    const st = { finData, filings }; const KEY2 = Object.assign({}, KEYS, { COLLECT_FLOW: '0', COLLECT_PRICE_NAVER: '0' });
+    let r = await C.run({ env: KEY2, dataDir: dir, fetch: mockFetch(st), today: new Date('2026-11-27T19:00:00Z'), log: () => {}, pageDelayMs: 0 });
+    assert.equal(r.failures, 0, JSON.stringify(r.status.stocks['015760'].fin));
+    const fin = JSON.parse(fs.readFileSync(path.join(dir, 'fin', '015760.json'), 'utf8'));
+    assert(fin.quarters.length >= 10, '분기 ' + fin.quarters.length); const q = Object.fromEntries(fin.quarters.map((x) => [x.ym, x]));
+    assert.equal(q['2024-12'].op, 100 - 10 - 20 - 30); assert.equal(q['2024-12'].derived, true); assert.equal(q['2024-12'].filed, '2025-03-20'); assert.equal(q['2025-03'].filed, '2025-05-15'); assert.equal(q['2026-09'].filed, '2026-11-14'); assert.equal(q['2025-06'].filed, null); // 공시일을 모르는 기간은 null
+    assert.equal(r.status.stocks['015760'].fin.quarters, fin.quarters.length); assert.equal(r.status.stocks['015760'].fin.last, '2026-09');
+    assert.equal(st.filingCalls, 1); assert(fin.periods.length >= 10);
+    // 옛 파일(quarters 없음)은 최근에 받았어도 다시 받음
+    const old = JSON.parse(fs.readFileSync(path.join(dir, 'fin', '015760.json'), 'utf8')); delete old.quarters; fs.writeFileSync(path.join(dir, 'fin', '015760.json'), JSON.stringify(old));
+    const st2 = { finData, filings }; await C.run({ env: KEY2, dataDir: dir, fetch: mockFetch(st2), today: new Date('2026-11-28T19:00:00Z'), log: () => {}, pageDelayMs: 0 });
+    assert.equal(st2.filingCalls, 1); assert(JSON.parse(fs.readFileSync(path.join(dir, 'fin', '015760.json'), 'utf8')).quarters.length > 0);
+    // quarters 가 있으면 6일 동안은 다시 받지 않음
+    const st3 = { finData, filings }; await C.run({ env: KEY2, dataDir: dir, fetch: mockFetch(st3), today: new Date('2026-11-29T19:00:00Z'), log: () => {}, pageDelayMs: 0 }); assert.equal(st3.filingCalls || 0, 0);
+    // 공시일 조회가 실패해도 재무·분기는 저장(공시일만 비어 있음)
+    const dir2 = tmp(); fs.writeFileSync(path.join(dir2, 'watchlist.json'), JSON.stringify([{ code: '015760', name: 'x' }]));
+    const f4 = mockFetch({ finData }); const f4b = async (u, i) => (u.includes('/list.json') && u.includes('pblntf_ty=A') ? resp(JSON.stringify({ status: '020', message: '요청 제한' })) : f4(u, i));
+    await C.run({ env: KEY2, dataDir: dir2, fetch: f4b, today: new Date('2026-11-27T19:00:00Z'), log: () => {}, pageDelayMs: 0 }); const fin4 = JSON.parse(fs.readFileSync(path.join(dir2, 'fin', '015760.json'), 'utf8')); assert(fin4.quarters.length > 0 && fin4.quarters.every((x) => x.filed === null));
   });
   console.log(`${ok} passed${bad ? ', ' + bad + ' failed' : ''}`);
 })();

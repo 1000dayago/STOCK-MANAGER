@@ -271,13 +271,78 @@ async function fetchDisclosures(corpCode, days, key, fetchFn, today) {
   }
   return out;
 }
+/* ---------- 정기공시(사업·반기·분기보고서) 공시일 ---------- */
+// report_nm 예: "분기보고서 (2026.09)", "[기재정정]반기보고서 (2026.06)" → { ym:'2026-09', type }
+function parseFilingName(name) {
+  const m = String(name || '').match(/(사업보고서|반기보고서|분기보고서)\s*\((\d{4})\.(\d{2})\)/);
+  return m ? { type: m[1], ym: `${m[2]}-${m[3]}`, correction: /정정/.test(String(name)) } : null;
+}
+// 같은 기간에 정정공시가 여러 번 있어도 가장 이른 날짜(최초 공시일)를 씁니다.
+function filingDates(list) {
+  const out = {};
+  for (const x of list) {
+    const f = parseFilingName(x.title || x.report_nm);
+    const d = x.date || (x.rcept_dt ? dash(String(x.rcept_dt)) : null);
+    if (!f || !d) continue;
+    if (!out[f.ym] || d < out[f.ym].date) out[f.ym] = { date: d, type: f.type };
+  }
+  return out;
+}
+async function fetchFilings(corpCode, fromYear, key, fetchFn, today) {
+  const out = [];
+  for (let page = 1; page <= 10; page++) {
+    const j = await dartJson(fetchFn, 'list', { corp_code: corpCode, bgn_de: `${fromYear}0101`, end_de: compact(ymd(today)), pblntf_ty: 'A', page_no: page, page_count: 100 }, key);
+    if (j.status === '013') break;
+    if (j.status !== '000') throw new Error(`DART 오류 ${j.status}: ${j.message || ''}`);
+    for (const x of j.list || []) out.push({ report_nm: x.report_nm, rcept_dt: x.rcept_dt });
+    if (page >= (num(j.total_page) || 1)) break;
+    await sleep(250);
+  }
+  return out;
+}
+const addMonths = (ym, n) => { const [y, m] = ym.split('-').map(Number), t = y * 12 + (m - 1) + n; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`; };
+// 보고서별 값 → 분기별(3개월분) 값. 분기·반기 보고서의 누적금액이 있으면 그 차이로, 없으면 당기금액을 3개월분으로 봅니다.
+// 4분기 = 연간(사업보고서) − 앞 3분기. filings: filingDates() 결과. fyeMonth: 결산월(기본 12)
+function buildQuarters(periods, filings, fyeMonth) {
+  const M = fyeMonth || 12, out = [];
+  const years = [...new Set(periods.map((p) => p.year))].sort();
+  const get = (y, rep) => periods.find((p) => p.year === y && p.report === rep);
+  for (const y of years) {
+    const q1 = get(y, '11013'), h1 = get(y, '11012'), q3 = get(y, '11014'), an = get(y, '11011');
+    const endYear = M === 12 ? y : y + 1, q4End = `${endYear}-${String(M).padStart(2, '0')}`;
+    const end = { 1: addMonths(q4End, -9), 2: addMonths(q4End, -6), 3: addMonths(q4End, -3), 4: q4End };
+    for (const k of ['revenue', 'op', 'net']) {
+      const cum = { 1: q1 && (q1[k + 'Add'] != null ? q1[k + 'Add'] : q1[k]), 2: h1 && h1[k + 'Add'], 3: q3 && q3[k + 'Add'] };
+      const three = { 1: q1 && q1[k], 2: h1 && h1[k], 3: q3 && q3[k] }; // 당기금액(분기·반기 보고서는 보통 3개월분)
+      const v = {};
+      v[1] = three[1] != null ? three[1] : cum[1];
+      v[2] = cum[2] != null && cum[1] != null ? cum[2] - cum[1] : three[2];
+      v[3] = cum[3] != null && cum[2] != null ? cum[3] - cum[2] : three[3];
+      const annual = an && an[k];
+      let derived = false;
+      v[4] = annual != null && v[1] != null && v[2] != null && v[3] != null ? annual - v[1] - v[2] - v[3] : null; derived = v[4] != null;
+      for (let q = 1; q <= 4; q++) {
+        if (v[q] == null) continue;
+        let o = out.find((x) => x.ym === end[q]);
+        if (!o) { o = { ym: end[q], year: y, q, label: `${y} ${q}분기`, fs: ((q === 4 ? an : q === 1 ? q1 : q === 2 ? h1 : q3) || {}).fs || '', filed: (filings[end[q]] || {}).date || null }; out.push(o); }
+        o[k] = Math.round(v[q]);
+        if (q === 4 && derived) o.derived = true; // 연간에서 계산한 값
+      }
+    }
+  }
+  return out.filter((o) => o.op != null).sort((a, b) => (a.ym < b.ym ? -1 : 1));
+}
 const ACCOUNTS = { revenue: ['매출액', '수익(매출액)', '영업수익'], op: ['영업이익', '영업이익(손실)'], net: ['당기순이익', '당기순이익(손실)', '분기순이익', '반기순이익', '연결당기순이익'], assets: ['자산총계'], liab: ['부채총계'], equity: ['자본총계'] };
 const REPORTS = [['11013', '1분기'], ['11012', '반기'], ['11014', '3분기'], ['11011', '사업보고서']];
 function parseFinancials(list) {
   const fsDiv = list.some((x) => x.fs_div === 'CFS') ? 'CFS' : 'OFS';
   const out = { fs: fsDiv === 'CFS' ? '연결' : '별도' };
   for (const x of list.filter((r) => r.fs_div === fsDiv)) {
-    for (const [k, names] of Object.entries(ACCOUNTS)) if (names.includes(String(x.account_nm).trim()) && out[k] == null) out[k] = num(x.thstrm_amount);
+    for (const [k, names] of Object.entries(ACCOUNTS)) {
+      if (!names.includes(String(x.account_nm).trim()) || out[k] != null) continue;
+      out[k] = num(x.thstrm_amount);
+      if (['revenue', 'op', 'net'].includes(k) && x.thstrm_add_amount != null && String(x.thstrm_add_amount).trim() !== '') out[k + 'Add'] = num(x.thstrm_add_amount); // 분기·반기 보고서의 누적금액
+    }
   }
   return out;
 }
@@ -421,13 +486,17 @@ async function run(opt = {}) {
     // 재무 (6일에 한 번)
     const finFile = path.join(dir, 'fin', `${s.code}.json`);
     const finOld = readJSON(finFile, null);
-    const fresh = finOld && finOld.updatedAt && Date.now() - Date.parse(finOld.updatedAt) < 6 * 86400000 && !env.FORCE_FIN;
+    const fresh = finOld && finOld.updatedAt && finOld.quarters && Date.now() - Date.parse(finOld.updatedAt) < 6 * 86400000 && !env.FORCE_FIN; // quarters 가 없는 옛 파일은 다시 받음
     await step(s.code, 'fin', !!keys.dart && !fresh, fresh ? '최근에 수집함(6일에 한 번)' : 'DART 키(DART_API_KEY) 없음', async () => {
       if (!corpMap[s.code]) throw new Error('DART에서 이 종목의 고유번호를 찾지 못했습니다');
-      const y = today.getUTCFullYear();
-      const periods = await fetchFinancials(corpMap[s.code], [y, y - 1], keys.dart, fetchFn);
-      if (writeJSON(finFile, { updatedAt: new Date().toISOString(), periods })) changed++;
-      return { count: periods.length, msg: `(${periods.length}개 기간)` };
+      const y = today.getUTCFullYear(), finYears = Math.max(3, Math.min(10, env.COLLECT_FIN_YEARS ? clampYears(env.COLLECT_FIN_YEARS) : years)); // 수집 기간(년)을 따르되 3~10년
+      const periods = await fetchFinancials(corpMap[s.code], Array.from({ length: finYears }, (_, i) => y - i), keys.dart, fetchFn);
+      let filings = {};
+      try { filings = filingDates(await fetchFilings(corpMap[s.code], y - finYears, keys.dart, fetchFn, today)); } catch (e) { /* 공시일을 못 받아도 재무는 저장(공시일은 추정으로 표시됨) */ }
+      const ann = Object.keys(filings).filter((k) => filings[k].type === '사업보고서').sort().pop();
+      const quarters = buildQuarters(periods, filings, ann ? +ann.slice(5) : 12);
+      if (writeJSON(finFile, { updatedAt: new Date().toISOString(), periods, quarters })) changed++;
+      return { count: periods.length, quarters: quarters.length, last: quarters.length ? quarters[quarters.length - 1].ym : null, msg: `(${periods.length}개 기간, 분기 ${quarters.length}개${quarters.length ? ', 마지막 ' + quarters[quarters.length - 1].ym : ''})` };
     });
   }
   writeJSON(path.join(dir, 'status.json'), status);
@@ -439,4 +508,4 @@ async function run(opt = {}) {
 if (require.main === module) {
   run().then((r) => { if (r.attempts > 0 && r.failures === r.attempts) process.exitCode = 2; }).catch((e) => { console.error('수집 중 예기치 않은 오류:', e.message); process.exitCode = 1; });
 }
-module.exports = { run, isYmd, fetchNaverPrices, clampYears, fetchFlow, mergeFlowRows, parseFlowCsv, fetchPrices, mergePrices, parseCsvRows, fetchNews, cleanText, unzipFirst, parseCorpXml, fetchDisclosures, fetchFinancials, parseFinancials, readWatchlist, encKey, makeMask, mergeList, apiErrorFromText };
+module.exports = { buildQuarters, filingDates, parseFilingName, parseFinancials, run, isYmd, fetchNaverPrices, clampYears, fetchFlow, mergeFlowRows, parseFlowCsv, fetchPrices, mergePrices, parseCsvRows, fetchNews, cleanText, unzipFirst, parseCorpXml, fetchDisclosures, fetchFinancials, parseFinancials, readWatchlist, encKey, makeMask, mergeList, apiErrorFromText };
