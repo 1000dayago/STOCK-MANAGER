@@ -835,7 +835,11 @@ service cloud.firestore {
     stockTab: (el) => { ui.stockTab = el.dataset.v; const first = state.stocks.find((x) => !!x.watch === (ui.stockTab === 'watch')); ui.stockId = first ? first.id : null; ui.selected.clear(); render(); },
     toWatch: () => { const st = curStock(); if (st.lots.length) return toast('매수 기록이 있는 종목은 관심 종목으로 옮길 수 없습니다', true); st.watch = true; st.watchAt = Date.now(); ui.stockTab = 'watch'; save(); render(); toast('관심 종목으로 옮겼습니다'); },
     toHeld: () => { const st = curStock(); st.watch = false; ui.stockTab = 'held'; save(); render(); toast('보유 종목으로 옮겼습니다 (실제 매수 기록을 추가하세요)'); },
-    collectToggle: () => { const st = curStock(); st.collect = !st.collect; save(); render(); toast(st.collect ? '자동 수집 대상에 포함했습니다. 공개 저장소의 목록에 이 종목이 보입니다.' : '자동 수집 대상에서 뺐습니다'); },
+    collectToggle: () => { const st = curStock(); st.collect = !st.collect; save(); render();
+      const code = String(st.code || '').trim();
+      if (st.collect && st.market !== 'KR') return toast('해외 종목은 자동 수집을 지원하지 않아 수집 대상 목록에 들어가지 않습니다.', true);
+      if (st.collect && !/^\d{6}$/.test(code)) return toast(`종목코드가 ${code ? '“' + code + '”로 6자리 숫자가 아니라' : '비어 있어'} 목록에 들어가지 않습니다. ⋯ 메뉴 › 종목 수정에서 6자리 코드를 입력하세요.`, true);
+      toast(st.collect ? '자동 수집 대상에 포함했습니다. 공개 저장소의 목록에 이 종목이 보입니다.' : '자동 수집 대상에서 뺐습니다'); },
     simForStock: () => { const st = curStock(); if (A.ui.bt) { A.ui.bt.stockId = st.id; A.ui.bt.simTab = 'bt'; if (A.btPickStock) A.btPickStock(st.id); } ui.view = 'backtest'; render(); window.scrollTo(0, 0); },
     note: (el) => openNote(el.dataset.key),
     noteEdit: (el) => editNote(el.dataset.key),

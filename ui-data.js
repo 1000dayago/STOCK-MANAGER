@@ -104,6 +104,7 @@
         <div class="grid2"><label>또는 시작일<input class="inp" type="date" data-setting="collectFrom" value="${esc(cfrom)}"></label><label>종료일 <small class="muted">(비우면 오늘까지)</small><input class="inp" type="date" data-setting="collectTo" value="${esc(cto)}"></label></div>
         <p class="hint"><b>지금 설정: ${cfrom || cto ? `${esc(cfrom || '(최근 ' + years + '년 전부터)')} ~ ${esc(cto || '오늘')}` : `최근 ${years}년`}</b> · 시작일을 정하면 “최근 몇 년”보다 우선하고, 날짜를 모두 비우면 최근 몇 년으로 돌아갑니다. 네이버에서 키 없이 받으며 시세는 17년, 수급은 14년 전까지 확인했습니다(대한항공 기준, 종목마다 상장일부터).</p>
         <p class="hint">처음 수집할 때 이 기간을 채웁니다(10년이면 시세와 수급 합쳐 1분 안팎). 이후에는 마지막 날짜 근처부터 이어 받으니 수집을 며칠 쉬어도 사이가 비지 않습니다. 기간을 <b>늘리면</b> 더 과거가 채워지고 <b>줄여도</b> 받은 데이터는 지우지 않습니다. 종료일이 과거 날짜면 그 구간이 이미 있을 때 다시 받지 않습니다. <b>값을 바꾸면 아래 목록이 바뀌니, 다시 복사해서 data/watchlist.json 에 붙여 넣고 수집을 실행해야 적용됩니다.</b> 종목마다 다르게 하려면 목록에서 그 종목 줄에 <code>"years": 5</code> 또는 <code>"from": "2020-01-01", "to": "2020-12-31"</code> 을 직접 추가하세요.</p></div>
+      ${(() => { const ex = D.watchExcluded(A.getState().stocks); return ex.length ? `<div class="warnbox" id="watchExcluded"><div>${ic('alert')}<span><b>목록에 들어가지 않은 종목 ${ex.length}개</b><br>${ex.map((x) => `· <b>${esc(x.name || '(이름 없음)')}</b>: ${esc(x.reason)}`).join('<br>')}</span></div></div>` : ''; })()}
       <h4>수집 대상 목록 <small class="muted">(내 국내 종목 ${kr}개 · 종목코드 6자리가 입력된 종목만)</small></h4>
       <textarea id="watchJson" rows="${Math.min(10, json.split('\n').length + 1)}" readonly>${esc(json)}</textarea>
       <div id="watchDiff" class="autostat-box"><span class="muted">저장소 목록과 비교하는 중…</span></div>

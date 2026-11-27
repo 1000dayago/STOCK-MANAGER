@@ -50,6 +50,14 @@
     const base = `https://github.com/${m[1]}/${repo}`;
     return { owner: m[1], repo, base, actions: `${base}/actions/workflows/collect.yml`, secrets: `${base}/settings/secrets/actions`, editWatch: `${base}/edit/main/data/watchlist.json`, newSecret: `${base}/settings/secrets/actions/new` };
   };
+  // 수집 대상에서 빠진 종목과 그 이유(설정 화면 안내용)
+  D.watchExcluded = (stocks) => stocks.map((s) => {
+    const code = String(s.code || '').trim();
+    if (s.market !== 'KR') return { name: s.name, reason: '해외 종목은 자동 수집을 지원하지 않습니다' };
+    if (!/^\d{6}$/.test(code)) return { name: s.name, reason: code ? `종목코드 “${code}”가 6자리 숫자가 아닙니다` : '종목코드가 비어 있습니다' };
+    if (s.watch && !s.collect) return { name: s.name, reason: '관심 종목의 자동 수집이 꺼져 있습니다(종목 화면의 ⋯ 메뉴에서 켜기)' };
+    return null;
+  }).filter(Boolean);
   D.MARKER = '<!-- stock-manager:watchlist -->'; // tools/watchlist-issue.js 와 같아야 함
   D.watchRaw = async (force) => memo('watchraw', () => get('data/watchlist.json'), force);
   // 저장소 목록(raw)과 앱의 목록(JSON 문자열)을 비교

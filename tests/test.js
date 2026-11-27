@@ -459,6 +459,16 @@ t('수집 대상 반영: 이슈 주소 생성·저장소 목록과의 차이·�
   assert.equal(diff({ years: 3, stocks: [{ code: '003490' }, { code: '015760' }] }).optsChanged, true);
   assert.equal(diff(null).none, true); assert.equal(diff([{ code: '003490' }, { code: '015760' }]).optsChanged, true); // 예전 배열 형식 + 기간 없음
 });
+t('수집 대상에서 빠진 종목과 이유', () => {
+  const D = SM.data, mk = (o) => SM.newStock(Object.assign({ name: 'x', code: '', market: 'KR' }, o));
+  const stocks = [mk({ name: '보유A', code: '003490' }), mk({ name: '관심켬', code: '015760', watch: true }), mk({ name: '관심꺼짐', code: '005930', watch: true }), mk({ name: '코드없음', code: '', watch: true }), mk({ name: '코드이상', code: '12345' }), mk({ name: '애플', code: 'AAPL', market: 'US' })];
+  stocks[1].collect = true; stocks[3].collect = true;
+  const inc = JSON.parse(D.watchJson(stocks)).stocks.map((s) => s.name), ex = D.watchExcluded(stocks);
+  assert.deepEqual(inc, ['보유A', '관심켬']); assert.deepEqual(ex.map((e) => e.name), ['관심꺼짐', '코드없음', '코드이상', '애플']);
+  assert(/꺼져/.test(ex[0].reason) && /비어/.test(ex[1].reason) && /6자리/.test(ex[2].reason) && /해외/.test(ex[3].reason));
+  assert.equal(inc.length + ex.length, stocks.length); // 포함 + 제외 = 전체(빠짐없이 설명)
+  assert.deepEqual(D.watchExcluded([mk({ name: '공백코드', code: ' 003490 ' })]), []);
+});
 t('버전 비교', () => {
   assert.equal(SM.compareVersions('1.10.0', '1.9.9'), 1);
   assert.equal(SM.compareVersions('1.2.0', '1.2.0'), 0);
