@@ -342,6 +342,9 @@ const KEYS = { DATA_GO_KR_KEY: 'pub+key/with=chars', DART_API_KEY: 'dartSecret12
     let q = C.buildQuarters(a, f, 12);
     assert.deepEqual(q.map((x) => [x.ym, x.op, x.filed]), [['2025-03', 100, '2025-05-15'], ['2025-06', 50, '2025-08-14'], ['2025-09', 80, '2025-11-14'], ['2025-12', 400 - 100 - 50 - 80, '2026-03-20']]);
     assert.equal(q[3].derived, true); assert.equal(q[0].derived, undefined); assert.equal(q[1].revenue, 500); assert.equal(q[0].label, '2025 1분기'); assert.equal(q[3].fs, '연결');
+    // ①-2 재무상태표(자산·부채·자본)는 분기 말 잔액 그대로 붙음(4분기 = 사업보고서), 없는 값은 붙지 않음
+    q = C.buildQuarters([P(2025, '11013', 100, { liab: 700, equity: 300, assets: 1000 }), P(2025, '11012', 50, { opAdd: 150 }), P(2025, '11014', 80, { opAdd: 230, liab: 800, equity: 350 }), P(2025, '11011', 400, { liab: 900, equity: 400, assets: 1300 })], {}, 12);
+    assert.deepEqual(q.map((x) => [x.ym, x.liab, x.equity, x.assets]), [['2025-03', 700, 300, 1000], ['2025-06', undefined, undefined, undefined], ['2025-09', 800, 350, undefined], ['2025-12', 900, 400, 1300]]);
     // ② 누적금액이 없으면 당기금액을 3개월분으로, 일부 분기만 있어도 있는 만큼
     q = C.buildQuarters([P(2024, '11013', 30), P(2024, '11014', 20)], {}, 12); assert.deepEqual(q.map((x) => [x.ym, x.op, x.filed]), [['2024-03', 30, null], ['2024-09', 20, null]]); // 4분기·반기는 계산 불가 → 없음
     // ③ 반기 보고서의 당기금액이 누적(6개월)으로 오는 회사: 누적금액이 있으면 그 차이를 써서 올바른 3개월분

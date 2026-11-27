@@ -107,9 +107,34 @@
     const list = (quarters || []).filter((q) => q && /^\d{4}-\d{2}$/.test(q.ym) && Number.isFinite(q.op)).slice().sort((a, b) => (a.ym < b.ym ? -1 : 1));
     const by = new Map(list.map((q) => [q.ym, q]));
     return list.map((q) => {
-      const prev = by.get(shiftYm(q.ym, -12));
-      return Object.assign({}, q, { opEok: q.op / 1e8, margin: q.revenue > 0 ? (q.op / q.revenue) * 100 : null, yoy: yoyOf(q.op, prev && prev.op), filedEst: !q.filed, at: q.filed || estimateFiled(q.ym) });
+      const prev = by.get(shiftYm(q.ym, -12)), num = (v) => (Number.isFinite(v) ? v : null);
+      const liab = num(q.liab), pl = prev ? num(prev.liab) : null, eq = num(q.equity);
+      return Object.assign({}, q, {
+        opEok: q.op / 1e8, margin: q.revenue > 0 ? (q.op / q.revenue) * 100 : null, yoy: yoyOf(q.op, prev && prev.op), filedEst: !q.filed, at: q.filed || estimateFiled(q.ym),
+        dOpEok: prev && Number.isFinite(prev.op) ? (q.op - prev.op) / 1e8 : null, // 전년 동기 대비 영업이익 증감액(억원): 전년이 적자·0이어도 항상 계산됨
+        liabEok: liab == null ? null : liab / 1e8, dLiabEok: liab != null && pl != null ? (liab - pl) / 1e8 : null,
+        liabPct: liab != null && pl > 0 ? (liab / pl - 1) * 100 : null, debtRatio: liab != null && eq > 0 ? (liab / eq) * 100 : null, // 부채비율 = 부채 ÷ 자본
+      });
     }).sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  }
+  // 증감 패널의 세로 눈금. 두 계열(각각 값 배열)을 한 패널에 그릴 때의 위치 계산.
+  //  mode 'zero'(0 맞춘 분리): 두 계열이 같은 0 높이를 공유하되 각자의 눈금을 씀 / 'same'(같은 눈금): 하나의 눈금
+  //  반환: { z: 0의 위치(위에서부터 0~1), scale:[계열별 '1(패널 전체 높이)당 값'] } → y = z*H - v/scale*H 로 환산
+  function chgScale(seriesList, mode) {
+    const lists = (seriesList || []).map((a) => (a || []).filter(Number.isFinite)).filter((a) => a.length);
+    if (!lists.length) return { z: 0.5, scale: [] };
+    const pn = lists.map((a) => [Math.max(0, ...a), Math.max(0, ...a.map((v) => -v))]);
+    const clamp = (z) => Math.min(0.85, Math.max(0.15, z));
+    const fit = (z, [p, n]) => Math.max(p / z, n / (1 - z), 1e-9) * 1.08; // 위·아래 8% 여유
+    if (mode === 'same') {
+      const P = Math.max(...pn.map((x) => x[0])), N = Math.max(...pn.map((x) => x[1])), z = clamp(P + N > 0 ? P / (P + N) : 0.5), sc = fit(z, [P, N]);
+      return { z, scale: lists.map(() => sc) };
+    }
+    // 0 위치 z를 정함: 계열마다 ‘패널을 얼마나 알차게 쓰는가’(실제 폭 ÷ 눈금 폭)를 구해, 가장 덜 쓰는 계열이 가장 커지는 z(maximin). 눈금은 계열마다 선형이라 모양이 왜곡되지 않음
+    const eff = (z, [p, n]) => (p + n > 0 ? (p + n) / fit(z, [p, n]) : 1);
+    let z = 0.5, best = -1;
+    for (let k = 15; k <= 85; k++) { const zz = k / 100, e = Math.min(...pn.map((x) => eff(zz, x))); if (e > best + 1e-12) { best = e; z = zz; } }
+    return { z, scale: pn.map((x) => fit(z, x)) };
   }
   // 기준 날짜까지 공시된(공시일이 그 날짜 이전인) 가장 최근 실적 — 미래 정보를 쓰지 않기 위함
   function earningsAsOf(series, date) { let r = null; for (const e of series || []) { if (e.at <= date) r = e; else break; } return r; }
@@ -118,7 +143,7 @@
   // 날짜 배열(오름차순)에서 date 이후 첫 위치. 마지막 날짜보다 뒤면 -1
   function firstIdxOnOrAfter(dates, date) { let lo = 0, hi = dates.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (dates[mid] < date) lo = mid + 1; else hi = mid; } return lo < dates.length ? lo : -1; }
 
-  Object.assign(SM, { earningsSeries, earningsAsOf, estimateFiled, yoyOf, chartFmtEok: fmtEok, chartYoyText: yoyText, chartFirstIdx: firstIdxOnOrAfter, aggregateBars, chartSma: sma, chartBollinger: bollinger, chartWindow: windowRange, chartCumulative: cumulative, chartBarsForMonths: barsForMonths, chartExtremes: extremes, chartNiceTicks: niceTicks, chartFmtCompact: fmtCompact });
+  Object.assign(SM, { chgScale, earningsSeries, earningsAsOf, estimateFiled, yoyOf, chartFmtEok: fmtEok, chartYoyText: yoyText, chartFirstIdx: firstIdxOnOrAfter, aggregateBars, chartSma: sma, chartBollinger: bollinger, chartWindow: windowRange, chartCumulative: cumulative, chartBarsForMonths: barsForMonths, chartExtremes: extremes, chartNiceTicks: niceTicks, chartFmtCompact: fmtCompact });
 
   /* ================= 그리기 · 조작 ================= */
   if (typeof document === 'undefined') return;
@@ -136,7 +161,7 @@
     canvas.className = 'stockchart';
     canvas.style.touchAction = 'pan-y'; // 세로 스크롤은 페이지가, 가로 드래그·핀치는 차트가
     host.appendChild(canvas);
-    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
+    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, chg: false, chgScale: 'zero', earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
 
     function rebuild(keepWindow) {
       if (!S.raw) { S.bars = null; return; }
@@ -154,6 +179,7 @@
       if (S.cfg.flow && hasFlow()) for (const [k, name, color] of WHO) if (S.bars[k]) P.push({ k, h: sub, name, color });
       if (S.cfg.vol && S.bars.hasVol !== false) P.push({ k: 'vol', h: sub });
       if (S.cfg.earn && S.earn && S.earn.length) P.push({ k: 'earn', h: sub + 34 });
+      if (S.cfg.chg && S.earn && S.earn.length) P.push({ k: 'chg', h: sub + 54 });
       let y = 0; for (const p of P) { p.y = y; y += p.h; }
       return { P, H: y + 22 };
     }
@@ -341,6 +367,49 @@
           for (const v of niceTicks(emin, emax, 2)) { const y = EY(v); if (y < ep.y + 12 || y > ep.y + ep.h - 6) continue; ctx.fillText(Math.abs(v) < 1e-9 ? '0' : fmtEok(v), W - PR + 6, y); }
         }
       }
+      /* ---- 전년 동기 대비 증감 패널: 영업이익 증감액 · 부채 증감액(억원). 모든 분기를 선으로 잇고, 분리 모드에서는 0 높이를 맞춤 ---- */
+      const cp = P.find((p) => p.k === 'chg');
+      if (cp) {
+        const ct = 26, cb = 8, ch = cp.h - ct - cb;
+        const COP = '#7c3aed', CLB = '#0d9488', hasL = (S.earn || []).some((e) => e.dLiabEok != null);
+        const ser = [{ key: 'dOpEok', name: '영업이익', col: COP, pct: (e) => (e.yoy.kind === 'pct' ? e.yoy.pct : null) }];
+        if (hasL) ser.push({ key: 'dLiabEok', name: '부채', col: CLB, pct: (e) => e.liabPct });
+        const near = (S.earn || []).map((e) => ({ e, i: firstIdxOnOrAfter(b.d, e.at) })).filter((x) => x.i >= 0 && x.i >= from - 140 && x.i <= to + 140);
+        const vis = near.filter((x) => x.i >= from && x.i <= to);
+        ctx.textAlign = 'left'; ctx.fillStyle = T.text; ctx.fillText('전년 동기 대비 증감(억원)', PL + 2, cp.y + 8);
+        let lx = PL + 2 + ctx.measureText('전년 동기 대비 증감(억원)').width + 12;
+        for (const sr of ser) { ctx.fillStyle = sr.col; ctx.fillRect(lx, cp.y + 7, 12, 3); ctx.fillStyle = T.text; ctx.fillText(sr.name + (S.cfg.chgScale === 'same' || ser.length < 2 ? '' : sr.key === 'dOpEok' ? ' (왼쪽)' : ' (오른쪽)'), lx + 16, cp.y + 8); lx += 20 + ctx.measureText(sr.name + ' (오른쪽)').width + 6; }
+        const vals = ser.map((sr) => vis.map((x) => x.e[sr.key]).filter(Number.isFinite));
+        if (!vis.length || !vals.some((a) => a.length)) { ctx.textAlign = 'center'; ctx.fillStyle = T.text; ctx.fillText('이 구간에는 비교할 분기 실적이 없습니다', PL + pw / 2, cp.y + cp.h / 2 + 4); ctx.textAlign = 'left'; }
+        else {
+          const sc = SM.chgScale(vals, S.cfg.chgScale), CY = (v, k) => cp.y + ct + (sc.z - v / sc.scale[k]) * ch, zero = CY(0, 0);
+          ctx.strokeStyle = T.grid; ctx.setLineDash([2, 3]); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(PL, Math.round(zero) + 0.5); ctx.lineTo(W - PR, Math.round(zero) + 0.5); ctx.stroke(); ctx.setLineDash([]);
+          ser.forEach((sr, k) => {
+            const pts = near.filter((x) => Number.isFinite(x.e[sr.key]));
+            ctx.save(); ctx.beginPath(); ctx.rect(PL, cp.y + 1, pw + 1, cp.h - 2); ctx.clip();
+            ctx.strokeStyle = sr.col; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.beginPath();
+            pts.forEach((x, j) => { const px = X(x.i), py = CY(x.e[sr.key], k); if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
+            ctx.stroke(); ctx.restore();
+            for (const x of vis) { const v = x.e[sr.key]; if (!Number.isFinite(v)) continue; ctx.beginPath(); ctx.arc(X(x.i), CY(v, k), 3.5, 0, Math.PI * 2); if (x.e.filedEst) { ctx.fillStyle = T.bg; ctx.fill(); ctx.strokeStyle = sr.col; ctx.lineWidth = 1.5; ctx.stroke(); } else { ctx.fillStyle = sr.col; ctx.fill(); ctx.strokeStyle = T.bg; ctx.lineWidth = 1.5; ctx.stroke(); } }
+            // 글자: 오른쪽(최근) 분기부터. 영업이익은 점 위, 부채는 점 아래에 적어 서로 가리지 않게 함
+            let lastX = 1e9; ctx.font = 'bold 10px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'center';
+            for (let j = vis.length - 1; j >= 0; j--) {
+              const x = vis[j], v = x.e[sr.key]; if (!Number.isFinite(v)) continue;
+              const lxp = Math.min(W - PR - 24, Math.max(PL + 24, X(x.i))); if (lastX - lxp < 50) continue;
+              const py = CY(v, k), oy = ser.length > 1 && Number.isFinite(x.e[ser[1 - k].key]) ? CY(x.e[ser[1 - k].key], 1 - k) : null, above = oy == null ? k === 0 : py < oy || (py === oy && k === 0); ctx.fillStyle = sr.col; // 같은 분기에서 더 위에 있는 점은 글자를 위에, 아래 점은 아래에 적어 서로 가리지 않게 함
+               ctx.fillText((v > 0 ? '+' : v < 0 ? '−' : '') + fmtEok(Math.abs(v)), lxp, py + (above ? -9 : 10));
+              lastX = lxp;
+            }
+            ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif';
+          });
+          // 눈금: 영업이익(왼쪽 눈금)은 패널 안 왼쪽, 부채(오른쪽 눈금)는 오른쪽 여백. 같은 눈금이면 오른쪽 하나
+          const tick = (k, v, xx, al, col) => { const y = CY(v, k); if (y < cp.y + 12 || y > cp.y + cp.h - 6) return; ctx.fillStyle = col; ctx.textAlign = al; ctx.fillText(Math.abs(v) < 1e-9 ? '0' : (v > 0 ? '+' : '−') + fmtEok(Math.abs(v)), xx, y); };
+          const topV = (k) => sc.z * sc.scale[k], botV = (k) => -(1 - sc.z) * sc.scale[k];
+          if (S.cfg.chgScale === 'same' || ser.length < 2) { tick(0, 0, W - PR + 6, 'left', T.text); tick(0, topV(0) * 0.85, W - PR + 6, 'left', T.text); tick(0, botV(0) * 0.85, W - PR + 6, 'left', T.text); }
+          else { ser.forEach((sr, k) => { const xx = k === 0 ? PL + 2 : W - PR + 6, al = 'left'; tick(k, topV(k) * 0.85, xx, al, sr.col); tick(k, botV(k) * 0.85, xx, al, sr.col); }); tick(1, 0, W - PR + 6, 'left', T.text); }
+          ctx.textAlign = 'left'; ctx.fillStyle = T.text;
+        }
+      }
       // 캔들 패널 아래쪽: 실적 공시일 표시(위를 향한 작은 삼각형). 영업이익 점과 같은 위치
       if (visEarn.length) for (const { e, i } of visEarn) { const x = X(i); ctx.fillStyle = e.filedEst ? 'rgba(148,163,184,0.9)' : (e.opEok >= 0 ? T.up : T.down); ctx.beginPath(); ctx.moveTo(x - 4, m.y + m.h - 2); ctx.lineTo(x + 4, m.y + m.h - 2); ctx.lineTo(x, m.y + m.h - 9); ctx.closePath(); ctx.fill(); }
 
@@ -366,6 +435,10 @@
       if (S.earn && S.earn.length && S.cfg.earn) {
         const e = earningsAsOf(S.earn, b.d[i]);
         h += '<br>' + (e ? `<span class="cr-who" style="--c:#64748b">실적</span> <b>${e.label || e.ym}</b> 영업이익 <b class="${e.opEok > 0 ? 'cr-up' : e.opEok < 0 ? 'cr-down' : ''}">${fmtEok(e.opEok)}</b> <small>(전년 동기 대비 <b>${SM.chartYoyText(e.yoy)}</b>${e.margin != null ? ' · 이익률 ' + e.margin.toFixed(1) + '%' : ''} · 공시 ${e.at}${e.filedEst ? ' 추정' : ''}${e.derived ? ' · 연간−3분기' : ''})</small>` : '<span class="muted">이 날짜 이전에 공시된 분기 실적이 없습니다.</span>');
+      }
+      if (S.earn && S.earn.length && S.cfg.chg) {
+        const e = earningsAsOf(S.earn, b.d[i]), sg = (v) => (v == null ? '-' : (v > 0 ? '+' : v < 0 ? '−' : '') + fmtEok(Math.abs(v)));
+        if (e) h += '<br>' + `<span class="cr-who" style="--c:#7c3aed">증감</span> 영업이익 <b class="${e.dOpEok > 0 ? 'cr-up' : e.dOpEok < 0 ? 'cr-down' : ''}">${sg(e.dOpEok)}</b>` + (e.dLiabEok != null ? ` · 부채 <b>${sg(e.dLiabEok)}</b>${e.liabPct != null ? ` (${e.liabPct > 0 ? '+' : ''}${e.liabPct.toFixed(1)}%)` : ''}${e.debtRatio != null ? ' · 부채비율 ' + e.debtRatio.toFixed(0) + '%' : ''}` : ' <small class="muted">· 부채 자료 없음</small>') + ` <small>(${e.label || e.ym} · 전년 동기 대비)</small>`;
       }
       readEl.innerHTML = h;
     }

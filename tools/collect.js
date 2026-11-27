@@ -329,6 +329,12 @@ function buildQuarters(periods, filings, fyeMonth) {
         if (q === 4 && derived) o.derived = true; // 연간에서 계산한 값
       }
     }
+    // 재무상태표 값(자산·부채·자본)은 분기 말 잔액이라 그 시점 보고서의 값을 그대로 붙입니다(4분기 = 사업보고서)
+    for (let q = 1; q <= 4; q++) {
+      const per = { 1: q1, 2: h1, 3: q3, 4: an }[q], o = out.find((x) => x.ym === end[q]);
+      if (!per || !o) continue;
+      for (const k of ['assets', 'liab', 'equity']) if (Number.isFinite(per[k])) o[k] = Math.round(per[k]);
+    }
   }
   return out.filter((o) => o.op != null).sort((a, b) => (a.ym < b.ym ? -1 : 1));
 }
@@ -486,7 +492,7 @@ async function run(opt = {}) {
     // 재무 (6일에 한 번)
     const finFile = path.join(dir, 'fin', `${s.code}.json`);
     const finOld = readJSON(finFile, null);
-    const fresh = finOld && finOld.updatedAt && finOld.quarters && Date.now() - Date.parse(finOld.updatedAt) < 6 * 86400000 && !env.FORCE_FIN; // quarters 가 없는 옛 파일은 다시 받음
+    const fresh = finOld && finOld.updatedAt && finOld.quarters && finOld.v >= 2 && Date.now() - Date.parse(finOld.updatedAt) < 6 * 86400000 && !env.FORCE_FIN; // 분기·재무상태표(v2)가 없는 옛 파일은 다시 받음
     await step(s.code, 'fin', !!keys.dart && !fresh, fresh ? '최근에 수집함(6일에 한 번)' : 'DART 키(DART_API_KEY) 없음', async () => {
       if (!corpMap[s.code]) throw new Error('DART에서 이 종목의 고유번호를 찾지 못했습니다');
       const y = today.getUTCFullYear(), finYears = Math.max(3, Math.min(10, env.COLLECT_FIN_YEARS ? clampYears(env.COLLECT_FIN_YEARS) : years)); // 수집 기간(년)을 따르되 3~10년
@@ -495,7 +501,7 @@ async function run(opt = {}) {
       try { filings = filingDates(await fetchFilings(corpMap[s.code], y - finYears, keys.dart, fetchFn, today)); } catch (e) { /* 공시일을 못 받아도 재무는 저장(공시일은 추정으로 표시됨) */ }
       const ann = Object.keys(filings).filter((k) => filings[k].type === '사업보고서').sort().pop();
       const quarters = buildQuarters(periods, filings, ann ? +ann.slice(5) : 12);
-      if (writeJSON(finFile, { updatedAt: new Date().toISOString(), periods, quarters })) changed++;
+      if (writeJSON(finFile, { v: 2, updatedAt: new Date().toISOString(), periods, quarters })) changed++;
       return { count: periods.length, quarters: quarters.length, last: quarters.length ? quarters[quarters.length - 1].ym : null, msg: `(${periods.length}개 기간, 분기 ${quarters.length}개${quarters.length ? ', 마지막 ' + quarters[quarters.length - 1].ym : ''})` };
     });
   }

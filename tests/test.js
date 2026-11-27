@@ -597,6 +597,20 @@ t('차트 실적: 전년 동기 대비·흑전/적전·공시일 추정·기준�
   assert.equal(SM.earningsAsOf(s, '2025-05-14'), null); assert.equal(SM.earningsAsOf(s, '2025-05-15').ym, '2025-03'); assert.equal(SM.earningsAsOf(s, '2026-11-12').ym, '2026-06'); assert.equal(SM.earningsAsOf(s, '2026-11-13').ym, '2026-09'); assert.equal(SM.earningsAsOf(s, '2030-01-01').ym, '2027-03'); assert.equal(SM.earningsAsOf([], '2026-01-01'), null); assert.equal(SM.earningsAsOf(null, '2026-01-01'), null);
   // 표기
   assert.equal(SM.chartFmtEok(3492), '3,492억'); assert.equal(SM.chartFmtEok(12345), '1.2조'); assert.equal(SM.chartFmtEok(-2071), '-2,071억'); assert.equal(SM.chartFmtEok(123456), '12조'); assert.equal(SM.chartYoyText({ kind: 'pct', pct: 121.7 }), '+122%'); assert.equal(SM.chartYoyText({ kind: 'pct', pct: -6.04 }), '-6.0%'); assert.equal(SM.chartYoyText({ kind: 'turn_profit' }), '흑자전환'); assert.equal(SM.chartYoyText({ kind: 'loss', better: false }), '적자 확대');
+  // 증감(억원)·부채: 전년이 적자·0이어도 증감액은 항상 계산, 부채비율 = 부채 ÷ 자본
+  { const B = (ym, op, liab, equity) => ({ ym, op: op * 1e8, revenue: 1e10, net: 0, filed: ym + '-28', liab: liab == null ? undefined : liab * 1e8, equity: equity == null ? undefined : equity * 1e8 });
+    const e = SM.earningsSeries([B('2025-03', -10, 1000, 500), B('2026-03', 30, 1500, 500), B('2025-06', 0, 800, 400), B('2026-06', 20, null, null)]), m = Object.fromEntries(e.map((x) => [x.ym, x]));
+    assert.equal(m['2025-03'].dOpEok, null); assert.equal(m['2026-03'].dOpEok, 40); assert.equal(m['2026-03'].yoy.kind, 'turn_profit'); // 증가율은 못 쓰는 경우에도 증감액은 있음
+    assert.equal(m['2026-06'].dOpEok, 20); assert.equal(m['2026-06'].yoy.kind, 'na');
+    assert.equal(m['2026-03'].dLiabEok, 500); assert.equal(Math.round(m['2026-03'].liabPct), 50); assert.equal(m['2026-03'].debtRatio, 300); assert.equal(m['2026-06'].liabEok, null); assert.equal(m['2026-06'].dLiabEok, null); assert.equal(m['2026-06'].debtRatio, null);
+    // 0 맞춘 분리: 두 계열이 같은 0 높이를 공유하고 값이 패널 안(0~1)에 들어감 / 같은 눈금: 눈금 하나
+    const A = [1916, -5772, 863], L = [163427, -46483, 5200], pos = (v, z, sc) => z - v / sc;
+    const zr = SM.chgScale([A, L], 'zero'); assert.equal(zr.scale.length, 2); assert(zr.z >= 0.15 && zr.z <= 0.85);
+    for (const [arr, k] of [[A, 0], [L, 1]]) for (const v of arr) { const y = pos(v, zr.z, zr.scale[k]); assert(y > 0 && y < 1, `${v} → ${y}`); }
+    assert.notEqual(zr.scale[0], zr.scale[1]); // 각자의 눈금
+    const sm = SM.chgScale([A, L], 'same'); assert.equal(sm.scale[0], sm.scale[1]); for (const v of A.concat(L)) { const y = pos(v, sm.z, sm.scale[0]); assert(y > 0 && y < 1); }
+    assert.deepEqual(SM.chgScale([], 'zero').scale, []); assert.deepEqual(SM.chgScale([[], [NaN]], 'zero').scale, []); const one = SM.chgScale([[5, 3]], 'zero'); assert(one.z === 0.85 && one.scale.length === 1); // 전부 양수여도 0이 아래 끝에 붙지 않음
+  }
   // 잘못된 입력은 무시
   assert.deepEqual(SM.earningsSeries([null, { ym: 'x', op: 1 }, { ym: '2026-03' }, { ym: '2026-03', op: NaN }]), []); assert.deepEqual(SM.earningsSeries(null), []);
   // 날짜 위치 찾기
