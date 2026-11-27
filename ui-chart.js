@@ -58,6 +58,9 @@
   };
 
   function stockOf() { return A.curStock && A.curStock(); }
+  let btCtx = null; // 시뮬레이션 결과 화면에서 쓸 때: { ds:{name,data}, code, cycles, target }
+  function btOpts(c) { return { ma: prefs.ma, bb: { on: prefs.bbOn, n: Math.max(2, Math.min(200, Math.round(+prefs.bbN) || 20)), k: Math.max(0.5, Math.min(5, +prefs.bbK || 2)) }, flow: prefs.flow, vol: prefs.vol, earn: prefs.earnView === 'line', chg: prefs.chg, chgScale: prefs.chgScale, earnStep: !!prefs.earnStep, avg: null, lots: [], cycles: c.cycles || [], cycleTarget: c.target || 0 }; }
+  function curOpts() { if (btCtx) return btOpts(btCtx); const st = stockOf(); return st ? optsFor(st) : null; }
   function optsFor(st) {
     const sm = SM.stockSummary(st, A.getState().settings);
     const avg = st.market === 'US' ? (sm && sm.avgLocal) : sm && sm.avg;
@@ -93,7 +96,7 @@
     }
     bar.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === prefs.earnView));
     tbl.innerHTML = curQuarters && prefs.earnView === 'table' ? earnTableHtml(curQuarters) : '';
-    if (chart) { const st = stockOf(); chart.setConfig(Object.assign(st ? optsFor(st) : {}, { earn: prefs.earnView === 'line', chg: prefs.chg && !!curQuarters })); }
+    if (chart) chart.setConfig(Object.assign(curOpts() || {}, { earn: prefs.earnView === 'line', chg: prefs.chg && !!curQuarters }));
   }
   // 분기 실적(DART): 수집된 종목만. 없으면 null
   async function loadQuarters(st) {
@@ -104,16 +107,17 @@
     try { const d = await SM.data.fin(code); return d && Array.isArray(d.quarters) && d.quarters.length ? d.quarters : null; } catch (e) { return null; }
   }
   // 종목 화면이 그려진 뒤 호출: 차트 영역이 있으면 데이터를 읽어 그립니다
-  A.mountChart = async () => {
+  A.mountChart = async (bt) => {
     const host = document.getElementById('chartHost'), card = document.getElementById('chartCard');
     if (!host || !card) { if (chart) { chart.destroy(); chart = null; mountedFor = null; } return; }
-    const st = stockOf();
+    btCtx = bt || null;
+    const st = bt ? { market: bt.code ? 'KR' : '', code: bt.code || '', lots: [] } : stockOf();
     if (!st) return;
     const read = document.getElementById('chartRead'), msg = document.getElementById('chartMsg');
     const my = ++loadSeq;
     if (chart) { chart.destroy(); chart = null; }
     msg.innerHTML = '';
-    const ds = A.stockDataset ? await A.stockDataset(st) : null;
+    const ds = bt ? bt.ds : A.stockDataset ? await A.stockDataset(st) : null;
     if (my !== loadSeq || !document.getElementById('chartHost')) return; // 그 사이 다른 화면으로 바뀜
     if (!ds) {
       read.innerHTML = '';
@@ -121,7 +125,7 @@
       return;
     }
     const target = document.getElementById('chartHost');
-    chart = SM.mountStockChart(target, read, Object.assign({ onChange: null }, optsFor(st)));
+    chart = SM.mountStockChart(target, read, Object.assign({ onChange: null }, bt ? btOpts(bt) : optsFor(st)));
     mountedFor = st.id;
     chart.state.tf = prefs.tf;
     chart.setData(ds.data);
@@ -168,8 +172,8 @@
     else if (k === 'bbN') { prefs.bbN = Math.max(2, Math.min(200, Math.round(+el.value) || DEF.bbN)); el.value = prefs.bbN; }
     else if (k === 'bbK') { prefs.bbK = Math.max(0.5, Math.min(5, +el.value || DEF.bbK)); el.value = prefs.bbK; }
     savePrefs();
-    const st = stockOf();
-    if (chart && st) chart.setConfig(optsFor(st));
+    const o = curOpts();
+    if (chart && o) chart.setConfig(o);
   });
   A._chartPrefs = () => prefs; // 테스트용
 })(typeof globalThis !== 'undefined' ? globalThis : this);

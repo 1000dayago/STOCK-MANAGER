@@ -117,6 +117,8 @@
       });
     }).sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
   }
+  // 사이클 매수 표시 글자: 사이클의 첫 매수는 "1", 두 번째부터 "1-2", "1-3"…
+  const cycleLabel = (no, seq) => (seq > 1 ? `${no}-${seq}` : String(no));
   // 증감 패널의 세로 눈금. 두 계열(각각 값 배열)을 한 패널에 그릴 때의 위치 계산.
   //  mode 'zero'(0 맞춘 분리): 두 계열이 같은 0 높이를 공유하되 각자의 눈금을 씀 / 'same'(같은 눈금): 하나의 눈금
   //  반환: { z: 0의 위치(위에서부터 0~1), scale:[계열별 '1(패널 전체 높이)당 값'] } → y = z*H - v/scale*H 로 환산
@@ -143,7 +145,7 @@
   // 날짜 배열(오름차순)에서 date 이후 첫 위치. 마지막 날짜보다 뒤면 -1
   function firstIdxOnOrAfter(dates, date) { let lo = 0, hi = dates.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (dates[mid] < date) lo = mid + 1; else hi = mid; } return lo < dates.length ? lo : -1; }
 
-  Object.assign(SM, { chgScale, earningsSeries, earningsAsOf, estimateFiled, yoyOf, chartFmtEok: fmtEok, chartYoyText: yoyText, chartFirstIdx: firstIdxOnOrAfter, aggregateBars, chartSma: sma, chartBollinger: bollinger, chartWindow: windowRange, chartCumulative: cumulative, chartBarsForMonths: barsForMonths, chartExtremes: extremes, chartNiceTicks: niceTicks, chartFmtCompact: fmtCompact });
+  Object.assign(SM, { cycleLabel, chgScale, earningsSeries, earningsAsOf, estimateFiled, yoyOf, chartFmtEok: fmtEok, chartYoyText: yoyText, chartFirstIdx: firstIdxOnOrAfter, aggregateBars, chartSma: sma, chartBollinger: bollinger, chartWindow: windowRange, chartCumulative: cumulative, chartBarsForMonths: barsForMonths, chartExtremes: extremes, chartNiceTicks: niceTicks, chartFmtCompact: fmtCompact });
 
   /* ================= 그리기 · 조작 ================= */
   if (typeof document === 'undefined') return;
@@ -161,7 +163,7 @@
     canvas.className = 'stockchart';
     canvas.style.touchAction = 'pan-y'; // 세로 스크롤은 페이지가, 가로 드래그·핀치는 차트가
     host.appendChild(canvas);
-    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, chg: false, chgScale: 'zero', earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
+    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, chg: false, chgScale: 'zero', cycles: null, cycleTarget: 0, earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
 
     function rebuild(keepWindow) {
       if (!S.raw) { S.bars = null; return; }
@@ -257,6 +259,32 @@
         let i = b.d.findIndex((d) => d >= lt.date); if (i < 0 || i < from || i > to) continue;
         const x = X(i), y = Y(b.l[i]) + 7; ctx.fillStyle = '#2563eb'; ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x - 5, y + 4); ctx.lineTo(x + 5, y + 4); ctx.closePath(); ctx.fill();
         ctx.fillStyle = T.fg; ctx.textAlign = 'center'; ctx.fillText(String(lt.no), x, y + 13); ctx.textAlign = 'left';
+      }
+      // 시뮬레이션 사이클: 사이클 구간 띠 · 평단·목표가 계단선 · 매수 ▲(사이클-순번) · 전량 매도 ▼
+      for (const cy of S.cfg.cycles || []) {
+        const iS = firstIdxOnOrAfter(b.d, cy.startDate), iE = cy.endDate ? firstIdxOnOrAfter(b.d, cy.endDate) : -1, iEnd = iE < 0 ? n - 1 : iE;
+        if (iS < 0 || iEnd < from || iS > to) continue;
+        const xs = Math.max(PL, X(Math.max(iS, from)) - bw / 2), xe = Math.min(W - PR, X(Math.min(iEnd, to)) + bw / 2), tint = cy.no % 2 ? '37,99,235' : '217,119,6';
+        ctx.fillStyle = `rgba(${tint},0.07)`; ctx.fillRect(xs, m.y + mt, Math.max(2, xe - xs), mh);
+        ctx.fillStyle = `rgba(${tint},0.9)`; ctx.textAlign = 'left'; ctx.fillText(`${cy.no}사이클${cy.open ? '(진행 중)' : ''}`, Math.max(PL + 2, xs + 2), m.y + mt + 8);
+        const bs = cy.buys || [];
+        ctx.save(); ctx.beginPath(); ctx.rect(PL, m.y, pw, m.h); ctx.clip();
+        bs.forEach((bu, k) => { // 평단(주황 실선)과 목표가(초록 점선)는 다음 매수(또는 매도) 전까지 유지
+          const i0 = firstIdxOnOrAfter(b.d, bu.date), i1 = k + 1 < bs.length ? firstIdxOnOrAfter(b.d, bs[k + 1].date) : iEnd;
+          if (i0 < 0) return; const x0 = X(i0), x1 = X(i1 < 0 ? n - 1 : i1);
+          ctx.strokeStyle = '#d97706'; ctx.lineWidth = 1.4; ctx.setLineDash([]); ctx.beginPath(); ctx.moveTo(x0, Y(bu.avg)); ctx.lineTo(x1, Y(bu.avg)); if (k + 1 < bs.length) ctx.lineTo(x1, Y(bs[k + 1].avg)); ctx.stroke();
+          if (S.cfg.cycleTarget > 0) { ctx.strokeStyle = '#16a34a'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); const ty = Y(bu.avg * (1 + S.cfg.cycleTarget / 100)); ctx.beginPath(); ctx.moveTo(x0, ty); ctx.lineTo(x1, ty); ctx.stroke(); ctx.setLineDash([]); }
+        });
+        ctx.restore(); ctx.setLineDash([]);
+        for (const bu of bs) {
+          const i = firstIdxOnOrAfter(b.d, bu.date); if (i < from || i > to) continue;
+          const x = X(i), y = Y(b.l[i]) + 7; ctx.fillStyle = '#2563eb'; ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x - 5, y + 4); ctx.lineTo(x + 5, y + 4); ctx.closePath(); ctx.fill();
+          ctx.fillStyle = T.fg; ctx.textAlign = 'center'; ctx.fillText(cycleLabel(cy.no, bu.seq), x, y + 13); ctx.textAlign = 'left';
+        }
+        if (!cy.open && iE >= from && iE <= to) { // 전량 매도 ▼ + 수익률
+          const x = X(iE), y = Y(b.h[iE]) - 7, good = (cy.ret || 0) >= 0; ctx.fillStyle = good ? T.up : T.down; ctx.beginPath(); ctx.moveTo(x, y + 5); ctx.lineTo(x - 5, y - 4); ctx.lineTo(x + 5, y - 4); ctx.closePath(); ctx.fill();
+          ctx.textAlign = 'center'; ctx.fillText(`${cy.no}✓${cy.ret != null ? ' ' + (cy.ret >= 0 ? '+' : '') + (cy.ret * 100).toFixed(1) + '%' : ''}`, Math.min(W - PR - 24, Math.max(PL + 24, x)), y - 11); ctx.textAlign = 'left';
+        }
       }
       // 최고·최저 표시 (현재 종가 대비 %)
       const ex = extremes(b.h, b.l, from, to);

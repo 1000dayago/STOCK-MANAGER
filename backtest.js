@@ -624,11 +624,14 @@
       if (maxInvest > 0 && invested() + qty * price + fee > maxInvest) { skipped++; return; }
       open.push({ no: ++lotNo, idx: i, date: data.d[i], price, qty, fee, peak: price });
       feesTotal += fee;
-      buys.push({ i, price, qty });
+      const seq = (cyc ? cyc.lots : 0) + 1;
+      buys.push({ i, price, qty, cyc: cycles.length + 1, seq }); // cyc: 사이클 번호, seq: 그 사이클의 몇 번째 매수
       if (firstBuyIdx < 0) firstBuyIdx = i;
       peakInvested = Math.max(peakInvested, invested());
-      if (!cyc) cyc = { startIdx: i, startDate: data.d[i], lots: 0, maxLots: 0, peakInv: 0, qty: 0, realized: 0, worst: 0, firstPrice: price, lowPrice: price };
+      if (!cyc) cyc = { no: cycles.length + 1, buys: [], startIdx: i, startDate: data.d[i], lots: 0, maxLots: 0, peakInv: 0, qty: 0, realized: 0, worst: 0, firstPrice: price, lowPrice: price };
       cyc.lots++; cyc.qty += qty; cyc.maxLots = Math.max(cyc.maxLots, open.length); cyc.peakInv = Math.max(cyc.peakInv, invested()); cyc.lowPrice = Math.min(cyc.lowPrice, price);
+      { const q = open.reduce((a, l) => a + l.qty, 0), cost = open.reduce((a, l) => a + l.qty * l.price, 0); // 이 매수 직후의 보유 수량·평단(수수료 제외)
+        cyc.buys.push({ i, date: data.d[i], seq, price, qty, cumQty: q, cost: invested(), avg: cost / q, close: data.c[i] }); }
     }
     function execSell(lot, i, price, reason) {
       const k = open.indexOf(lot);
@@ -643,7 +646,7 @@
       sells.push({ i, price, qty: lot.qty });
       if (cyc) {
         cyc.realized += pnl;
-        if (!open.length) { cyc.endIdx = i; cyc.endDate = data.d[i]; cyc.days = SM.daysBetween(cyc.startDate, data.d[i]); cyc.sellPrice = price; cyc.ret = cyc.peakInv > 0 ? cyc.realized / cyc.peakInv : null; cycles.push(cyc); cyc = null; }
+        if (!open.length) { cyc.endIdx = i; cyc.endDate = data.d[i]; cyc.days = SM.daysBetween(cyc.startDate, data.d[i]); cyc.sellPrice = price; cyc.sellQty = cyc.qty; cyc.ret = cyc.peakInv > 0 ? cyc.realized / cyc.peakInv : null; cycles.push(cyc); cyc = null; }
       }
     }
     function entryDyn(c, i) {

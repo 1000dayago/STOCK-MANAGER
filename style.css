@@ -771,3 +771,13 @@ table.earntable th:first-child, table.earntable td:first-child { position: stick
 table.earntable th:first-child, table.earntable td:first-child, table.earntable th:nth-child(2), table.earntable td:nth-child(2) { text-align: left; }
 table.earntable thead th { position: sticky; top: 0; background: var(--card); z-index: 1; font-weight: 700; }
 table.earntable .cr-up { color: var(--up); } table.earntable .cr-down { color: var(--down); }
+
+/* 시뮬레이션: 사이클 표(눌러서 펼침) */
+table.cyc tr.cycrow { cursor: pointer; }
+table.cyc tr.cycrow:hover { background: color-mix(in srgb, var(--card) 88%, var(--text, #888)); }
+table.cyc .cycar { display: inline-block; width: 1em; font-style: normal; color: var(--muted, #888); }
+table.cyc tr.cycdet > td { padding: 4px 0 10px; background: color-mix(in srgb, var(--card) 94%, #2563eb); }
+table.cyc tr.cycdet[hidden] { display: none; }
+table.cycmini { min-width: 720px; font-size: 12px; }
+table.cycmini td, table.cycmini th { white-space: nowrap; }
+table.cycmini tr.cycsell td { border-top: 2px solid var(--line, #ccc); background: color-mix(in srgb, var(--card) 90%, #16a34a); }

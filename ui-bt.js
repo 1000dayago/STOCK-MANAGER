@@ -325,8 +325,8 @@
       <p class="verdict">${verdict}</p>
       ${cycleSection(r, cur)}
       <p class="hint warn">과거 결과일 뿐 미래 수익을 보장하지 않습니다. 한 종목·한 기간 결과는 우연일 수 있으니 다른 종목·기간에서도 비슷한지 확인하세요. 일봉으로는 장중 체결 순서를 알 수 없고, 기간 끝에 남은 순번은 평가손익으로만 반영됩니다.</p>
-      <div class="legend-tip" id="candleTip">차트 위에 마우스/손가락을 올리면 해당 날짜의 값이 표시됩니다.</div>
-      <canvas id="btCandle" class="chart"></canvas>
+      <p class="hint">아래 차트는 종목 화면의 차트와 같습니다(이동평균·볼린저·수급·거래량·영업이익 증감). 파란 ▲ 아래 숫자는 <b>사이클-매수 순서</b>입니다(1 = 1사이클 첫 매수, 1-2 = 1사이클 두 번째 매수). 주황 선은 평단, 초록 점선은 목표가, ▼는 전량 매도입니다.</p>
+      ${A.chartSection ? A.chartSection(null) : '<canvas id="btCandle" class="chart"></canvas>'}
       <h4>누적 손익 곡선 <small class="muted">(실현 + 평가)</small></h4><canvas id="btEquity" class="chart"></canvas>
       ${r.renko ? `<h4>렌코 차트</h4><canvas id="btRenko" class="chart"></canvas>` : ''}
       <h4>청산된 순번</h4>${r.trades.length ? `<div class="tablewrap"><table><thead><tr><th>순번</th><th>매수일</th><th>매수가</th><th>매도일</th><th>매도가</th><th>수량</th><th>손익</th><th>수익률</th><th>보유일</th><th>사유</th></tr></thead><tbody>
@@ -340,12 +340,21 @@
     const multi = Number(cfg.growth) > 1 || (cfg.entries.conds || []).some((x) => x.type === 'dropLast');
     if (!multi || (!r.cycles.length && !oc)) return '';
     const d = (v) => (v == null ? '-' : Math.round(v).toLocaleString('ko-KR') + '일');
-    const row = (x, k) => `<tr class="${x.open ? 'muted' : ''}"><td data-label="사이클"><span class="v">${x.open ? '진행 중' : k + '회'}</span></td><td data-label="시작일"><span class="v">${x.startDate}</span></td><td data-label="종료일"><span class="v">${x.open ? '(기간 끝 ' + x.endDate + ')' : x.endDate}</span></td><td data-label="소요"><span class="v">${d(x.days)}</span></td><td data-label="매수 횟수"><span class="v">${x.lots}회 · 최대 ${x.maxLots}순번</span></td><td data-label="가격"><span class="v">${fmtNum(x.firstPrice, 2)} → 최저 매수 ${fmtNum(x.lowPrice, 2)}</span></td><td data-label="최대 투입금"><span class="v">${fmtMoney(x.peakInv, cur)}</span></td><td data-label="최저 평가손익"><span class="v">${fmtMoney(x.worst, cur)}</span></td><td data-label="손익"><span class="v ${(x.open ? x.realized + x.unrealized : x.realized) >= 0 ? 'pos' : 'neg'}">${fmtMoney(x.open ? x.realized + x.unrealized : x.realized, cur)}</span></td><td data-label="수익률"><span class="v">${x.ret == null ? '-' : pct(x.ret)}</span></td></tr>`;
+    const tgt = (cfg.exits.conds.find((c) => c.type === 'avgPct' && c.dir !== 'down') || {}).pct, tp = tgt != null ? Number(tgt) : null;
+    const sgn = (v) => (v > 0 ? '+' : '') + v.toFixed(2) + '%';
+    const detail = (x) => { // 사이클 펼침: 매수할 때마다의 평단·목표가·수익, 마지막은 전량 매도
+      const rows = x.buys.map((bu) => { const tprice = tp != null ? bu.avg * (1 + tp / 100) : null, r0 = bu.close / bu.avg - 1;
+        return `<tr><td>${SM.cycleLabel(x.no, bu.seq)}</td><td>${bu.date}</td><td>${fmtNum(bu.price, 2)}</td><td>${fmtNum(bu.qty, 0)}</td><td>${fmtNum(bu.cumQty, 0)}</td><td>${fmtMoney(bu.cost, cur)}</td><td><b>${fmtNum(bu.avg, 2)}</b></td><td>${tprice != null ? fmtNum(tprice, 2) + ` <small class="muted">(+${tp}%)</small>` : '-'}</td><td>${tprice != null ? '+' + ((tprice / bu.price - 1) * 100).toFixed(1) + '%' : '-'}</td><td class="${r0 >= 0 ? 'pos' : 'neg'}">${fmtMoney((bu.close - bu.avg) * bu.cumQty, cur)} <small>(${sgn(r0 * 100)})</small></td></tr>`; }).join('');
+      const end = x.open ? `<tr class="muted"><td colspan="10">기간 끝까지 목표에 닿지 못했습니다 · ${x.endDate} 종가 ${fmtNum(x.lastPrice, 2)} · 평가손익 ${fmtMoney(x.realized + x.unrealized, cur)} (${x.ret == null ? '-' : pct(x.ret)})</td></tr>`
+        : `<tr class="cycsell"><td>${x.no}✓ 매도</td><td>${x.endDate}</td><td>${fmtNum(x.sellPrice, 2)}</td><td>${fmtNum(x.sellQty, 0)}</td><td>0</td><td>-</td><td>평단 ${fmtNum(x.buys[x.buys.length - 1].avg, 2)}</td><td>${tp != null ? '목표 +' + tp + '%' : '-'}</td><td>${x.buys.length ? ((x.sellPrice / x.buys[x.buys.length - 1].avg - 1) * 100 >= 0 ? '+' : '') + ((x.sellPrice / x.buys[x.buys.length - 1].avg - 1) * 100).toFixed(2) + '%' : '-'}</td><td class="${x.realized >= 0 ? 'pos' : 'neg'}"><b>${fmtMoney(x.realized, cur)}</b> <small>(${pct(x.ret)} · 최대 투입금 대비, 수수료·세금 반영)</small></td></tr>`;
+      return `<tr class="cycdet" data-cd="${x.no}${x.open ? 'o' : ''}" hidden><td colspan="10"><div class="tablewrap"><table class="mini cycmini"><thead><tr><th>매수</th><th>날짜</th><th>매수가</th><th>수량</th><th>누적 수량</th><th>투입금 누계</th><th>평단</th><th>목표가</th><th>목표까지 필요한 상승(이번 매수가 기준)</th><th>그날 종가 기준 평가손익</th></tr></thead><tbody>${rows}${end}</tbody></table></div></td></tr>`;
+    };
+    const row = (x, k) => `<tr class="cycrow ${x.open ? 'muted' : ''}" data-act="btCycToggle" data-cd="${x.no}${x.open ? 'o' : ''}" tabindex="0" role="button" aria-expanded="false" title="눌러서 매수마다의 평단·수익 보기"><td data-label="사이클"><span class="v"><i class="cycar">▸</i> ${x.open ? '진행 중' : k + '회'}</span></td><td data-label="시작일"><span class="v">${x.startDate}</span></td><td data-label="종료일"><span class="v">${x.open ? '(기간 끝 ' + x.endDate + ')' : x.endDate}</span></td><td data-label="소요"><span class="v">${d(x.days)}</span></td><td data-label="매수 횟수"><span class="v">${x.lots}회 · 최대 ${x.maxLots}순번</span></td><td data-label="가격"><span class="v">${fmtNum(x.firstPrice, 2)} → 최저 매수 ${fmtNum(x.lowPrice, 2)}</span></td><td data-label="최대 투입금"><span class="v">${fmtMoney(x.peakInv, cur)}</span></td><td data-label="최저 평가손익"><span class="v">${fmtMoney(x.worst, cur)}</span></td><td data-label="손익"><span class="v ${(x.open ? x.realized + x.unrealized : x.realized) >= 0 ? 'pos' : 'neg'}">${fmtMoney(x.open ? x.realized + x.unrealized : x.realized, cur)}</span></td><td data-label="수익률"><span class="v">${x.ret == null ? '-' : pct(x.ret)}</span></td></tr>${detail(x)}`;
     const msg = cs.count
       ? `첫 매수부터 이익으로 전부 팔기까지 <b>${cs.count}번</b> 완료(평균 <b>${d(cs.avgDays)}</b>, 가장 빠른 ${d(cs.minDays)} · 가장 오래 ${d(cs.maxDays)}). 가장 깊게 들어간 사이클은 <b>${cs.maxLots}순번</b>, 그때 투입금은 <b>${fmtMoney(cs.maxInvest, cur)}</b>이고 평가손실은 최대 <b>${fmtMoney(cs.worst, cur)}</b>까지 갔습니다.`
       : '이 기간에는 이익으로 전부 판 사이클이 없습니다.';
     const open = oc ? ` 기간 끝에 <b>진행 중인 사이클</b>이 있습니다(${oc.startDate} 시작, ${d(oc.days)} 경과, ${oc.lots}회 매수, 평가손익 ${fmtMoney(oc.realized + oc.unrealized, cur)}). 목표에 닿지 못한 채 끝났다는 뜻이라 실제로는 더 오래 기다려야 했을 수 있습니다.` : '';
-    return `<h4>사이클 분석 <small class="muted">(첫 매수 → 보유 순번 전부 매도)</small></h4><p class="hint">${msg}${open}</p>
+    return `<h4>사이클 분석 <small class="muted">(첫 매수 → 보유 순번 전부 매도)</small></h4><p class="hint">${msg}${open} <b>사이클 줄을 누르면</b> 매수할 때마다의 평단·목표가·평가손익과 마지막 전량 매도까지 펼쳐 보입니다.</p>
       <div class="tablewrap"><table class="cyc"><thead><tr><th>사이클</th><th>시작일</th><th>종료일</th><th>소요</th><th>매수</th><th>가격</th><th>최대 투입금</th><th>최저 평가손익</th><th>손익</th><th>수익률</th></tr></thead><tbody>${r.cycles.map((x, k) => row(x, k + 1)).join('')}${oc ? row(oc, 0) : ''}</tbody></table></div>
       <p class="hint warn">“최대 투입금”만큼의 자금이 그때 실제로 있어야 이 결과가 가능합니다. 자금 한도를 넘으면 추가 매수를 못 해 결과가 달라지므로 위 프리셋에서 최대 투입금을 넣어 다시 돌려 보세요.</p>`;
   }
@@ -357,6 +366,11 @@
     if (!stored || !stored.data) return;
     const data = stored.data, cfg = r.cfg;
     const vc = cfg.entries.conds.concat(cfg.exits.conds).find((c) => c.type === 'vol');
+    const targetPct = (cfg.exits.conds.find((c) => c.type === 'avgPct' && c.dir !== 'down') || {}).pct;
+    if (A.mountChart && document.getElementById('chartHost')) {
+      const dsId = String(bt.datasetId || ''), code = dsId.startsWith('repo:') ? dsId.slice(5) : '';
+      A.mountChart({ ds: { name: stored.name || '시뮬레이션 데이터', data }, code, cycles: r.cycles.concat(r.openCycle ? [r.openCycle] : []), target: targetPct != null ? Number(targetPct) : 0 });
+    }
     const canvas = document.getElementById('btCandle');
     if (canvas) SM.drawCandles(canvas, data, { from: r.startIdx, to: r.endIdx, lines: SM.overlayLines(data, cfg), buys: r.buys, sells: r.sells, volLine: vc ? num(vc.n) : 0, tip: document.getElementById('candleTip'), height: 360 });
     const eq = document.getElementById('btEquity');
@@ -503,6 +517,10 @@
       list.splice(i, 1); bt.strategyId = ''; A.save(); A.render();
     },
     btStratNew: () => { const keep = { from: bt.cfg.from, to: bt.cfg.to, market: bt.cfg.market }; bt.cfg = Object.assign(SM.blankCfg(), keep); bt.strategyId = ''; bt.result = null; bt.val = null; A.render(); },
+    btCycToggle: (el) => {
+      const row = el.closest('tr'); if (!row) return; const det = row.parentNode.querySelector(`tr.cycdet[data-cd="${row.dataset.cd}"]`); if (!det) return;
+      const open = det.hidden; det.hidden = !open; row.setAttribute('aria-expanded', String(open)); const ar = row.querySelector('.cycar'); if (ar) ar.textContent = open ? '▾' : '▸';
+    },
     btMgApply: () => {
       const m = bt.mg, nz = (v, d) => { const x = Number(String(v).replace(/,/g, '')); return Number.isFinite(x) ? x : d; };
       const c = bt.cfg; c.qtyMode = 'shares'; c.qty = Math.max(1, nz(m.qty, 10)); c.growth = Math.max(1, nz(m.growth, 2)); c.maxLots = Math.max(0, Math.floor(nz(m.maxLots, 0))); c.maxInvest = Math.max(0, nz(m.maxInvest, 0));

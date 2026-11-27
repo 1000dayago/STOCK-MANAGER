@@ -124,6 +124,10 @@ t('배수 분할매수(물타기) 사이클: 10주→20주→40주, 평단 +5% �
   assert(Math.abs(c.peakInv - 5940) < 60, 'peakInv ' + c.peakInv); assert(c.realized > 0 && c.ret > 0); assert(c.worst < 0, '중간에는 평가손실'); assert.equal(c.lowPrice, 79); assert.equal(c.firstPrice, 100);
   assert(r.openCycle && r.openCycle.open && r.openCycle.lots === 1 && r.openCycle.startDate === d.d[6]); // 청산 다음 날 다시 시작
   assert.equal(r.cycleStats.count, 1); assert.equal(r.cycleStats.maxLots, 3); assert.equal(r.cycleStats.avgDays, 5); assert.equal(r.cycleStats.wins, 1); assert(r.cycleStats.worst < 0);
+  // 사이클 번호·순서·매수별 평단(차트 표시와 펼침 표의 재료)
+  assert.deepEqual(r.buys.map((b) => [b.cyc, b.seq]), [[1, 1], [1, 2], [1, 3], [2, 1]]); assert.deepEqual(r.buys.map((b) => SM.cycleLabel(b.cyc, b.seq)), ['1', '1-2', '1-3', '2']);
+  assert.deepEqual(c.buys.map((b) => [b.seq, b.price, b.qty, b.cumQty]), [[1, 100, 10, 10], [2, 89, 20, 30], [3, 79, 40, 70]]);
+  assert(Math.abs(c.buys[1].avg - (1000 + 1780) / 30) < 1e-9 && Math.abs(c.buys[2].avg - 5940 / 70) < 1e-9); assert.equal(c.buys[2].close, 79); assert.equal(c.no, 1); assert.equal(r.openCycle.no, 2); assert.equal(c.sellQty, 70);
   const lim = SM.runBacktest(d, Object.assign({}, cfg, { maxLots: 2 }), S); assert.equal(lim.cycleStats.maxLots, 2); // 최대 순번 제한
 });
 t('분할매수 조건/최대투입금/수량증가', () => {
