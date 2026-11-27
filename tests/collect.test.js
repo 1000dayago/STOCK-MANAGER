@@ -33,6 +33,11 @@ function mockFetch(state) {
       assert.equal(init.headers['X-Naver-Client-Id'], 'nid');
       return resp(JSON.stringify({ items: [{ title: '<b>한국전력</b> 3분기 &quot;영업이익&quot; 급증', originallink: 'https://news.example.com/a1', link: 'https://n.news.naver.com/a1', description: '요약 <b>본문</b> &amp; 더', pubDate: 'Thu, 26 Nov 2026 10:00:00 +0900' }, { title: '두번째', originallink: 'https://news.example.com/a2', link: 'x', description: '', pubDate: 'Wed, 25 Nov 2026 09:00:00 +0900' }, { title: '링크 없음', originallink: '', link: '' }] }));
     }
+    if (url.includes('m.stock.naver.com/api/stock/')) {
+      if (state.flowFail) return resp('<html>점검중</html>');
+      const fd = state.flowDays || ['20260107', '20260106', '20260105'];
+      return resp(JSON.stringify(fd.map((d, i) => ({ itemCode: '015760', bizdate: d, foreignerPureBuyQuant: i === 0 ? '-970,498' : '+1,000', organPureBuyQuant: '+477,979', individualPureBuyQuant: '+496,820', closePrice: '29,750' }))));
+    }
     if (url.includes('corpCode.xml')) return resp(makeZip('CORPCODE.xml', CORP_XML));
     if (url.includes('/list.json')) return resp(JSON.stringify({ status: '000', message: '정상', total_page: 1, list: [{ rcept_dt: '20261120', report_nm: ' 분기보고서 (2026.09) ', rcept_no: '20261120000123', flr_nm: '한국전력공사' }, { rcept_dt: '20261110', report_nm: '단일판매·공급계약체결', rcept_no: '20261110000045', flr_nm: '한국전력공사' }] }));
     if (url.includes('fnlttSinglAcnt')) {
@@ -104,12 +109,34 @@ const KEYS = { DATA_GO_KR_KEY: 'pub+key/with=chars', DART_API_KEY: 'dartSecret12
   await t('키가 없으면 건너뜀, 일부 실패해도 계속, 오류 메시지에 키 미노출', async () => {
     const dir = tmp();
     fs.writeFileSync(path.join(dir, 'watchlist.json'), JSON.stringify([{ code: '015760', name: '한국전력' }]));
-    let r = await C.run({ env: {}, dataDir: dir, fetch: async () => { throw new Error('호출되면 안 됨'); }, log: () => {} });
+    let r = await C.run({ env: { COLLECT_FLOW: '0' }, dataDir: dir, fetch: async () => { throw new Error('호출되면 안 됨'); }, log: () => {} });
     assert.equal(r.attempts, 0); assert(r.status.stocks['015760'].prices.skipped);
     const failing = async (url) => { if (url.includes('apis.data.go.kr')) throw new Error('boom ' + url); return mockFetch({})(url, { headers: { 'X-Naver-Client-Id': 'nid' } }); };
     r = await C.run({ env: KEYS, dataDir: dir, fetch: failing, today: new Date('2026-11-27T00:00:00Z'), log: () => {} });
     assert.equal(r.status.stocks['015760'].prices.ok, false); assert.equal(r.status.stocks['015760'].news.ok, true);
     assert(!JSON.stringify(r.status).includes('pub%2Bkey') && !JSON.stringify(r.status).includes('pub+key'), '키가 상태 파일에 노출됨');
+  });
+  await t('수급: 부호·콤마 파싱, 누적(같은 날짜는 새 값), 실패 시 다른 항목 계속', async () => {
+    const rows = await C.fetchFlow('015760', mockFetch({}));
+    assert.deepEqual(rows[0], { d: '2026-01-07', f: -970498, i: 477979, p: 496820 }); assert.equal(rows.length, 3);
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, 'watchlist.json'), JSON.stringify([{ code: '015760', name: '한국전력' }]));
+    let r = await C.run({ env: KEYS, dataDir: dir, fetch: mockFetch({}), today: new Date('2026-11-27T00:00:00Z'), log: () => {} });
+    const f = path.join(dir, 'flow', '015760.csv');
+    let lines = fs.readFileSync(f, 'utf8').trim().split('\n');
+    assert.equal(lines[0], 'date,frgn,inst,indiv'); assert.equal(lines.length, 4); assert.equal(lines[3], '2026-01-07,-970498,477979,496820');
+    assert.equal(r.status.stocks['015760'].flow.ok, true); assert.equal(r.status.stocks['015760'].flow.last, '2026-01-07');
+    // 다음 실행: 새 날짜가 이어지고 겹치는 날짜는 중복되지 않음
+    r = await C.run({ env: KEYS, dataDir: dir, fetch: mockFetch({ flowDays: ['20260108', '20260107', '20260106'] }), today: new Date('2026-11-28T00:00:00Z'), log: () => {} });
+    lines = fs.readFileSync(f, 'utf8').trim().split('\n');
+    assert.equal(lines.length, 5); assert.equal(lines[4].slice(0, 10), '2026-01-08');
+    // 형식이 바뀌어 읽지 못해도 시세·뉴스는 계속
+    r = await C.run({ env: KEYS, dataDir: dir, fetch: mockFetch({ flowFail: true }), today: new Date('2026-11-29T00:00:00Z'), log: () => {} });
+    assert.equal(r.status.stocks['015760'].flow.ok, false); assert(/읽지 못했습니다/.test(r.status.stocks['015760'].flow.error)); assert.equal(r.status.stocks['015760'].news.ok, true);
+    assert.equal(fs.readFileSync(f, 'utf8').trim().split('\n').length, 5, '실패해도 기존 파일 유지');
+    // 끄기
+    const f2 = mockFetch({}); await C.run({ env: Object.assign({}, KEYS, { COLLECT_FLOW: '0' }), dataDir: dir, fetch: f2, today: new Date('2026-11-29T00:00:00Z'), log: () => {} });
+    assert(!f2.calls.some((u) => u.includes('m.stock.naver.com')));
   });
   console.log(`${ok} passed${bad ? ', ' + bad + ' failed' : ''}`);
 })();

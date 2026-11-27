@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* 자료 수집: 공공데이터포털(일봉 시세) · DART(공시·재무) · 네이버 검색 API(뉴스)
+/* 자료 수집: 공공데이터포털(일봉 시세) · DART(공시·재무) · 네이버 검색 API(뉴스) · 네이버 모바일 증권(외국인·기관·개인 순매수, 키 불필요)
    GitHub Actions 에서 평일 저녁에 실행되어 data/ 폴더에 결과를 저장합니다. (Node 20+, 외부 패키지 없음)
    필요한 키(저장소 Settings > Secrets and variables > Actions):
      DATA_GO_KR_KEY, DART_API_KEY, NAVER_CLIENT_ID, NAVER_CLIENT_SECRET
@@ -12,6 +12,7 @@ const zlib = require('zlib');
 const PRICE_URL = 'https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo';
 const NEWS_URL = 'https://openapi.naver.com/v1/search/news.json';
 const DART = 'https://opendart.fss.or.kr/api';
+const FLOW_URL = 'https://m.stock.naver.com/api/stock'; // 비공식(네이버 모바일 증권이 쓰는 주소). 키 불필요, 한 번에 최대 60거래일
 
 /* ---------- 공통 ---------- */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -103,6 +104,43 @@ function mergePrices(existingText, newRows) {
   for (const r of newRows) map.set(r.d, r);
   const rows = [...map.values()].sort((a, b) => (a.d < b.d ? -1 : 1));
   return { rows, text: CSV_HEAD + '\n' + rows.map((r) => `${r.d},${r.o},${r.h},${r.l},${r.c},${r.v}`).join('\n') + '\n' };
+}
+
+/* ---------- 투자자별 순매수 (외국인·기관·개인, 단위: 주) ---------- */
+const FLOW_HEAD = 'date,frgn,inst,indiv';
+async function fetchFlow(code, fetchFn) {
+  const { status, text } = await getText(fetchFn, `${FLOW_URL}/${code}/trend?pageSize=60`, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' } });
+  if (status !== 200) throw new Error(`수급 응답 HTTP ${status}`);
+  let list;
+  try { list = JSON.parse(text); } catch (e) { throw new Error('수급 응답을 읽지 못했습니다 (주소나 형식이 바뀌었을 수 있습니다)'); }
+  if (!Array.isArray(list)) throw new Error('수급 응답 형식이 예상과 다릅니다');
+  const rows = [];
+  for (const x of list) {
+    const b = String((x && x.bizdate) || '');
+    if (!/^\d{8}$/.test(b)) continue;
+    const f = num(x.foreignerPureBuyQuant), i = num(x.organPureBuyQuant), d = num(x.individualPureBuyQuant);
+    if (f == null && i == null && d == null) continue;
+    rows.push({ d: dash(b), f, i, p: d });
+  }
+  if (!rows.length) throw new Error('받은 수급 데이터가 없습니다');
+  return rows;
+}
+function parseFlowCsv(text) {
+  const out = [];
+  for (const line of String(text || '').split('\n').slice(1)) {
+    const c = line.trim().split(',');
+    if (c.length < 4 || !/^\d{4}-\d{2}-\d{2}$/.test(c[0])) continue;
+    const n = (v) => (v === '' || v == null ? null : +v);
+    out.push({ d: c[0], f: n(c[1]), i: n(c[2]), p: n(c[3]) });
+  }
+  return out;
+}
+function mergeFlowRows(existingText, newRows) {
+  const map = new Map(parseFlowCsv(existingText).map((r) => [r.d, r]));
+  for (const r of newRows) map.set(r.d, r); // 같은 날짜는 새 값으로
+  const rows = [...map.values()].sort((a, b) => (a.d < b.d ? -1 : 1));
+  const cell = (v) => (v == null ? '' : v);
+  return { rows, text: FLOW_HEAD + '\n' + rows.map((r) => `${r.d},${cell(r.f)},${cell(r.i)},${cell(r.p)}`).join('\n') + '\n' };
 }
 
 /* ---------- 뉴스 (네이버 검색 API) ---------- */
@@ -268,6 +306,14 @@ async function run(opt = {}) {
       if (writeIfChanged(f, m.text)) changed++;
       return { last: m.rows[m.rows.length - 1].d, count: m.rows.length, msg: `(${m.rows.length}일, 마지막 ${m.rows[m.rows.length - 1].d})` };
     });
+    // 수급 (키 없음, COLLECT_FLOW=0 이면 끔)
+    await step(s.code, 'flow', env.COLLECT_FLOW !== '0', '수급 수집을 껐습니다(COLLECT_FLOW=0)', async () => {
+      const f = path.join(dir, 'flow', `${s.code}.csv`);
+      let old = ''; try { old = fs.readFileSync(f, 'utf8'); } catch (e) { /* 없음 */ }
+      const m = mergeFlowRows(old, await fetchFlow(s.code, fetchFn));
+      if (writeIfChanged(f, m.text)) changed++;
+      return { last: m.rows[m.rows.length - 1].d, count: m.rows.length, msg: `(${m.rows.length}일, 마지막 ${m.rows[m.rows.length - 1].d})` };
+    });
     // 뉴스
     await step(s.code, 'news', !!(keys.newsId && keys.newsSecret), '네이버 키(NAVER_CLIENT_ID/SECRET) 없음', async () => {
       const f = path.join(dir, 'news', `${s.code}.json`);
@@ -306,4 +352,4 @@ async function run(opt = {}) {
 if (require.main === module) {
   run().then((r) => { if (r.attempts > 0 && r.failures === r.attempts) process.exitCode = 2; }).catch((e) => { console.error('수집 중 예기치 않은 오류:', e.message); process.exitCode = 1; });
 }
-module.exports = { run, fetchPrices, mergePrices, parseCsvRows, fetchNews, cleanText, unzipFirst, parseCorpXml, fetchDisclosures, fetchFinancials, parseFinancials, readWatchlist, encKey, makeMask, mergeList, apiErrorFromText };
+module.exports = { run, fetchFlow, mergeFlowRows, parseFlowCsv, fetchPrices, mergePrices, parseCsvRows, fetchNews, cleanText, unzipFirst, parseCorpXml, fetchDisclosures, fetchFinancials, parseFinancials, readWatchlist, encKey, makeMask, mergeList, apiErrorFromText };

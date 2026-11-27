@@ -13,7 +13,7 @@
     try { localStorage.setItem(DS_KEY, JSON.stringify(ds)); return true; }
     catch (e) { toast('가격 데이터를 저장할 공간이 부족합니다. 안 쓰는 데이터를 삭제하세요.', true); return false; }
   }
-  const newImp = () => ({ stockId: '', autoNote: '', text: '', headerLine: '', an: null, fileNames: [], dest: 'new', destId: '', name: '', market: 'KR', useAdj: true });
+  const newImp = () => ({ stockId: '', autoNote: '', text: '', headerLine: '', an: null, fileNames: [], dest: 'new', destId: '', name: '', market: 'KR', useAdj: true, unit: '' });
   const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', stockId: '', imp: newImp() });
   const MAP_KEY = 'stockmgr.colmaps';
   const loadMaps = () => { try { return JSON.parse(localStorage.getItem(MAP_KEY) || '{}'); } catch (e) { return {}; } };
@@ -81,7 +81,7 @@
     const imp = bt.imp;
     return `${stockPickHtml()}<section class="card"><h2>1. 데이터 불러오기 <small class="muted">(가격 · 수급)</small></h2>
       <p class="hint">증권사·거래소·포털에서 받은 <b>일봉 파일(CSV)</b>이나 화면의 <b>표를 복사해서 붙여 넣은 것</b>을 읽습니다. 제목 줄 위치와 열 이름(한글·영문)을 자동으로 찾고, 틀리면 아래에서 열을 직접 고를 수 있습니다. 가격·수급이 한 파일에 같이 있어도, 수급만 따로 있어도 됩니다. 엑셀 파일(.xlsx)은 CSV로 저장하거나 표를 복사해서 붙여 넣으세요. 데이터는 용량 때문에 이 기기에만 저장됩니다.</p>
-      <div class="row gap wrap"><label class="btn file">${ic('download')}파일 선택 (여러 개 가능)<input type="file" multiple accept=".csv,.txt,.tsv,text/csv,text/plain" data-change="btFiles" hidden></label><button class="btn" type="button" data-act="btRepo">${ic('stocks')}자동 수집 시세 불러오기</button>
+      <div class="row gap wrap"><label class="btn file">${ic('download')}파일 선택 (여러 개 가능)<input type="file" multiple accept=".csv,.txt,.tsv,text/csv,text/plain" data-change="btFiles" hidden></label><button class="btn" type="button" data-act="btRepo">${ic('stocks')}자동 수집 시세·수급 불러오기</button>
         <label class="mini">제목 줄 번호<input class="inp" data-btimp="headerLine" value="${esc(imp.headerLine)}" inputmode="numeric" placeholder="자동" style="width:90px"></label></div>
       <label>또는 여기에 붙여 넣기<textarea data-btimp="text" rows="4" placeholder="날짜,시가,고가,저가,종가,거래량&#10;2025-01-02,...">${esc(imp.text)}</textarea></label>
       <div class="btns"><button class="btn primary" data-act="btAnalyze">읽기</button>${imp.an ? '<button class="btn" data-act="btImpCancel">취소</button>' : ''}</div>
@@ -121,11 +121,11 @@
   const KIND_TXT = { price: '가격 데이터', flow: '수급 데이터(외국인·기관·개인)', both: '가격 + 수급 데이터', unknown: '형식을 알 수 없음 — 아래에서 열을 지정하세요' };
   function impPreview(imp) {
     const an = imp.an, kind = SM.kindOf(an.cols);
-    if (kind === 'price' || kind === 'both') return { kind, build: SM.buildDataset(an.table, an.cols, { useAdj: imp.useAdj }) };
+    if (kind === 'price' || kind === 'both') return { kind, build: SM.buildDataset(an.table, an.cols, { useAdj: imp.useAdj, unit: imp.unit }) };
     if (kind === 'flow') {
       const dsAll = loadDS(), tgt = dsAll[imp.destId];
       if (!tgt) return { kind, note: '수급은 기존 가격 데이터에 합칩니다. 먼저 가격 데이터를 저장하거나 아래에서 합칠 데이터를 고르세요.' };
-      const m = SM.mergeFlow(tgt.data, an.table, an.cols);
+      const m = SM.mergeFlow(tgt.data, an.table, an.cols, { unit: imp.unit });
       return { kind, flow: m, tgt };
     }
     return { kind };
@@ -133,7 +133,8 @@
   function impPanel() {
     const imp = bt.imp, an = imp.an, hdr = an.table.header, ds = loadDS(), keys = Object.keys(ds);
     const pv = impPreview(imp), kind = pv.kind;
-    const sel = (k, label) => `<label class="mini">${label}<select class="inp" data-change="btImpCol" data-k="${k}"><option value="-1">(없음)</option>${hdr.map((h, i) => `<option value="${i}" ${an.cols[k] === i ? 'selected' : ''}>${i + 1}. ${esc(h || '(빈 칸)')}</option>`).join('')}</select></label>`;
+    const sumTxt = (SM.kindOf(an.cols) !== 'unknown' && Array.isArray(an.cols.instSum) && an.cols.instSum.length) ? `(합산: ${an.cols.instSum.map((j) => hdr[j]).join('+')})` : '(없음)';
+    const sel = (k, label) => `<label class="mini">${label}<select class="inp" data-change="btImpCol" data-k="${k}"><option value="-1">${k === 'inst' ? esc(sumTxt) : '(없음)'}</option>${hdr.map((h, i) => `<option value="${i}" ${an.cols[k] === i ? 'selected' : ''}>${i + 1}. ${esc(h || '(빈 칸)')}</option>`).join('')}</select></label>`;
     let summary = '';
     if (pv.build) {
       if (pv.build.error) summary = `<p class="hint warn">${ic('alert')} ${esc(pv.build.error)}</p>`;
@@ -153,6 +154,7 @@
     const mergeSel = keys.length ? `<select class="inp" data-change="btImpDest" data-k="destId" style="max-width:260px">${opts(keys.map((k) => [k, dsLabel(k, ds[k])]), imp.destId)}</select>` : '<span class="muted">(저장된 데이터 없음)</span>';
     return `<div class="box"><b>읽은 결과: ${KIND_TXT[kind]}</b> <small class="muted">· ${an.table.rows.length}행${imp.fileNames.length > 1 ? ` · 파일 ${imp.fileNames.length}개` : ''}${an.fromSaved ? ' · 이전에 지정한 열 설정을 불러왔습니다' : ''}</small>
       <div class="colgrid">${COL_LABELS.map(([k, l]) => sel(k, l)).join('')}</div>
+      ${(an.cols.frgn >= 0 || an.cols.inst >= 0 || an.cols.indiv >= 0 || (an.cols.instSum && an.cols.instSum.length)) ? (() => { const det = imp.unit === 'krwToShares' ? 'shares' : (pv.build && pv.build.data && pv.build.data.flowUnit) || (pv.flow && pv.flow.unit) || 'shares'; return `<label class="mini">수급 값의 단위<select class="inp" data-change="btImpUnit" style="max-width:260px"><option value="" ${imp.unit === '' ? 'selected' : ''}>자동 판단 (지금: ${det === 'krw' ? '금액(원)' : '수량(주)'})</option><option value="shares" ${imp.unit === 'shares' ? 'selected' : ''}>수량(주)</option><option value="krw" ${imp.unit === 'krw' ? 'selected' : ''}>금액(원) 그대로</option><option value="krwToShares" ${imp.unit === 'krwToShares' ? 'selected' : ''}>금액(원) → 수량(주)으로 환산해 저장 (종가 기준)</option></select></label>${det === 'krw' ? '<p class="hint">금액 단위 수급은 시뮬레이션 조건의 기준값도 <b>원</b>으로 입력해야 합니다. (예: 10억 원 = 1000000000) 자동 수집(네이버, 주 단위)과 한 데이터에 이어 쓰려면 위에서 “수량(주)으로 환산”을 고르세요.</p>' : imp.unit === 'krwToShares' ? '<p class="hint">금액을 그날 종가로 나눠 주 수로 바꿉니다. 실제 체결가와 종가가 달라 대략 1% 이내의 오차가 있습니다.</p>' : ''}`; })() : ''}
       ${an.cols.adj >= 0 ? `<label class="chk"><input type="checkbox" data-change="btImpAdj" ${imp.useAdj ? 'checked' : ''}> 수정종가 기준으로 시/고/저/종가 보정</label>` : ''}
       ${summary}
       ${kind !== 'unknown' ? `<h4>저장 위치</h4>
@@ -228,16 +230,36 @@
   };
 
   /* ---------- 데이터 저장 ---------- */
+  // 저장소(data/)의 시세·수급을 하나의 표로 합쳐 불러옵니다. 시세가 없으면 수급만, 수급이 없으면 시세만 읽습니다.
   A.btLoadRepo = async (code) => {
-    const csv = await SM.data.pricesCsv(code, true);
-    if (!csv) return toast('저장소에서 시세 파일을 읽지 못했습니다.', true);
+    const st = await SM.data.status(true);
+    const sst = (st && st.stocks && st.stocks[code]) || {};
+    const [pxCsv, flCsv] = await Promise.all([sst.prices && sst.prices.ok ? SM.data.pricesCsv(code, true) : null, sst.flow && sst.flow.ok ? SM.data.flowCsv(code, true) : null]);
+    if (!pxCsv && !flCsv) return toast('저장소에서 시세·수급 파일을 읽지 못했습니다.', true);
     const wl = await SM.data.watchlist();
-    const t = SM.splitTable(csv);
+    let text;
+    const names = [];
+    if (pxCsv) {
+      const px = SM.splitTable(pxCsv);
+      if (px.error) return toast(px.error, true);
+      names.push(`저장소 ${code} 시세`);
+      const flow = new Map();
+      if (flCsv) {
+        const ft = SM.splitTable(flCsv);
+        if (!ft.error) { for (const r of ft.rows) flow.set(r[0], r.slice(1)); names.push(`수급 ${flow.size}일`); }
+      }
+      const head = px.header.concat(flow.size ? ['외국인', '기관', '개인'] : []);
+      text = [head.join(',')].concat(px.rows.map((r) => r.concat(flow.size ? (flow.get(r[0]) || ['', '', '']) : []).join(','))).join('\n');
+    } else {
+      names.push(`저장소 ${code} 수급`);
+      text = flCsv.replace(/^date,frgn,inst,indiv/, '날짜,외국인,기관,개인');
+    }
+    const t = SM.splitTable(text);
     if (t.error) return toast(t.error, true);
-    bt.imp.text = ''; bt.imp.name = ((wl.find((w) => w.code === code) || {}).name || code);
+    bt.imp.text = ''; bt.imp.name = ((wl.find((w) => w.code === code) || {}).name || code); bt.imp.unit = '';
     const own = A.getState().stocks.find((x) => String(x.code || '').trim() === code);
     bt.imp.stockId = own ? own.id : bt.stockId || '';
-    startImport(t, [`저장소 ${code}.csv`]);
+    startImport(t, names);
   };
   function decode(buf) {
     try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
@@ -257,9 +279,10 @@
     btDel: (el) => { bt.cfg[el.dataset.g].conds.splice(+el.dataset.i, 1); A.render(); },
     btRepo: async () => {
       const [wl, st] = await Promise.all([SM.data.watchlist(true), SM.data.status(true)]);
-      const have = wl.filter((w) => st && st.stocks && st.stocks[w.code] && st.stocks[w.code].prices && st.stocks[w.code].prices.ok);
-      if (!have.length) return toast(st ? '수집된 시세가 있는 종목이 없습니다. 설정 > 자동 수집을 확인하세요.' : '아직 자동 수집이 설정되지 않았습니다. 설정 > 자동 수집을 확인하세요.', true);
-      A.openModal(`<h3>자동 수집 시세 불러오기</h3><label>종목<select name="code">${have.map((w) => { const p = st.stocks[w.code].prices; return `<option value="${w.code}">${esc(w.name)} (${w.code}) · ${p.count}일 · 마지막 ${p.last}</option>`; }).join('')}</select></label><p class="hint">공공데이터포털 일봉이며 수정주가가 아닙니다. 읽은 뒤 미리보기에서 확인하고 저장하세요.</p><div class="btns"><button class="btn primary" type="submit">불러오기</button><button class="btn" type="button" data-act="closeModal">취소</button></div>`, (fd) => { A.closeModal(); A.btLoadRepo(fd.get('code')); });
+      const okOf = (w, k) => st && st.stocks && st.stocks[w.code] && st.stocks[w.code][k] && st.stocks[w.code][k].ok;
+      const have = wl.filter((w) => okOf(w, 'prices') || okOf(w, 'flow'));
+      if (!have.length) return toast(st ? '수집된 시세·수급이 있는 종목이 없습니다. 설정 > 자동 수집을 확인하세요.' : '아직 자동 수집이 설정되지 않았습니다. 설정 > 자동 수집을 확인하세요.', true);
+      A.openModal(`<h3>자동 수집 시세·수급 불러오기</h3><label>종목<select name="code">${have.map((w) => { const p = st.stocks[w.code].prices, f = st.stocks[w.code].flow; return `<option value="${w.code}">${esc(w.name)} (${w.code}) · ${p && p.ok ? '시세 ' + p.count + '일 · 마지막 ' + p.last : '시세 없음'}${f && f.ok ? ' · 수급 ' + f.count + '일' : ''}</option>`; }).join('')}</select></label><p class="hint">시세는 공공데이터포털 일봉(수정주가 아님), 수급은 네이버 순매수(주)입니다. 읽은 뒤 미리보기에서 확인하고 저장하세요.</p><div class="btns"><button class="btn primary" type="submit">불러오기</button><button class="btn" type="button" data-act="closeModal">취소</button></div>`, (fd) => { A.closeModal(); A.btLoadRepo(fd.get('code')); });
     },
     btAnalyze: () => {
       const imp = bt.imp;
@@ -278,8 +301,10 @@
       if (kind === 'flow') {
         const tgt = ds[imp.destId];
         if (!tgt) return toast('수급을 합칠 가격 데이터를 고르세요', true);
-        const m = SM.mergeFlow(tgt.data, an.table, an.cols);
+        const m = SM.mergeFlow(tgt.data, an.table, an.cols, { unit: imp.unit });
         if (m.error) return toast(m.error, true);
+        if (['frgn', 'inst', 'indiv'].some((k) => tgt.data[k]) && tgt.data.flowUnit && tgt.data.flowUnit !== m.unit) return toast(`기존 수급은 ${tgt.data.flowUnit === 'krw' ? '금액(원)' : '수량(주)'} 단위인데 이 표는 ${m.unit === 'krw' ? '금액(원)' : '수량(주)'} 단위입니다. 섞어 쓸 수 없으니 단위를 확인하거나 기존 수급을 지우고 다시 불러오세요.`, true);
+        tgt.data.flowUnit = m.unit;
         ['frgn', 'inst', 'indiv'].forEach((k) => {
           if (!m.arrs[k]) return;
           tgt.data[k] = tgt.data[k] ? tgt.data[k].map((v, i) => (m.arrs[k][i] != null ? m.arrs[k][i] : v)) : m.arrs[k]; // 기존 수급은 유지하고 새 값만 덮어씀
@@ -287,11 +312,12 @@
         msgs.push(`수급 데이터를 합쳤습니다: ${m.matched}일 매칭` + (m.unmatched ? `, 가격 데이터에 없는 날짜 ${m.unmatched}일은 제외` : '') + (m.missing ? `, 수급이 비는 거래일 ${m.missing}일(해당 날은 수급 조건이 거짓으로 처리됩니다)` : '') + '.');
         targetId = imp.destId;
       } else if (kind === 'price' || kind === 'both') {
-        const r = SM.buildDataset(an.table, an.cols, { useAdj: imp.useAdj });
+        const r = SM.buildDataset(an.table, an.cols, { useAdj: imp.useAdj, unit: imp.unit });
         if (r.error) return toast(r.error, true);
         if (imp.dest === 'merge' && imp.destId && ds[imp.destId]) {
           const tgt = ds[imp.destId];
           const mg = SM.mergeDatasets(tgt.data, r.data);
+          if (mg.unitMismatch) return toast('기존 수급과 새 표의 단위(주/원)가 달라 합칠 수 없습니다. 단위를 확인하세요.', true);
           tgt.data = mg.data;
           if (imp.stockId && !tgt.stockId) tgt.stockId = imp.stockId;
           msgs.push(`“${tgt.name}”에 합쳤습니다: 새 날짜 ${mg.added}일 추가, 겹치는 ${mg.overlap}일은 새 값으로 덮어썼습니다. (전체 ${mg.data.d.length}일, ${mg.data.d[0]} ~ ${mg.data.d[mg.data.d.length - 1]})`);
@@ -374,7 +400,8 @@
       bt.imp.text = '';
       startImport(merged, tables.map((x) => x.name));
     },
-    btImpCol: (el) => { bt.imp.an.cols[el.dataset.k] = +el.value; bt.imp.an.fromSaved = false; A.render(); },
+    btImpCol: (el) => { const c = bt.imp.an.cols; c[el.dataset.k] = +el.value; if (el.dataset.k === 'inst' && +el.value >= 0) delete c.instSum; bt.imp.an.fromSaved = false; A.render(); },
+    btImpUnit: (el) => { bt.imp.unit = el.value; A.render(); },
     btImpAdj: (el) => { bt.imp.useAdj = el.checked; A.render(); },
     btImpDest: (el) => { bt.imp[el.dataset.k] = el.type === 'radio' ? el.value : el.value; A.render(); },
     btDS: (el) => { bt.datasetId = el.value; bt.result = null; bt.val = null; bt.cmp = null; bt.cfg.from = ''; bt.cfg.to = ''; A.render(); },

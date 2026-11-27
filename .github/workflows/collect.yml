@@ -1,6 +1,6 @@
 name: 자료 수집
 
-# 평일 저녁 7시(한국시간)에 공시·뉴스·재무·일봉 시세를 받아 data/ 폴더에 저장합니다.
+# 평일 저녁 7시(한국시간)에 공시·뉴스·재무·일봉 시세·투자자별 수급을 받아 data/ 폴더에 저장합니다.
 # 직접 실행: 저장소의 Actions 탭 > "자료 수집" > Run workflow
 on:
   schedule:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       only:
-        description: '일부만 실행 (prices, news, dart, fin 중 쉼표로 구분, 비우면 전부)'
+        description: '일부만 실행 (prices, flow, news, dart, fin 중 쉼표로 구분, 비우면 전부)'
         required: false
         default: ''
 

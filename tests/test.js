@@ -359,7 +359,57 @@ t('링크 열기 설정 기본값/정규화', () => {
   assert.equal(SM.normalizeState({ settings: { linkMode: 'browser' } }).settings.linkMode, 'browser');
 });
 
+
+t('수급: KRX식 표 — 기관합계가 없으면 7개 열 합산, 빈 칸은 0 취급, 모두 비면 비움, 금액 단위 판정', () => {
+  const px = 'date,open,high,low,close,volume\n' + [1, 2, 3, 4, 5, 6].map((d) => `2026-01-0${d},100,110,90,100,1000000`).join('\n');
+  const data = SM.parseOHLCV(px).data;
+  const flow = '일자,금융투자,보험,투신,사모,은행,기타금융,연기금 등,기타법인,개인,외국인,기타외국인,전체\n'
+    + '"2026/01/06","100000000","200000000",,"300000000",,"-50000000","10","-5","-9","-30000000000","7","0"\n'
+    + '"2026/01/05",,,,,,,,"1","2","3","4","0"\n'
+    + '"2026/01/04","1","1","1","1","1","1","1","0","-9","8","0","0"';
+  const tb = SM.splitTable(flow), an = SM.analyzeTable(tb);
+  assert.deepEqual(an.cols.instSum, [1, 2, 3, 4, 5, 6, 7]); assert.equal(an.cols.inst, -1); assert.equal(an.cols.frgn, 10); assert.equal(an.cols.indiv, 9);
+  assert.equal(SM.kindOf(an.cols), 'flow');
+  const m = SM.mergeFlow(data, tb, an.cols);
+  const i6 = data.d.indexOf('2026-01-06'), i5 = data.d.indexOf('2026-01-05'), i4 = data.d.indexOf('2026-01-04');
+  approx(m.arrs.inst[i6], 100000000 + 200000000 + 300000000 - 50000000 + 10); // 투신·은행 빈 칸은 0
+  assert.equal(m.arrs.inst[i5], null, '합산 대상이 모두 비면 수급 없음'); assert.equal(m.arrs.inst[i4], 7);
+  assert.equal(m.arrs.frgn[i6], -30000000000); assert.equal(m.unit, 'krw'); // 값이 거래량보다 훨씬 큼
+  assert.equal(SM.mergeFlow(data, tb, an.cols, { unit: 'shares' }).unit, 'shares'); // 수동 지정 우선
+  // 사용자가 기관 열을 직접 지정하면 그 열만 사용
+  const m2 = SM.mergeFlow(data, tb, Object.assign({}, an.cols, { inst: 1, instSum: undefined }));
+  assert.equal(m2.arrs.inst[i6], 100000000);
+  // 저장된 열 설정(배열 포함) 복원
+  assert.deepEqual(SM.analyzeTable(tb, { [an.signature]: an.cols }).cols.instSum, [1, 2, 3, 4, 5, 6, 7]);
+});
+t('수급: 주 단위 판정, 단위 불일치 병합 표시, 금액 단위 비율 조건, 합친 뒤 조건 동작', () => {
+  const px = 'date,open,high,low,close,volume\n' + [1, 2, 3, 4, 5, 6, 7].map((d) => `2026-01-0${d},100,110,90,${100 + d},1000000`).join('\n');
+  const base = SM.parseOHLCV(px).data;
+  const withFlow = (txt) => { const tb = SM.splitTable(txt), an = SM.analyzeTable(tb); const m = SM.mergeFlow(base, tb, an.cols); const d = Object.assign({}, base); ['frgn', 'inst', 'indiv'].forEach((k) => { if (m.arrs[k]) d[k] = m.arrs[k]; }); d.flowUnit = m.unit; return d; };
+  const shares = withFlow('날짜,외국인,기관,개인\n2026-01-05,200000,1,1\n2026-01-06,300000,1,1\n2026-01-07,-400000,1,1');
+  assert.equal(shares.flowUnit, 'shares');
+  const krw = withFlow('날짜,외국인,기관,개인\n2026-01-05,20000000000,1,1\n2026-01-06,30000000000,1,1\n2026-01-07,-40000000000,1,1');
+  assert.equal(krw.flowUnit, 'krw');
+  assert.equal(SM.mergeDatasets(shares, krw).unitMismatch, true); assert.equal(SM.mergeDatasets(shares, shares).unitMismatch, false);
+  const run = (data, cond) => SM.runBacktest(data, Object.assign(SM.blankCfg(), { qty: 1, from: '2026-01-01', to: '2026-01-07', entries: { mode: 'AND', conds: [cond] } }), S);
+  assert.equal(run(shares, { type: 'flow', who: 'frgn', dir: 'buy', mode: 'day', v: 250000 }).summary.buyCount, 1); // 1/06만
+  // 비율: 주 단위는 순매수/거래량, 금액 단위는 순매수/(거래량×종가)
+  assert.equal(run(shares, { type: 'flow', who: 'frgn', dir: 'buy', mode: 'ratio', v: 25 }).summary.buyCount, 1);
+  // 금액 단위: 2e10/(1e6×105)=19,048%, 3e10/(1e6×106)=28,302% → 기준 25,000%면 1/06만. (거래량으로만 나누면 두 날 다 참이 되어 2건)
+  assert.equal(run(krw, { type: 'flow', who: 'frgn', dir: 'buy', mode: 'ratio', v: 25000 }).summary.buyCount, 1);
+});
 console.log(ok + ' passed');
+t('수급: 금액(원)→수량(주) 환산 저장', () => {
+  const px = 'date,open,high,low,close,volume\n' + [1, 2, 3, 4, 5, 6].map((d) => `2026-01-0${d},100,110,90,${100 * d},1000000`).join('\n');
+  const data = SM.parseOHLCV(px).data;
+  const tb = SM.splitTable('날짜,외국인,기관,개인\n2026-01-03,30000000000,-6000000000,1\n2026-01-04,,40000000000,2');
+  const an = SM.analyzeTable(tb);
+  const m = SM.mergeFlow(data, tb, an.cols, { unit: 'krwToShares' });
+  assert.equal(m.unit, 'shares'); assert.equal(m.arrs.frgn[2], 100000000); assert.equal(m.arrs.inst[2], -20000000); assert.equal(m.arrs.frgn[3], null);
+  const t2 = SM.splitTable('날짜,종가,외국인\n' + [1, 2, 3, 4, 5].map((d) => `2026-02-0${d},${1000 * d},${d * 5000000}`).join('\n'));
+  const r = SM.buildDataset(t2, SM.analyzeTable(t2).cols, { unit: 'krwToShares' });
+  assert.equal(r.data.flowUnit, 'shares'); assert.equal(r.data.frgn[1], 5000); // 1e7 / 2000
+});
 t('버전 비교', () => {
   assert.equal(SM.compareVersions('1.10.0', '1.9.9'), 1);
   assert.equal(SM.compareVersions('1.2.0', '1.2.0'), 0);

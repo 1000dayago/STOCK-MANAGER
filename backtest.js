@@ -82,9 +82,34 @@
     pick('frgn', [], (x) => (x.includes('외국인') || x.includes('foreign')) && !/보유|지분|비율|한도|소진/.test(x));
     pick('inst', [], (x) => (x.includes('기관') || x.includes('institution')) && !/보유|비율/.test(x));
     pick('indiv', [], (x) => x.includes('개인') || x.includes('individual') || x.includes('retail'));
+    // KRX 투자자별 표처럼 '기관합계'가 없고 금융투자·보험·투신·사모·은행·기타금융·연기금으로 쪼개져 있으면 합산 대상으로 잡습니다.
+    if (cols.inst < 0) {
+      const parts = [];
+      h.forEach((x, j) => { if (!used.has(j) && INST_PARTS.some((q) => x.includes(q))) parts.push(j); });
+      if (parts.length >= 2) cols.instSum = parts;
+    }
     return cols;
   }
-  const hasFlowCol = (c) => c.frgn >= 0 || c.inst >= 0 || c.indiv >= 0;
+  const INST_PARTS = ['금융투자', '보험', '투신', '사모', '은행', '기타금융', '연기금'];
+  const hasInstSum = (c) => Array.isArray(c.instSum) && c.instSum.length > 0;
+  const hasFlowCol = (c) => c.frgn >= 0 || c.inst >= 0 || c.indiv >= 0 || hasInstSum(c);
+  const flowColOn = (c, k) => c[k] >= 0 || (k === 'inst' && hasInstSum(c));
+  function flowCell(c, row, k) { // 한 행에서 수급 값을 읽습니다(기관은 합산 열이면 합계, 모두 비면 null)
+    if (c[k] >= 0) { const x = toNum(row[c[k]]); return isFinite(x) ? x : null; }
+    if (k === 'inst' && hasInstSum(c)) {
+      let sum = 0, any = false;
+      for (const j of c.instSum) { const x = toNum(row[j]); if (isFinite(x)) { sum += x; any = true; } }
+      return any ? sum : null;
+    }
+    return null;
+  }
+  // 수급 단위 추정: 순매수 수량(주)은 그날 거래량을 넘을 수 없으므로, 값이 거래량보다 훨씬 크면 금액(원)으로 봅니다.
+  function detectFlowUnit(seriesList, vols) {
+    const med = (arr) => { const b = arr.filter((x) => isFinite(x) && x > 0).sort((p, q) => p - q); return b.length ? b[Math.floor(b.length / 2)] : 0; };
+    const mv = med(vols);
+    if (!mv) return 'shares';
+    return seriesList.some((ser) => med(ser.map((x) => (x == null ? NaN : Math.abs(x)))) > mv * 5) ? 'krw' : 'shares';
+  }
   function kindOf(c) {
     const p = c.date >= 0 && c.close >= 0, f = hasFlowCol(c);
     return p && f ? 'both' : p ? 'price' : c.date >= 0 && f ? 'flow' : 'unknown';
@@ -116,7 +141,7 @@
   function analyzeTable(t, saved) {
     let cols = guessCols(t.header), fromSaved = false;
     const sv = saved && saved[tableSig(t)];
-    if (sv && Object.values(sv).every((i) => i < t.header.length)) { cols = Object.assign({}, sv); fromSaved = true; }
+    if (sv && Object.values(sv).every((i) => (Array.isArray(i) ? i.every((j) => j < t.header.length) : i < t.header.length))) { cols = Object.assign({}, sv); fromSaved = true; }
     return { table: t, cols, kind: kindOf(cols), signature: tableSig(t), fromSaved };
   }
 
@@ -139,7 +164,7 @@
         const a = toNum(c[cols.adj]);
         if (isFinite(a) && a > 0 && close > 0) { const f = a / close; r = { d, o: r.o * f, h: r.h * f, l: r.l * f, c: a, v: r.v }; }
       }
-      for (const k of ['frgn', 'inst', 'indiv']) { if (cols[k] >= 0) { const x = toNum(c[cols[k]]); r[k] = isFinite(x) ? x : null; } }
+      for (const k of ['frgn', 'inst', 'indiv']) { if (flowColOn(cols, k)) r[k] = flowCell(cols, c, k); }
       rows.push(r);
     }
     rows.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0));
@@ -166,11 +191,20 @@
     };
     const fl = [];
     for (const k of ['frgn', 'inst', 'indiv']) {
-      if (cols[k] < 0) continue;
+      if (!flowColOn(cols, k)) continue;
       const arr = uniq.map((r) => (r[k] == null ? null : r[k]));
       if (arr.some((x) => x != null)) { data[k] = arr; fl.push({ frgn: '외국인', inst: '기관', indiv: '개인' }[k]); }
     }
-    if (fl.length) warnings.push(`수급 열(${fl.join('·')})도 함께 불러왔습니다. 단위(주/금액)가 출처마다 다르니 확인하세요.`);
+    if (fl.length) {
+      data.flowUnit = opt.unit === 'shares' || opt.unit === 'krw' ? opt.unit : detectFlowUnit(['frgn', 'inst', 'indiv'].filter((k) => data[k]).map((k) => data[k]), cols.volume >= 0 ? data.v : []);
+      if (opt.unit === 'krwToShares') { // 금액(원) → 수량(주) 근사 환산: 그날 종가로 나눔
+        for (const k of ['frgn', 'inst', 'indiv']) if (data[k]) data[k] = data[k].map((v, i) => (v == null ? null : Math.round(v / data.c[i])));
+        data.flowUnit = 'shares';
+        warnings.push('수급 금액(원)을 그날 종가로 나눠 수량(주)으로 환산했습니다. 실제 체결가가 종가와 달라 약간의 오차(대략 1% 이내)가 있습니다.');
+      }
+      warnings.push(`수급 열(${fl.join('·')})도 함께 불러왔습니다. 단위는 ${data.flowUnit === 'krw' ? '금액(원)' : '수량(주)'}으로 판단했습니다. 틀리면 단위를 바꾸세요.`);
+      if (hasInstSum(cols) && cols.inst < 0) warnings.push(`기관 = ${cols.instSum.map((j) => t.header[j]).join('+')} 열의 합계입니다.`);
+    }
     return { data, warnings, count: uniq.length };
   }
 
@@ -210,7 +244,10 @@
     const rows = [...map.values()].sort((x, y) => (x.d < y.d ? -1 : 1));
     const data = { d: rows.map((r) => r.d), o: rows.map((r) => r.o), h: rows.map((r) => r.h), l: rows.map((r) => r.l), c: rows.map((r) => r.c), v: rows.map((r) => r.v), hasVol: !!(a.hasVol || b.hasVol), hasHL: !!(a.hasHL && b.hasHL), hasOpen: a.hasOpen !== false && b.hasOpen !== false };
     for (const k of FK) { const arr = rows.map((r) => r[k]); if (arr.some((x) => x != null)) data[k] = arr; }
-    return { data, added: rows.length - a.d.length, overlap, mismatch, keptOHLC: b.hasHL === false || b.hasOpen === false };
+    const bHas = FK.some((k) => b[k]), aHas = FK.some((k) => a[k]);
+    const unitMismatch = !!(bHas && aHas && a.flowUnit && b.flowUnit && a.flowUnit !== b.flowUnit);
+    if (bHas || aHas) data.flowUnit = (bHas && b.flowUnit) || a.flowUnit || 'shares';
+    return { unitMismatch, data, added: rows.length - a.d.length, overlap, mismatch, keptOHLC: b.hasHL === false || b.hasOpen === false };
   }
   // 두 데이터가 같은 종목일 가능성: 겹치는 날짜에서 종가가 1% 이내로 같은 비율
   function sameStockScore(a, b) {
@@ -226,10 +263,10 @@
   }
 
   /* ---------- 수급만 있는 표를 기존 가격 데이터에 합치기 ---------- */
-  function mergeFlow(data, table, cols) {
+  function mergeFlow(data, table, cols, opt = {}) {
     const n = data.d.length;
     const idxOfDate = new Map(data.d.map((d, i) => [d, i]));
-    const arrs = { frgn: cols.frgn >= 0 ? new Array(n).fill(null) : null, inst: cols.inst >= 0 ? new Array(n).fill(null) : null, indiv: cols.indiv >= 0 ? new Array(n).fill(null) : null };
+    const arrs = { frgn: flowColOn(cols, 'frgn') ? new Array(n).fill(null) : null, inst: flowColOn(cols, 'inst') ? new Array(n).fill(null) : null, indiv: flowColOn(cols, 'indiv') ? new Array(n).fill(null) : null };
     let matched = 0, unmatched = 0;
     const seen = new Set();
     for (const r of table.rows) {
@@ -240,13 +277,18 @@
       let ok = false;
       for (const k of ['frgn', 'inst', 'indiv']) {
         if (!arrs[k]) continue;
-        const v = toNum(r[cols[k]]);
-        if (isFinite(v)) { arrs[k][i] = v; ok = true; }
+        const v = flowCell(cols, r, k);
+        if (v != null) { arrs[k][i] = v; ok = true; }
       }
       if (ok && !seen.has(i)) { seen.add(i); matched++; }
     }
     if (!matched) return { error: '가격 데이터와 날짜가 하나도 맞지 않습니다. 날짜 열과 기간을 확인하세요.' };
-    return { arrs, matched, unmatched, missing: n - matched };
+    if (opt.unit === 'krwToShares') {
+      for (const k of ['frgn', 'inst', 'indiv']) if (arrs[k]) arrs[k] = arrs[k].map((v, i) => (v == null ? null : Math.round(v / data.c[i])));
+      return { arrs, matched, unmatched, missing: n - matched, unit: 'shares', converted: true };
+    }
+    const unit = opt.unit === 'shares' || opt.unit === 'krw' ? opt.unit : detectFlowUnit(['frgn', 'inst', 'indiv'].filter((k) => arrs[k]).map((k) => arrs[k]), data.v);
+    return { arrs, matched, unmatched, missing: n - matched, unit };
   }
   // 예전 호환
   const parseTable = (text, headerLine) => splitTable(text, headerLine);
@@ -379,7 +421,7 @@
       { k: 'who', label: '투자자', def: 'frgn', opts: FLOW_WHO },
       { k: 'dir', label: '방향', def: 'buy', opts: [['buy', '순매수'], ['sell', '순매도']] },
       { k: 'mode', label: '방식', def: 'day', opts: [['day', '당일 N주 이상'], ['streak', 'N일 연속'], ['sum', '최근 N일 누적 합이 값 이상'], ['ratio', '당일 순매수/거래량 %']] },
-      { k: 'n', label: '일수(연속·누적)', def: 3 }, { k: 'v', label: '기준값(주 또는 %)', def: 100000 }] },
+      { k: 'n', label: '일수(연속·누적)', def: 3 }, { k: 'v', label: '기준값(수급 데이터 단위: 주 또는 원, 비율은 %)', def: 100000 }] },
     dropLast: { use: 'entry', group: '분할매수', dyn: true, label: '보유 매수가 대비 N% 하락 시 추가 매수', params: [{ k: 'pct', label: '하락률 %', def: 10 }, { k: 'basis', label: '기준', def: 'last', opts: [['last', '직전 매수가'], ['avg', '전체 평단'], ['low', '가장 낮은 매수가']] }, { k: 'first', label: '보유 순번이 없으면', def: 'yes', opts: [['yes', '첫 매수로 진입'], ['no', '진입 안 함']] }] },
     tp: { use: 'exit', group: '청산', dyn: true, label: '순번별 목표수익 % 도달 시 그 순번 매도', params: [{ k: 'pct', label: '수익률 %', def: 10 }] },
     sl: { use: 'exit', group: '청산', dyn: true, label: '순번별 손절 % 도달 시 그 순번 매도', params: [{ k: 'pct', label: '손실률 %', def: 10 }] },
@@ -471,7 +513,7 @@
           for (let i = 0; i < n; i++) {
             if (x[i] == null) continue;
             if (p.mode === 'day') o[i] = sell ? x[i] <= -v : x[i] >= v;
-            else if (p.mode === 'ratio') o[i] = data.v[i] > 0 && (sell ? (x[i] / data.v[i]) * 100 <= -v : (x[i] / data.v[i]) * 100 >= v);
+            else if (p.mode === 'ratio') { const base = data.flowUnit === 'krw' ? data.v[i] * data.c[i] : data.v[i]; o[i] = base > 0 && (sell ? (x[i] / base) * 100 <= -v : (x[i] / base) * 100 >= v); }
             else if (p.mode === 'streak') {
               if (i < k - 1) continue;
               let ok = true;
@@ -710,6 +752,6 @@
     return { market: 'KR', qty: 10, qtyMode: 'shares', growth: 1, maxInvest: 0, maxLots: 0, fill: 'nextOpen', from: '', to: '', renko: { mode: 'pct', value: 2, period: 14 }, entries: { mode: 'AND', conds: [] }, exits: { mode: 'OR', conds: [] } };
   }
 
-  Object.assign(SM, { parseOHLCV, parseTable, guessFlowCols, mergeFlow, parseDate, splitTable, guessCols, kindOf, analyzeTable, buildDataset, mergeDatasets, sameStockScore, sma, ema, rsi, macd, bollinger, buildRenko, COND_DEFS, runBacktest, runSplitValidation, overlayLines, blankCfg, closeOn, buyHoldFrom, needsFlow });
+  Object.assign(SM, { detectFlowUnit, parseOHLCV, parseTable, guessFlowCols, mergeFlow, parseDate, splitTable, guessCols, kindOf, analyzeTable, buildDataset, mergeDatasets, sameStockScore, sma, ema, rsi, macd, bollinger, buildRenko, COND_DEFS, runBacktest, runSplitValidation, overlayLines, blankCfg, closeOn, buyHoldFrom, needsFlow });
   if (typeof module !== 'undefined' && module.exports) module.exports = SM;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

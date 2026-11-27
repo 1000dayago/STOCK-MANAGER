@@ -10,7 +10,7 @@
   const when = (iso) => { const d = new Date(iso); return Number.isFinite(+d) ? d.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''; };
   const eok = (v) => (v == null ? '-' : SM.fmtNum(Math.round(v / 1e8)));
   const domain = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return ''; } };
-  const KIND = { dart: '공시', news: '뉴스', fin: '재무', prices: '시세' };
+  const KIND = { dart: '공시', news: '뉴스', fin: '재무', prices: '시세', flow: '수급' };
 
   /* ---------- 종목 화면: 공시·뉴스·재무 ---------- */
   A.autoBody = (st) => `<div id="autoBody" data-code="${esc(st.code || '')}"><p class="muted">불러오는 중…</p></div>`;
@@ -33,7 +33,7 @@
     if (!d.status) return `<div class="empty-note"><p><b>${esc(st.name)}</b>은(는) 수집 대상으로 등록되어 있지만 아직 수집 기록이 없습니다. 저장소 Actions 탭에서 <b>자료 수집</b>을 한 번 실행해 보세요.</p>${btns}</div>`;
     const sst = d.status.stocks && d.status.stocks[code];
     if (!sst) return `<div class="empty-note"><p><b>${esc(st.name)}</b>은(는) 대상 목록에 올라 있지만 다음 수집 때부터 자료가 생깁니다. Actions 탭에서 바로 실행할 수도 있습니다.</p>${btns}</div>`;
-    const tabs = [['dart', '공시'], ['news', '뉴스'], ['fin', '재무'], ['px', '시세']];
+    const tabs = [['dart', '공시'], ['news', '뉴스'], ['fin', '재무'], ['px', '시세·수급']];
     let body = '';
     if (ui.autoTab === 'dart') {
       const items = (d.dart && d.dart.items) || [];
@@ -46,7 +46,8 @@
       body = ps.length ? `<div class="tablewrap"><table class="mini"><thead><tr><th>기간</th><th>매출(억)</th><th>영업이익(억)</th><th>영업이익률</th><th>순이익(억)</th><th>부채비율</th></tr></thead><tbody>${ps.slice(0, 8).map((p) => `<tr><td>${esc(p.label)} <small class="muted">${esc(p.fs || '')}</small></td><td>${eok(p.revenue)}</td><td>${eok(p.op)}</td><td>${p.revenue && p.op != null ? SM.fmtNum(p.op / p.revenue * 100, 1) + '%' : '-'}</td><td>${eok(p.net)}</td><td>${p.equity && p.liab != null ? SM.fmtNum(p.liab / p.equity * 100, 0) + '%' : '-'}</td></tr>`).join('')}</tbody></table></div><p class="hint">DART 공시 기준 요약입니다. 분기·반기 수치는 보고서에 따라 누적일 수 있어 기간 간 단순 비교는 조심하세요.</p>` : '<p class="muted">수집된 재무 자료가 없습니다.</p>';
     } else {
       const px = sst.prices;
-      body = px && px.ok ? `<p>일봉 <b>${px.count}일</b> 수집됨 · 마지막 <b>${esc(px.last)}</b></p><div class="btns"><button class="btn sm primary" data-act="autoToBt" data-code="${esc(code)}">${ic('lab')}백테스트로 불러오기</button></div><p class="hint">공공데이터포털 시세이며 <b>수정주가가 아닙니다</b>(액면분할·배당 미반영). 당일 시세는 늦게 반영될 수 있어 다음 수집 때 이어받습니다.</p>` : '<p class="muted">수집된 시세가 없습니다.</p>';
+      const fl = sst.flow, pxOk = px && px.ok, flOk = fl && fl.ok;
+      body = pxOk || flOk ? `${pxOk ? `<p>일봉 <b>${px.count}일</b> 수집됨 · 마지막 <b>${esc(px.last)}</b></p>` : ''}${flOk ? `<p>외국인·기관·개인 순매수 <b>${fl.count}일</b> 누적 · 마지막 <b>${esc(fl.last)}</b> <small class="muted">(단위: 주)</small></p>` : ''}<div class="btns"><button class="btn sm primary" data-act="autoToBt" data-code="${esc(code)}">${ic('lab')}시뮬레이션으로 불러오기</button></div>${pxOk ? '<p class="hint">공공데이터포털 시세이며 <b>수정주가가 아닙니다</b>(액면분할·배당 미반영). 당일 시세는 늦게 반영될 수 있어 다음 수집 때 이어받습니다.</p>' : ''}${flOk ? '<p class="hint">수급은 네이버 모바일 증권에서 매 수집 때 최근 60거래일을 받아 날짜별로 이어 붙입니다(수집을 쉰 기간은 비게 됩니다). 비공식 주소라 형식이 바뀌면 실패할 수 있습니다.</p>' : ''}` : '<p class="muted">수집된 시세·수급이 없습니다.</p>';
     }
     return `<div class="seg2 autotabs">${tabs.map(([k, l]) => `<button class="${ui.autoTab === k ? 'on' : ''}" data-act="autoTab" data-v="${k}">${l}</button>`).join('')}</div>${body}${statusLine(sst)}
       <div class="row between wrap"><small class="muted">마지막 수집 ${esc(when(d.status.updatedAt))}</small><button class="btn sm ghost" data-act="autoRefresh">${ic('download')}새로고침</button></div>`;
