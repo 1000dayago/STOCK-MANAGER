@@ -107,6 +107,9 @@ function fixtures() {
       await page.click('[data-act=btMgApply]'); await page.waitForTimeout(200);
       const cf = await page.evaluate(() => { const c = SM.app.ui.bt.cfg; return { q: c.qty, g: c.growth, mi: c.maxInvest, e: c.entries.conds.map((x) => [x.type, x.pct, x.basis]), x: c.exits.conds.map((x) => [x.type, x.dir, x.pct]) }; });
       ok('프리셋 채우기: 10주·2배·3% 하락마다 추가·평단 +2% 전량 매도·투입금 한도', cf.q === 10 && cf.g === 2 && cf.mi === 50000000 && JSON.stringify(cf.e) === '[["dropLast",3,"last"]]' && JSON.stringify(cf.x) === '[["avgPct","up",2]]', cf);
+      await page.selectOption('[data-change=btMgExit]', 'cross').catch(async () => { await page.click('.mgbox .segsel button:has-text("데드크로스")'); }); await page.waitForTimeout(150);
+      await page.fill('[data-btmg=s]', '5'); await page.fill('[data-btmg=l]', '15'); await page.click('[data-act=btMgApply]'); await page.waitForTimeout(200);
+      { const xc = await page.evaluate(() => SM.app.ui.bt.cfg.exits.conds.map((x) => [x.type, x.ma, x.s, x.l, x.dir])); ok('프리셋 매도 방식: 5일선이 15일선 데드크로스(단순 이동평균, 아래로 이탈)', JSON.stringify(xc) === '[["maCross","sma",5,15,"down"]]', xc); }
       await page.click('[data-act=btRun]'); await page.waitForSelector('table.cyc', { timeout: 10000 });
       const ct = await page.textContent('#view, main, body'); ok('결과에 사이클 분석(소요일·최대 투입금)이 표시됨', /사이클 분석/.test(ct) && /최대 투입금/.test(ct) && (await page.$$eval('table.cyc tr.cycrow', (e) => e.length)) >= 1, ct.slice(ct.indexOf('사이클 분석'), ct.indexOf('사이클 분석') + 200));
       await page.waitForSelector('#chartHost canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(500);

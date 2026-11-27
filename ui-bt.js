@@ -14,7 +14,7 @@
     catch (e) { toast('가격 데이터를 저장할 공간이 부족합니다. 안 쓰는 데이터를 삭제하세요.', true); return false; }
   }
   const newImp = () => ({ stockId: '', autoNote: '', text: '', headerLine: '', an: null, fileNames: [], dest: 'new', destId: '', name: '', market: 'KR', useAdj: true, unit: '' });
-  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mgOpen: false, mg: { qty: 10, growth: 2, drop: 10, target: 5, maxLots: 0, maxInvest: 0 }, stockId: '', imp: newImp() });
+  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mgOpen: false, mg: { qty: 10, growth: 2, drop: 10, exit: 'target', target: 5, s: 5, l: 15, maxLots: 0, maxInvest: 0 }, stockId: '', imp: newImp() });
   const MAP_KEY = 'stockmgr.colmaps';
   const loadMaps = () => { try { return JSON.parse(localStorage.getItem(MAP_KEY) || '{}'); } catch (e) { return {}; } };
   function rememberCols(an) { try { const m = loadMaps(); m[an.signature] = an.cols; localStorage.setItem(MAP_KEY, JSON.stringify(m)); } catch (e) { /* ignore */ } }
@@ -129,12 +129,16 @@
   }
   // 배수 분할매수(물타기) 프리셋: 처음 N주 → 하락할 때마다 직전 수량의 x배 → 평단 대비 목표 수익이면 전량 매도하고 다시 시작
   function mgBox() {
-    const m = bt.mg;
+    const m = bt.mg, cross = m.exit === 'cross';
     const f = (k, label, ph) => `<label class="mini">${label}<input class="inp" data-btmg="${k}" value="${esc(m[k])}" inputmode="decimal" ${ph ? `placeholder="${ph}"` : ''}></label>`;
+    const exitTxt = cross ? `<b>${esc(m.s)}일선이 ${esc(m.l)}일선을 아래로 뚫는 데드크로스</b>가 나오면 보유한 순번을 전부 매도` : `전체 평단 대비 <b>+${esc(m.target)}%</b>가 되면 전량 매도`;
     return `<details class="box mgbox" ${bt.mgOpen ? 'open' : ''} data-mgdetails><summary><b>배수 분할매수(물타기) 프리셋</b> <small class="muted">· 10주 → 하락하면 20주 → 40주…</small></summary>
-      <p class="hint">처음 <b>${esc(m.qty)}주</b>를 사고, 직전 매수가보다 <b>${esc(m.drop)}%</b> 하락할 때마다 직전 수량의 <b>${esc(m.growth)}배</b>를 추가 매수하며, 전체 평단 대비 <b>+${esc(m.target)}%</b>가 되면 전량 매도하고 처음부터 다시 시작합니다. 아래 결과의 <b>사이클</b> 표에서 이익까지 걸린 기간을 볼 수 있습니다.</p>
-      <div class="row gap wrap">${f('qty', '첫 매수 수량(주)')}${f('growth', '수량 배수')}${f('drop', '추가 매수 하락률 %')}${f('target', '목표 수익률 % (평단 대비)')}${f('maxLots', '최대 순번(0=무제한)')}${f('maxInvest', '최대 투입금(0=제한 없음)')}</div>
+      <p class="hint">처음 <b>${esc(m.qty)}주</b>를 사고, 직전 매수가보다 <b>${esc(m.drop)}%</b> 하락할 때마다 직전 수량의 <b>${esc(m.growth)}배</b>를 추가 매수하며, ${exitTxt}하고 처음부터 다시 시작합니다. 아래 결과의 <b>사이클</b> 표에서 이익까지 걸린 기간을 볼 수 있습니다.</p>
+      <div class="row gap wrap">${f('qty', '첫 매수 수량(주)')}${f('growth', '수량 배수')}${f('drop', '추가 매수 하락률 %')}${f('maxLots', '최대 순번(0=무제한)')}${f('maxInvest', '최대 투입금(0=제한 없음)')}</div>
+      <div class="row gap wrap"><label class="mini">매도 방식<select data-change="btMgExit" data-seg>${opts([['target', '평단 목표 수익'], ['cross', '이동평균 데드크로스']], m.exit)}</select></label>
+        ${cross ? f('s', '단기 이동평균(일)') + f('l', '장기 이동평균(일)') : f('target', '목표 수익률 % (평단 대비)')}</div>
       <div class="btns"><button class="btn sm primary" type="button" data-act="btMgApply">이 설정으로 채우기</button></div>
+      ${cross ? '<p class="hint">데드크로스로 팔면 그때 평단보다 낮은 가격일 수 있어 <b>손실로 청산될 수 있습니다</b>(평단 목표 방식과 다름). 팔고 난 다음 날 하락 조건이 맞으면 바로 다시 매수합니다.</p>' : ''}
       <p class="hint warn">하락이 계속되면 매수량이 빠르게 커집니다(10→20→40→80…). 투입 가능한 자금이 없으면 실제로는 추가 매수를 못 하므로, <b>최대 투입금·최대 순번</b>을 현실적인 값으로 넣고 결과의 “최대 투입금”과 “최저 누적손익”을 꼭 확인하세요.</p></details>`;
   }
   function condRow(g, i, c) {
@@ -525,8 +529,10 @@
       const m = bt.mg, nz = (v, d) => { const x = Number(String(v).replace(/,/g, '')); return Number.isFinite(x) ? x : d; };
       const c = bt.cfg; c.qtyMode = 'shares'; c.qty = Math.max(1, nz(m.qty, 10)); c.growth = Math.max(1, nz(m.growth, 2)); c.maxLots = Math.max(0, Math.floor(nz(m.maxLots, 0))); c.maxInvest = Math.max(0, nz(m.maxInvest, 0));
       const dl = newCond('dropLast'); dl.pct = Math.max(0.1, nz(m.drop, 10)); dl.basis = 'last'; dl.first = 'yes';
-      const ap = newCond('avgPct'); ap.dir = 'up'; ap.pct = Math.max(0.1, nz(m.target, 5));
-      c.entries = { mode: 'AND', conds: [dl] }; c.exits = { mode: 'OR', conds: [ap] }; c.fill = c.fill || 'nextOpen';
+      let xc;
+      if (m.exit === 'cross') { const sh = Math.max(2, Math.round(nz(m.s, 5))), lg = Math.max(sh + 1, Math.round(nz(m.l, 15))); xc = newCond('maCross'); xc.ma = 'sma'; xc.s = sh; xc.l = lg; xc.dir = 'down'; m.s = sh; m.l = lg; } // 단기선이 장기선을 아래로 뚫음 = 데드크로스
+      else { xc = newCond('avgPct'); xc.dir = 'up'; xc.pct = Math.max(0.1, nz(m.target, 5)); }
+      c.entries = { mode: 'AND', conds: [dl] }; c.exits = { mode: 'OR', conds: [xc] }; c.fill = c.fill || 'nextOpen';
       bt.result = null; bt.val = null; bt.mgOpen = true; A.render(); toast('프리셋을 채웠습니다. 아래에서 시뮬레이션을 실행하세요');
     },
     btRun: () => {
@@ -694,7 +700,7 @@
       }, true);
     },
   });
-  Object.assign(A.changeHandlers, { btStock: (el) => { A.btPickStock(el.value); A.render(); } });
+  Object.assign(A.changeHandlers, { btMgExit: (el) => { bt.mg.exit = el.value === 'cross' ? 'cross' : 'target'; bt.mgOpen = true; A.render(); }, btStock: (el) => { A.btPickStock(el.value); A.render(); } });
 
   A.inputHandlers.bt = (el) => {
     if (el.dataset.btp) { const [g, i, k] = el.dataset.btp.split('.'); const c = bt.cfg[g].conds[+i]; if (c) c[k] = el.value; }

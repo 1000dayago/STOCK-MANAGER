@@ -128,6 +128,14 @@ t('배수 분할매수(물타기) 사이클: 10주→20주→40주, 평단 +5% �
   assert.deepEqual(r.buys.map((b) => [b.cyc, b.seq]), [[1, 1], [1, 2], [1, 3], [2, 1]]); assert.deepEqual(r.buys.map((b) => SM.cycleLabel(b.cyc, b.seq)), ['1', '1-2', '1-3', '2']);
   assert.deepEqual(c.buys.map((b) => [b.seq, b.price, b.qty, b.cumQty]), [[1, 100, 10, 10], [2, 89, 20, 30], [3, 79, 40, 70]]);
   assert(Math.abs(c.buys[1].avg - (1000 + 1780) / 30) < 1e-9 && Math.abs(c.buys[2].avg - 5940 / 70) < 1e-9); assert.equal(c.buys[2].close, 79); assert.equal(c.no, 1); assert.equal(r.openCycle.no, 2); assert.equal(c.sellQty, 70);
+  { // 매도: 이동평균 5일선이 15일선 아래로 데드크로스 → 보유 순번 전량 매도(손실일 수도 있음)
+    const px = []; for (let i = 0; i < 40; i++) px.push(100 + 10 * Math.sin(i / 4) - i * 0.3); // 오르내리는 하락 추세
+    const dd = { d: [], o: px.slice(), h: px.slice(), l: px.slice(), c: px.slice(), v: px.map(() => 1000), hasVol: true, hasHL: true }, d0 = new Date('2024-01-01'); px.forEach(() => { dd.d.push(d0.toISOString().slice(0, 10)); d0.setDate(d0.getDate() + 1); });
+    const cc = mk([{ type: 'dropLast', pct: 3, basis: 'last', first: 'yes' }], [{ type: 'maCross', ma: 'sma', s: 5, l: 15, dir: 'down' }], { fill: 'close', qty: 10, growth: 2 });
+    const rr = SM.runBacktest(dd, cc, S); assert(rr.cycles.length >= 1, '데드크로스로 청산된 사이클 있음'); assert(rr.trades.every((t) => t.reason === '신호 청산' || t.reason == null || typeof t.reason === 'string'));
+    const sma5 = SM.sma(px, 5), sma15 = SM.sma(px, 15), crossIdx = []; for (let i = 15; i < px.length; i++) if (sma5[i - 1] >= sma15[i - 1] && sma5[i] < sma15[i]) crossIdx.push(i);
+    assert(rr.cycles.every((x) => crossIdx.includes(x.endIdx)), '모든 사이클 종료일은 데드크로스 날짜'); assert(rr.cycles[0].buys.length >= 1);
+  }
   const lim = SM.runBacktest(d, Object.assign({}, cfg, { maxLots: 2 }), S); assert.equal(lim.cycleStats.maxLots, 2); // 최대 순번 제한
 });
 t('분할매수 조건/최대투입금/수량증가', () => {
