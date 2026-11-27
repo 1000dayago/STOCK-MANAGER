@@ -14,7 +14,7 @@
     catch (e) { toast('가격 데이터를 저장할 공간이 부족합니다. 안 쓰는 데이터를 삭제하세요.', true); return false; }
   }
   const newImp = () => ({ stockId: '', autoNote: '', text: '', headerLine: '', an: null, fileNames: [], dest: 'new', destId: '', name: '', market: 'KR', useAdj: true, unit: '' });
-  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mode: 'mg', mgOpen: false, mg: { qty: 10, growth: 2, drop: 10, exit: 'target', target: 5, s: 5, l: 15, maxLots: 0, maxInvest: 0 }, stockId: '', imp: newImp() });
+  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mode: 'mg', mgOpen: false, mg: { qty: 10, growth: 2, drop: 10, signal: 'drop', vx: 1, exit: 'target', target: 5, s: 5, l: 15, maxLots: 0, maxInvest: 0 }, stockId: '', imp: newImp() });
   const MAP_KEY = 'stockmgr.colmaps';
   const loadMaps = () => { try { return JSON.parse(localStorage.getItem(MAP_KEY) || '{}'); } catch (e) { return {}; } };
   function rememberCols(an) { try { const m = loadMaps(); m[an.signature] = an.cols; localStorage.setItem(MAP_KEY, JSON.stringify(m)); } catch (e) { /* ignore */ } }
@@ -158,7 +158,7 @@
   function dataInfoCard(ds) {
     if (!ds) return '';
     const inf = SM.dataInfo(ds.data, { from: bt.cfg.from, to: bt.cfg.to });
-    const usesFlow = [].concat(bt.cfg.entries.conds, bt.cfg.exits.conds).some((c) => c.type === 'flow');
+    const eff = bt.mode !== 'custom' ? applyMgTo(clone(bt.cfg)) : bt.cfg, usesFlow = [].concat(eff.entries.conds, eff.exits.conds).some((c) => c.type === 'flow');
     const warn = [];
     if (!inf.anyFlow) warn.push(usesFlow ? '이 데이터에는 수급이 없는데 전략에 수급 조건이 있습니다. 시뮬레이션을 실행하면 오류가 납니다. 위 “자동 수집 시세·수급 불러오기”나 수급 파일로 먼저 합치세요.' : '수급이 없습니다. 외국인·기관 조건을 쓰려면 수급을 합쳐야 합니다.');
     else {
@@ -192,14 +192,18 @@
   function mgForm() {
     const m = bt.mg, cross = m.exit === 'cross';
     const row = (k, label, unit, hint) => `<label class="ios-row"><span>${label}${hint ? `<small>${hint}</small>` : ''}</span><span class="rowr"><input class="inp" data-btmg="${k}" value="${esc(m[k])}" inputmode="decimal">${unit ? `<i>${unit}</i>` : ''}</span></label>`;
+    const vxTxt = Number(m.vx) > 0 ? `, 거래량이 전일의 <b>${esc(m.vx)}배를 넘을 때</b>` : '';
+    const sigTxt = m.signal === 'flow' ? `<b>외국인과 기관이 같은 날 모두 순매수</b>${vxTxt} 매수합니다(신호가 나올 때마다). ` : m.signal === 'flowdrop' ? `<b>외국인·기관 동시 순매수</b>${vxTxt}이면서, 직전 매수가보다 <b>${esc(m.drop)}%</b> 내려가 있을 때 매수합니다(처음은 신호만). ` : `직전 매수가보다 <b>${esc(m.drop)}%</b> 내려갈 때마다 추가 매수합니다(처음 매수는 바로). `;
     const exitTxt = cross ? `${esc(m.s)}일선이 ${esc(m.l)}일선을 아래로 뚫으면(데드크로스) 보유한 순번 전부 매도` : `전체 평단 대비 +${esc(m.target)}%가 되면 전부 매도`;
     return `<div class="ios-list">
-        ${row('qty', '첫 매수', '주', '처음 사는 수량')}${row('growth', '수량 배수', '배', '추가 매수 때마다 곱함 (2 = 10→20→40)')}${row('drop', '추가 매수 조건', '% 하락', '직전 매수가 대비')}
+        ${row('qty', '첫 매수', '주', '처음 사는 수량')}${row('growth', '수량 배수', '배', '추가 매수 때마다 곱함 (2 = 10→20→40)')}
+        <div class="ios-row stack"><span>매수 신호</span><span class="rowr"><select data-change="btMgSignal" data-seg>${opts([['drop', '하락 시'], ['flow', '수급 신호'], ['flowdrop', '수급 신호 + 하락']], m.signal)}</select></span></div>
+        ${m.signal !== 'drop' ? row('vx', '거래량 조건', '배 초과', '전일 거래량 대비 (1 = 어제보다 높음, 0 = 조건 없음)') : ''}${m.signal !== 'flow' ? row('drop', '추가 매수 조건', '% 하락', '직전 매수가 대비') : ''}
         <div class="ios-row stack"><span>매도 방식</span><span class="rowr"><select data-change="btMgExit" data-seg>${opts([['target', '평단 목표 수익'], ['cross', '이동평균 데드크로스']], m.exit)}</select></span></div>
         ${cross ? row('s', '단기 이동평균', '일') + row('l', '장기 이동평균', '일') : row('target', '목표 수익률', '%', '평단 대비')}
         ${row('maxInvest', '최대 투입금', '원', '0 = 제한 없음')}${row('maxLots', '최대 매수 횟수', '회', '0 = 제한 없음')}
       </div>
-      <p class="hint">처음 <b>${esc(m.qty)}주</b>를 사고, 직전 매수가보다 <b>${esc(m.drop)}%</b> 내려갈 때마다 <b>${esc(m.growth)}배</b>로 추가 매수합니다. ${exitTxt}하고, 다음 거래일에 처음부터 다시 시작합니다.</p>
+      <p class="hint">${sigTxt}처음 <b>${esc(m.qty)}주</b>, 이후 매수마다 <b>${esc(m.growth)}배</b>씩 늘려 삽니다. ${exitTxt}하고, 다시 신호가 나오면 처음부터 시작합니다.</p>
       <p class="hint warn">하락이 이어지면 매수량이 빠르게 커집니다. 최대 투입금·최대 매수 횟수를 현실적인 값으로 넣고 결과의 “최대 투입금”을 꼭 확인하세요.${cross ? ' 데드크로스 매도는 평단보다 낮은 가격이라 손실로 청산될 수 있습니다.' : ''}</p>`;
   }
   A.renderers.btMain = function () {
@@ -559,10 +563,16 @@
     const m = bt.mg, nz = (v, d) => { const x = Number(String(v).replace(/,/g, '')); return Number.isFinite(x) ? x : d; };
     c.qtyMode = 'shares'; c.qty = Math.max(1, nz(m.qty, 10)); c.growth = Math.max(1, nz(m.growth, 2)); c.maxLots = Math.max(0, Math.floor(nz(m.maxLots, 0))); c.maxInvest = Math.max(0, nz(m.maxInvest, 0));
     const dl = newCond('dropLast'); dl.pct = Math.max(0.1, nz(m.drop, 10)); dl.basis = 'last'; dl.first = 'yes';
+    const ec = [], sig = m.signal === 'flow' || m.signal === 'flowdrop' ? m.signal : 'drop';
+    if (sig !== 'drop') { // 수급 신호: 외국인·기관이 같은 날 모두 순매수(+ 거래량이 전일보다 큼)
+      const f = newCond('flow'); f.who = 'both'; f.dir = 'buy'; f.mode = 'day'; f.v = 1; ec.push(f);
+      const vx = nz(m.vx, 1); if (vx > 0) { const v = newCond('volPrev'); v.x = vx; ec.push(v); }
+    }
+    if (sig !== 'flow') ec.push(dl); // 하락 조건(수급 신호와 함께면 둘 다 만족할 때 매수)
     let xc;
     if (m.exit === 'cross') { const sh = Math.max(2, Math.round(nz(m.s, 5))), lg = Math.max(sh + 1, Math.round(nz(m.l, 15))); xc = newCond('maCross'); xc.ma = 'sma'; xc.s = sh; xc.l = lg; xc.dir = 'down'; } // 단기선이 장기선을 아래로 뚫음 = 데드크로스
     else { xc = newCond('avgPct'); xc.dir = 'up'; xc.pct = Math.max(0.1, nz(m.target, 5)); }
-    c.entries = { mode: 'AND', conds: [dl] }; c.exits = { mode: 'OR', conds: [xc] }; c.fill = c.fill || 'nextOpen';
+    c.entries = { mode: 'AND', conds: ec }; c.exits = { mode: 'OR', conds: [xc] }; c.fill = c.fill || 'nextOpen';
     return c;
   }
   function cfgForRun() {
@@ -832,7 +842,7 @@
       }, true);
     },
   });
-  Object.assign(A.changeHandlers, { btMgExit: (el) => { bt.mg.exit = el.value === 'cross' ? 'cross' : 'target'; bt.mgOpen = true; A.render(); }, btStock: (el) => { A.btPickStock(el.value); A.render(); } });
+  Object.assign(A.changeHandlers, { btMgSignal: (el) => { bt.mg.signal = ['flow', 'flowdrop'].includes(el.value) ? el.value : 'drop'; A.render(); }, btMgExit: (el) => { bt.mg.exit = el.value === 'cross' ? 'cross' : 'target'; bt.mgOpen = true; A.render(); }, btStock: (el) => { A.btPickStock(el.value); A.render(); } });
 
   A.inputHandlers.bt = (el) => {
     if (el.dataset.btp) { const [g, i, k] = el.dataset.btp.split('.'); const c = bt.cfg[g].conds[+i]; if (c) c[k] = el.value; }

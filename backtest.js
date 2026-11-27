@@ -435,6 +435,7 @@
   const FLOW_WHO = [['frgn', '외국인'], ['inst', '기관'], ['indiv', '개인'], ['both', '외국인+기관 모두']];
   const COND_DEFS = {
     vol: { use: 'both', group: '거래량', label: '거래량 N주 이상', params: [{ k: 'n', label: '거래량(주)', def: 1000000 }] },
+    volPrev: { use: 'both', group: '거래량', label: '거래량이 전일보다 높음(x배 초과)', params: [{ k: 'x', label: '배수 (1 = 어제보다 높음)', def: 1 }] },
     volRatio: { use: 'both', group: '거래량', label: '거래량이 최근 평균의 x배 이상', params: [{ k: 'n', label: '평균 기간(일)', def: 20 }, { k: 'x', label: '배수', def: 2 }] },
     maCross: { use: 'both', group: '이동평균', label: '이동평균 교차', params: [{ k: 'ma', label: '종류', def: 'sma', opts: MA_OPTS }, { k: 's', label: '단기', def: 5 }, { k: 'l', label: '장기', def: 20 }, { k: 'dir', label: '방향', def: 'up', opts: [['up', '골든크로스(상향 돌파)'], ['down', '데드크로스(하향 이탈)']] }] },
     maState: { use: 'both', group: '이동평균', label: '이동평균 단기선·장기선 위치(상태)', params: [{ k: 'ma', label: '종류', def: 'sma', opts: MA_OPTS }, { k: 's', label: '단기', def: 5 }, { k: 'l', label: '장기', def: 20 }, { k: 'dir', label: '조건', def: 'above', opts: [['above', '단기선이 위'], ['below', '단기선이 아래']] }] },
@@ -473,6 +474,7 @@
     const p = cond;
     switch (cond.type) {
       case 'vol': { const t = num(p.n); for (let i = 0; i < n; i++) out[i] = data.v[i] >= t; break; }
+      case 'volPrev': { const x = num(p.x, 1); for (let i = 1; i < n; i++) out[i] = data.v[i - 1] > 0 && data.v[i] > x * data.v[i - 1]; break; } // 어제 거래량보다 x배를 넘음
       case 'volRatio': {
         const k = Math.max(1, Math.floor(num(p.n, 20))), x = num(p.x, 2);
         const avg = sma(data.v, k);

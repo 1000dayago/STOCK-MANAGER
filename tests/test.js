@@ -113,6 +113,15 @@ t('백테스트: 수급 데이터 없으면 안내 / 거래량 없으면 안내'
   assert(/수급 데이터/.test(SM.runBacktest(data, mk([{ type: 'flow', who: 'frgn', dir: 'buy', mode: 'day', v: 1 }], []), S).error));
   assert(/매수 조건/.test(SM.runBacktest(data, mk([], []), S).error));
 });
+t('매수 신호: 외국인·기관 동시 순매수 + 거래량이 전일보다 높을 때', () => {
+  const d = { d: [], o: [], h: [], l: [], c: [], v: [], frgn: [], inst: [], hasVol: true, hasHL: true, flowUnit: 'shares' };
+  const rows = [[100, 100, 5, 5], [100, 150, 5, 5], [100, 120, 5, -5], [100, 200, -5, 5], [100, 210, 5, 5], [100, 210, 5, 5]]; // 종가, 거래량, 외국인, 기관
+  const dt = new Date('2024-02-01'); rows.forEach(([c, v, f, i]) => { d.d.push(dt.toISOString().slice(0, 10)); dt.setDate(dt.getDate() + 1); d.o.push(c); d.h.push(c); d.l.push(c); d.c.push(c); d.v.push(v); d.frgn.push(f); d.inst.push(i); });
+  const cfg = mk([{ type: 'flow', who: 'both', dir: 'buy', mode: 'day', v: 1, n: 3 }, { type: 'volPrev', x: 1 }], [], { fill: 'close', qty: 10, growth: 1 });
+  const r = SM.runBacktest(d, cfg, S);
+  assert.deepEqual(r.buys.map((b) => d.d[b.i]), [d.d[1], d.d[4]]); // 2일째(거래량 100→150, 둘 다 순매수), 5일째(200→210). 3일째는 기관 순매도, 4일째는 외국인 순매도, 6일째는 거래량 같음(210→210)
+  const r2 = SM.runBacktest(d, mk([{ type: 'volPrev', x: 1.3 }], [], { fill: 'close', qty: 1, growth: 1 }), S); assert.deepEqual(r2.buys.map((b) => d.d[b.i]), [d.d[1], d.d[3]]); // 150/100=1.5배, 200/120=1.67배(1.3배 초과)
+});
 t('재생: cutRaw는 모든 배열을 같은 길이로 자름', () => {
   const raw = { d: ['2025-01-01', '2025-01-02', '2025-01-03'], o: [1, 2, 3], h: [1, 2, 3], l: [1, 2, 3], c: [1, 2, 3], v: [1, 1, 1], frgn: [5, null, 7], hasVol: true, flowUnit: 'shares' };
   const a = SM.cutRaw(raw, '2025-01-02'); assert.deepEqual(a.d, ['2025-01-01', '2025-01-02']); assert.deepEqual(a.frgn, [5, null]); assert.equal(a.hasVol, true); assert.equal(a.flowUnit, 'shares');

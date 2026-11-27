@@ -140,6 +140,12 @@ function fixtures() {
         const w0 = await nBars(); await page.click('[data-act=rpUnit][data-v=week]'); await page.click('[data-act=rpStep][data-v="1"]'); await page.waitForTimeout(100);
         const d1 = await page.evaluate(() => SM.app._rp.cur); ok('주봉으로 재생: 한 주씩 앞으로', (await page.evaluate(() => SM.app._chart().state.bars.d.length)) >= w0 && d1 > rp0);
         await page.click('[data-act=chartTf][data-v=D]'); await page.click('[data-act=rpEnd]'); await page.waitForTimeout(150); ok('종료: 전체 봉이 다시 보임', (await nBars()) === full && (await page.$('[data-act=rpStart]')) !== null); }
+      { // 매수 신호: 기관·외국인 동시 순매수 + 거래량이 전일보다 높을 때
+        await page.selectOption('[data-change=btMgSignal]', 'flow').catch(async () => { await page.click('.sim .ios-row .segsel button:has-text("수급 신호")'); }); await page.waitForTimeout(200);
+        ok('매수 신호 선택: 거래량 조건 칸이 나타나고 하락 조건 칸은 숨겨짐', (await page.$('[data-btmg=vx]')) !== null && (await page.$('[data-btmg=drop]')) === null);
+        await page.fill('[data-btmg=vx]', '1'); await page.click('[data-act=btRun]'); await page.waitForSelector('#chartHost canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(300);
+        const en = await page.evaluate(() => SM.app.ui.bt.result.cfg.entries.conds.map((x) => [x.type, x.who, x.dir, x.mode, x.x].join(':')));
+        ok('실행 조건: 외국인+기관 모두 순매수(당일) AND 거래량 전일 대비 1배 초과', JSON.stringify(en) === '["flow:both:buy:day:","volPrev::::1"]', en); }
       await page.click('[data-act=chartMonths][data-v="0"]'); await page.waitForTimeout(300); await (await page.$('#chartCard')).screenshot({ path: process.env.BT_SHOT || '/tmp/bt_chart.png' });
     }
     ok('3) 오류 없음', errs.length === 0, errs); await ctx.close(); }
