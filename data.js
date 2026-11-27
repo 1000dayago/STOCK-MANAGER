@@ -73,7 +73,7 @@
   D.issueUrl = (curJson) => {
     const r = D.repo();
     if (!r) return null;
-    const body = `${D.MARKER}\n앱의 “수집 대상 반영” 버튼으로 만든 목록입니다. 아래 **Submit new issue**만 누르면 반영됩니다. (내용은 고치지 마세요)\n\n\`\`\`json\n${curJson}\n\`\`\`\n`;
+    const body = `${D.MARKER}\n앱의 “수집 대상 반영” 버튼으로 만든 목록입니다. 아래 초록색 **Create**(구버전 화면은 Submit new issue) 버튼만 누르면 반영됩니다. (내용은 고치지 마세요)\n\n\`\`\`json\n${curJson}\n\`\`\`\n`;
     const url = `${r.base}/issues/new?title=${encodeURIComponent('수집 대상 반영')}&body=${encodeURIComponent(body)}`;
     return url.length > 7500 ? { tooLong: true } : url;
   };

@@ -76,7 +76,7 @@
     const u = D.issueUrl(json);
     if (!u) return `<span class="btn" aria-disabled="true" title="GitHub Pages 주소로 열었을 때만 쓸 수 있습니다" style="opacity:.5">${ic('stocks')}수집 대상 반영 (GitHub Pages에서만)</span>`;
     if (u.tooLong) return `<span class="btn" aria-disabled="true" style="opacity:.5">${ic('stocks')}목록이 너무 길어 이슈로는 반영할 수 없습니다. 아래 “GitHub에서 편집”을 쓰세요</span>`;
-    return `<a class="btn primary" id="issueBtn" href="${esc(u)}" target="_blank" rel="noopener noreferrer">${ic('stocks')}수집 대상 반영 (GitHub에서 제출 한 번)${ic('ext')}</a>`;
+    return `<a class="btn primary" id="issueBtn" href="${esc(u)}" target="_blank" rel="noopener noreferrer">${ic('stocks')}수집 대상 반영 (GitHub에서 Create 한 번)${ic('ext')}</a>`;
   }
   A.autoCard = () => {
     const repo = D.repo();
@@ -97,7 +97,7 @@
           <li>${link(repo && repo.secrets, 'GitHub 저장소 Settings › Secrets and variables › Actions')}에서 <b>New repository secret</b>으로 아래 4개를 등록합니다. 이름은 정확히 같아야 합니다.
             <div class="tablewrap"><table class="mini"><thead><tr><th>이름(Name)</th><th>넣을 값</th></tr></thead><tbody><tr><td><code>DATA_GO_KR_KEY</code></td><td>공공데이터포털 일반 인증키</td></tr><tr><td><code>DART_API_KEY</code></td><td>DART 인증키</td></tr><tr><td><code>NAVER_CLIENT_ID</code></td><td>네이버 Client ID</td></tr><tr><td><code>NAVER_CLIENT_SECRET</code></td><td>네이버 Client Secret</td></tr></tbody></table></div>
             <small class="muted">키는 채팅이나 코드에 붙여 넣지 마세요. 일부만 등록해도 되며, 없는 항목은 건너뜁니다.</small></li>
-          <li><b>수집할 종목</b>: 아래 <b>수집 대상 반영</b> 버튼을 누르면 GitHub 이슈 화면이 열립니다. <b>Submit new issue</b>만 누르면 목록이 갱신되고 수집까지 자동으로 실행됩니다(GitHub 로그인 필요). 직접 하려면 아래 목록을 복사해서 ${link(repo && repo.editWatch, '저장소의 data/watchlist.json')}에 붙여 넣고 저장(Commit)합니다.</li>
+          <li><b>수집할 종목</b>: 아래 <b>수집 대상 반영</b> 버튼을 누르면 GitHub 이슈 화면이 열립니다. <b>초록색 Create</b>(구버전 화면은 Submit new issue) 버튼만 누르면 목록이 갱신되고 수집까지 자동으로 실행됩니다(GitHub 로그인 필요). 직접 하려면 아래 목록을 복사해서 ${link(repo && repo.editWatch, '저장소의 data/watchlist.json')}에 붙여 넣고 저장(Commit)합니다.</li>
           <li>${link(repo && repo.actions, '저장소 Actions 탭 › “자료 수집”')} › <b>Run workflow</b>로 한 번 실행합니다. 몇 분 뒤 이 화면을 새로고침하면 상태가 나타나고, 종목 화면의 <b>공시·뉴스·재무</b> 카드에 자료가 보입니다. 이후에는 평일마다 자동으로 실행됩니다.</li></ol></details>
       <div class="box"><b>수집 기간</b> <small class="muted">(일봉 시세와 외국인·기관·개인 수급에 같이 적용)</small>
         <div class="grid2"><label>최근 몇 년 <small class="muted">(1~15)</small><input class="inp" data-setting="collectYears" value="${esc(years)}" inputmode="numeric"></label></div>
@@ -118,7 +118,7 @@
     if (!document.getElementById('watchDiff')) return;
     const d = D.watchDiff(raw, ta.value);
     if (!d.none && d.same) box.innerHTML = `<span class="as ok">${ic('check')}저장소의 수집 대상 목록과 같습니다.</span> <small class="muted">새 종목을 추가하면 여기에 다름 표시가 나타납니다.</small>`;
-    else box.innerHTML = `<span class="as bad">${ic('alert')}${d.none ? '저장소에 수집 대상 목록이 아직 없습니다.' : '저장소 목록과 다릅니다.'}${d.added.length ? ` 추가 ${d.added.length}개(${esc(d.added.slice(0, 5).join(', '))}${d.added.length > 5 ? ' 외' : ''})` : ''}${d.removed.length ? ` · 제외 ${d.removed.length}개(${esc(d.removed.slice(0, 5).join(', '))})` : ''}${d.optsChanged ? ' · 수집 기간 변경' : ''}</span> <small class="muted">위 <b>수집 대상 반영</b> 버튼을 누르고 GitHub 화면에서 Submit만 누르세요. 1~2분 뒤 반영되고 바로 수집됩니다.</small>`;
+    else box.innerHTML = `<span class="as bad">${ic('alert')}${d.none ? '저장소에 수집 대상 목록이 아직 없습니다.' : '저장소 목록과 다릅니다.'}${d.added.length ? ` 추가 ${d.added.length}개(${esc(d.added.slice(0, 5).join(', '))}${d.added.length > 5 ? ' 외' : ''})` : ''}${d.removed.length ? ` · 제외 ${d.removed.length}개(${esc(d.removed.slice(0, 5).join(', '))})` : ''}${d.optsChanged ? ' · 수집 기간 변경' : ''}</span> <small class="muted">위 <b>수집 대상 반영</b> 버튼을 누르고 GitHub 화면에서 초록색 Create 버튼만 누르세요. 1~2분 뒤 반영되고 바로 수집됩니다.</small>`;
   }
   async function fillAutoCard() {
     fillWatchDiff();
