@@ -14,7 +14,7 @@
     catch (e) { toast('가격 데이터를 저장할 공간이 부족합니다. 안 쓰는 데이터를 삭제하세요.', true); return false; }
   }
   const newImp = () => ({ stockId: '', autoNote: '', text: '', headerLine: '', an: null, fileNames: [], dest: 'new', destId: '', name: '', market: 'KR', useAdj: true, unit: '' });
-  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', stockId: '', imp: newImp() });
+  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mgOpen: false, mg: { qty: 10, growth: 2, drop: 10, target: 5, maxLots: 0, maxInvest: 0 }, stockId: '', imp: newImp() });
   const MAP_KEY = 'stockmgr.colmaps';
   const loadMaps = () => { try { return JSON.parse(localStorage.getItem(MAP_KEY) || '{}'); } catch (e) { return {}; } };
   function rememberCols(an) { try { const m = loadMaps(); m[an.signature] = an.cols; localStorage.setItem(MAP_KEY, JSON.stringify(m)); } catch (e) { /* ignore */ } }
@@ -127,6 +127,16 @@
     Object.entries(SM.COND_DEFS).filter(([, d]) => want(d)).forEach(([k, d]) => { (groups[d.group] = groups[d.group] || []).push([k, d.label]); });
     return (selected ? '' : '<option value="">조건 추가…</option>') + Object.entries(groups).map(([gr, list]) => `<optgroup label="${gr}">${list.map(([k, l]) => `<option value="${k}" ${k === selected ? 'selected' : ''}>${esc(l)}</option>`).join('')}</optgroup>`).join('');
   }
+  // 배수 분할매수(물타기) 프리셋: 처음 N주 → 하락할 때마다 직전 수량의 x배 → 평단 대비 목표 수익이면 전량 매도하고 다시 시작
+  function mgBox() {
+    const m = bt.mg;
+    const f = (k, label, ph) => `<label class="mini">${label}<input class="inp" data-btmg="${k}" value="${esc(m[k])}" inputmode="decimal" ${ph ? `placeholder="${ph}"` : ''}></label>`;
+    return `<details class="box mgbox" ${bt.mgOpen ? 'open' : ''} data-mgdetails><summary><b>배수 분할매수(물타기) 프리셋</b> <small class="muted">· 10주 → 하락하면 20주 → 40주…</small></summary>
+      <p class="hint">처음 <b>${esc(m.qty)}주</b>를 사고, 직전 매수가보다 <b>${esc(m.drop)}%</b> 하락할 때마다 직전 수량의 <b>${esc(m.growth)}배</b>를 추가 매수하며, 전체 평단 대비 <b>+${esc(m.target)}%</b>가 되면 전량 매도하고 처음부터 다시 시작합니다. 아래 결과의 <b>사이클</b> 표에서 이익까지 걸린 기간을 볼 수 있습니다.</p>
+      <div class="row gap wrap">${f('qty', '첫 매수 수량(주)')}${f('growth', '수량 배수')}${f('drop', '추가 매수 하락률 %')}${f('target', '목표 수익률 % (평단 대비)')}${f('maxLots', '최대 순번(0=무제한)')}${f('maxInvest', '최대 투입금(0=제한 없음)')}</div>
+      <div class="btns"><button class="btn sm primary" type="button" data-act="btMgApply">이 설정으로 채우기</button></div>
+      <p class="hint warn">하락이 계속되면 매수량이 빠르게 커집니다(10→20→40→80…). 투입 가능한 자금이 없으면 실제로는 추가 매수를 못 하므로, <b>최대 투입금·최대 순번</b>을 현실적인 값으로 넣고 결과의 “최대 투입금”과 “최저 누적손익”을 꼭 확인하세요.</p></details>`;
+  }
   function condRow(g, i, c) {
     const def = SM.COND_DEFS[c.type];
     return `<div class="cond"><select class="inp" data-change="btType" data-g="${g}" data-i="${i}">${typeOptions(g, c.type)}</select>
@@ -211,6 +221,7 @@
       <label>최대 투입금 (0=제한 없음)<input data-btc="maxInvest" value="${esc(c.maxInvest)}" inputmode="decimal"></label>
       <label>최대 보유 순번 수 (0=무제한)<input data-btc="maxLots" value="${esc(c.maxLots)}" inputmode="decimal"></label></div>
       ${num(c.growth, 1) > 1 ? '<p class="hint warn">수량 배수가 1보다 크면 하락할수록 매수량이 커집니다. 하락장에서 손실이 매우 커질 수 있으니 결과의 최대 낙폭과 최대 투입금을 꼭 확인하세요.</p>' : ''}
+      ${mgBox()}
       <h4>매수 조건 <span class="seg"><label><input type="radio" name="emode" value="AND" data-change="btMode" data-g="entries" ${c.entries.mode !== 'OR' ? 'checked' : ''}> 모두 만족(AND)</label> <label><input type="radio" name="emode" value="OR" data-change="btMode" data-g="entries" ${c.entries.mode === 'OR' ? 'checked' : ''}> 하나라도(OR)</label></span></h4>
       ${c.entries.conds.map((x, i) => condRow('entries', i, x)).join('') || '<p class="muted">매수 조건이 없습니다. 아래에서 추가하세요.</p>'}${adder('entries')}
       <h4>매도 조건 <span class="seg"><label><input type="radio" name="xmode" value="OR" data-change="btMode" data-g="exits" ${c.exits.mode !== 'AND' ? 'checked' : ''}> 하나라도(OR)</label> <label><input type="radio" name="xmode" value="AND" data-change="btMode" data-g="exits" ${c.exits.mode === 'AND' ? 'checked' : ''}> 모두 만족(AND)</label></span></h4>
@@ -312,6 +323,7 @@
         <div class="stat"><span>수수료·세금 합계</span><b>${fmtMoney(s.fees, cur)}</b>${s.skipped ? `<small>투입 한도로 건너뛴 매수 ${s.skipped}회</small>` : ''}</div>
       </div>
       <p class="verdict">${verdict}</p>
+      ${cycleSection(r, cur)}
       <p class="hint warn">과거 결과일 뿐 미래 수익을 보장하지 않습니다. 한 종목·한 기간 결과는 우연일 수 있으니 다른 종목·기간에서도 비슷한지 확인하세요. 일봉으로는 장중 체결 순서를 알 수 없고, 기간 끝에 남은 순번은 평가손익으로만 반영됩니다.</p>
       <div class="legend-tip" id="candleTip">차트 위에 마우스/손가락을 올리면 해당 날짜의 값이 표시됩니다.</div>
       <canvas id="btCandle" class="chart"></canvas>
@@ -320,6 +332,22 @@
       <h4>청산된 순번</h4>${r.trades.length ? `<div class="tablewrap"><table><thead><tr><th>순번</th><th>매수일</th><th>매수가</th><th>매도일</th><th>매도가</th><th>수량</th><th>손익</th><th>수익률</th><th>보유일</th><th>사유</th></tr></thead><tbody>
       ${r.trades.map((t) => `<tr><td data-label="순번"><span class="v">${t.no}번</span></td><td data-label="매수일"><span class="v">${t.buyDate}</span></td><td data-label="매수가"><span class="v">${fmtNum(t.buyPrice, 2)}</span></td><td data-label="매도일"><span class="v">${t.sellDate}</span></td><td data-label="매도가"><span class="v">${fmtNum(t.sellPrice, 2)}</span></td><td data-label="수량"><span class="v">${fmtNum(t.qty, t.qty % 1 ? 2 : 0)}</span></td><td data-label="손익"><span class="v">${money(t.pnl, cur)}</span></td><td data-label="수익률"><span class="v">${pct(t.ret)}</span></td><td data-label="보유일"><span class="v">${t.days}일</span></td><td data-label="사유"><span class="v">${t.reason}</span></td></tr>`).join('')}
       </tbody></table></div>` : '<p class="muted">청산된 순번이 없습니다 (매도 조건이 없거나 아직 충족되지 않음).</p>'}</section>`;
+  }
+
+  // 사이클(첫 매수 → 전부 매도) 요약: 물타기 전략이 이익까지 며칠 걸렸는지, 얼마나 깊게·많이 넣었는지
+  function cycleSection(r, cur) {
+    const cs = r.cycleStats, oc = r.openCycle, cfg = r.cfg;
+    const multi = Number(cfg.growth) > 1 || (cfg.entries.conds || []).some((x) => x.type === 'dropLast');
+    if (!multi || (!r.cycles.length && !oc)) return '';
+    const d = (v) => (v == null ? '-' : Math.round(v).toLocaleString('ko-KR') + '일');
+    const row = (x, k) => `<tr class="${x.open ? 'muted' : ''}"><td data-label="사이클"><span class="v">${x.open ? '진행 중' : k + '회'}</span></td><td data-label="시작일"><span class="v">${x.startDate}</span></td><td data-label="종료일"><span class="v">${x.open ? '(기간 끝 ' + x.endDate + ')' : x.endDate}</span></td><td data-label="소요"><span class="v">${d(x.days)}</span></td><td data-label="매수 횟수"><span class="v">${x.lots}회 · 최대 ${x.maxLots}순번</span></td><td data-label="가격"><span class="v">${fmtNum(x.firstPrice, 2)} → 최저 매수 ${fmtNum(x.lowPrice, 2)}</span></td><td data-label="최대 투입금"><span class="v">${fmtMoney(x.peakInv, cur)}</span></td><td data-label="최저 평가손익"><span class="v">${fmtMoney(x.worst, cur)}</span></td><td data-label="손익"><span class="v ${(x.open ? x.realized + x.unrealized : x.realized) >= 0 ? 'pos' : 'neg'}">${fmtMoney(x.open ? x.realized + x.unrealized : x.realized, cur)}</span></td><td data-label="수익률"><span class="v">${x.ret == null ? '-' : pct(x.ret)}</span></td></tr>`;
+    const msg = cs.count
+      ? `첫 매수부터 이익으로 전부 팔기까지 <b>${cs.count}번</b> 완료(평균 <b>${d(cs.avgDays)}</b>, 가장 빠른 ${d(cs.minDays)} · 가장 오래 ${d(cs.maxDays)}). 가장 깊게 들어간 사이클은 <b>${cs.maxLots}순번</b>, 그때 투입금은 <b>${fmtMoney(cs.maxInvest, cur)}</b>이고 평가손실은 최대 <b>${fmtMoney(cs.worst, cur)}</b>까지 갔습니다.`
+      : '이 기간에는 이익으로 전부 판 사이클이 없습니다.';
+    const open = oc ? ` 기간 끝에 <b>진행 중인 사이클</b>이 있습니다(${oc.startDate} 시작, ${d(oc.days)} 경과, ${oc.lots}회 매수, 평가손익 ${fmtMoney(oc.realized + oc.unrealized, cur)}). 목표에 닿지 못한 채 끝났다는 뜻이라 실제로는 더 오래 기다려야 했을 수 있습니다.` : '';
+    return `<h4>사이클 분석 <small class="muted">(첫 매수 → 보유 순번 전부 매도)</small></h4><p class="hint">${msg}${open}</p>
+      <div class="tablewrap"><table class="cyc"><thead><tr><th>사이클</th><th>시작일</th><th>종료일</th><th>소요</th><th>매수</th><th>가격</th><th>최대 투입금</th><th>최저 평가손익</th><th>손익</th><th>수익률</th></tr></thead><tbody>${r.cycles.map((x, k) => row(x, k + 1)).join('')}${oc ? row(oc, 0) : ''}</tbody></table></div>
+      <p class="hint warn">“최대 투입금”만큼의 자금이 그때 실제로 있어야 이 결과가 가능합니다. 자금 한도를 넘으면 추가 매수를 못 해 결과가 달라지므로 위 프리셋에서 최대 투입금을 넣어 다시 돌려 보세요.</p>`;
   }
 
   A.afterRender.backtest = function () {
@@ -475,6 +503,14 @@
       list.splice(i, 1); bt.strategyId = ''; A.save(); A.render();
     },
     btStratNew: () => { const keep = { from: bt.cfg.from, to: bt.cfg.to, market: bt.cfg.market }; bt.cfg = Object.assign(SM.blankCfg(), keep); bt.strategyId = ''; bt.result = null; bt.val = null; A.render(); },
+    btMgApply: () => {
+      const m = bt.mg, nz = (v, d) => { const x = Number(String(v).replace(/,/g, '')); return Number.isFinite(x) ? x : d; };
+      const c = bt.cfg; c.qtyMode = 'shares'; c.qty = Math.max(1, nz(m.qty, 10)); c.growth = Math.max(1, nz(m.growth, 2)); c.maxLots = Math.max(0, Math.floor(nz(m.maxLots, 0))); c.maxInvest = Math.max(0, nz(m.maxInvest, 0));
+      const dl = newCond('dropLast'); dl.pct = Math.max(0.1, nz(m.drop, 10)); dl.basis = 'last'; dl.first = 'yes';
+      const ap = newCond('avgPct'); ap.dir = 'up'; ap.pct = Math.max(0.1, nz(m.target, 5));
+      c.entries = { mode: 'AND', conds: [dl] }; c.exits = { mode: 'OR', conds: [ap] }; c.fill = c.fill || 'nextOpen';
+      bt.result = null; bt.val = null; bt.mgOpen = true; A.render(); toast('프리셋을 채웠습니다. 아래에서 시뮬레이션을 실행하세요');
+    },
     btRun: () => {
       const ds = curDS();
       if (!ds) return toast('먼저 가격 데이터를 불러오세요', true);
@@ -647,6 +683,7 @@
     else if (el.dataset.btc) bt.cfg[el.dataset.btc] = el.value;
     else if (el.dataset.btr) bt.cfg.renko[el.dataset.btr] = el.value;
     else if (el.dataset.btsplit) bt.splitPct = el.value;
+    else if (el.dataset.btmg) bt.mg[el.dataset.btmg] = el.value;
     else if (el.dataset.btimp) bt.imp[el.dataset.btimp] = el.value;
   };
   document.addEventListener('change', (e) => {

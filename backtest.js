@@ -609,6 +609,7 @@
     const open = [], trades = [], buys = [], sells = [], equity = [];
     let pending = [], lotNo = 0, realized = 0, feesTotal = 0, peakInvested = 0, firstBuyIdx = -1, skipped = 0;
     let startIdx = -1, endIdx = -1;
+    const cycles = []; let cyc = null; // 사이클 = 첫 매수 ~ 보유 순번이 모두 팔릴 때까지(물타기 전략이 ‘언제 본전·이익이 되는지’ 보기 위함)
 
     const invested = () => open.reduce((a, l) => a + l.qty * l.price + l.fee, 0);
     function buyQty(price) {
@@ -626,6 +627,8 @@
       buys.push({ i, price, qty });
       if (firstBuyIdx < 0) firstBuyIdx = i;
       peakInvested = Math.max(peakInvested, invested());
+      if (!cyc) cyc = { startIdx: i, startDate: data.d[i], lots: 0, maxLots: 0, peakInv: 0, qty: 0, realized: 0, worst: 0, firstPrice: price, lowPrice: price };
+      cyc.lots++; cyc.qty += qty; cyc.maxLots = Math.max(cyc.maxLots, open.length); cyc.peakInv = Math.max(cyc.peakInv, invested()); cyc.lowPrice = Math.min(cyc.lowPrice, price);
     }
     function execSell(lot, i, price, reason) {
       const k = open.indexOf(lot);
@@ -638,6 +641,10 @@
       realized += pnl;
       trades.push({ no: lot.no, buyDate: lot.date, buyPrice: lot.price, sellDate: data.d[i], sellPrice: price, qty: lot.qty, fee: lot.fee + sf + tx, pnl, ret: pnl / (lot.qty * lot.price + lot.fee), days: SM.daysBetween(lot.date, data.d[i]), reason });
       sells.push({ i, price, qty: lot.qty });
+      if (cyc) {
+        cyc.realized += pnl;
+        if (!open.length) { cyc.endIdx = i; cyc.endDate = data.d[i]; cyc.days = SM.daysBetween(cyc.startDate, data.d[i]); cyc.sellPrice = price; cyc.ret = cyc.peakInv > 0 ? cyc.realized / cyc.peakInv : null; cycles.push(cyc); cyc = null; }
+      }
     }
     function entryDyn(c, i) {
       const cl = data.c[i];
@@ -697,6 +704,7 @@
       let unrl = 0;
       for (const l of open) unrl += (c - l.price) * l.qty - l.fee;
       equity.push({ i, d, v: realized + unrl });
+      if (cyc) cyc.worst = Math.min(cyc.worst, cyc.realized + unrl);
     }
     if (startIdx < 0) return { error: '선택한 기간에 데이터가 없습니다.' };
     const lastC = data.c[endIdx];
@@ -714,8 +722,12 @@
       bh = { pnl, ret: pnl / peakInvested, startDate: data.d[bi] };
     }
     const wins = trades.filter((t) => t.pnl > 0).length;
+    let openCycle = null;
+    if (cyc) openCycle = Object.assign({}, cyc, { open: true, endDate: data.d[endIdx], days: SM.daysBetween(cyc.startDate, data.d[endIdx]), unrealized: unrl, lastPrice: lastC, ret: cyc.peakInv > 0 ? (cyc.realized + unrl) / cyc.peakInv : null });
+    const cd = cycles.map((x) => x.days);
+    const cycleStats = { count: cycles.length, avgDays: cd.length ? cd.reduce((a, b) => a + b, 0) / cd.length : null, maxDays: cd.length ? Math.max(...cd) : null, minDays: cd.length ? Math.min(...cd) : null, maxLots: Math.max(0, ...cycles.map((x) => x.maxLots), openCycle ? openCycle.maxLots : 0), maxInvest: Math.max(0, ...cycles.map((x) => x.peakInv), openCycle ? openCycle.peakInv : 0), worst: Math.min(0, ...cycles.map((x) => x.worst), openCycle ? openCycle.worst : 0), wins: cycles.filter((x) => x.realized > 0).length };
     return {
-      cfg, trades, buys, sells, equity, startIdx, endIdx, renko: renkoCache,
+      cycles, openCycle, cycleStats, cfg, trades, buys, sells, equity, startIdx, endIdx, renko: renkoCache,
       summary: {
         buyCount: buys.length, closed: trades.length, open: open.length, openQty, wins,
         winRate: trades.length ? wins / trades.length : null,

@@ -113,6 +113,19 @@ t('백테스트: 수급 데이터 없으면 안내 / 거래량 없으면 안내'
   assert(/수급 데이터/.test(SM.runBacktest(data, mk([{ type: 'flow', who: 'frgn', dir: 'buy', mode: 'day', v: 1 }], []), S).error));
   assert(/매수 조건/.test(SM.runBacktest(data, mk([], []), S).error));
 });
+t('배수 분할매수(물타기) 사이클: 10주→20주→40주, 평단 +5% 전량 매도 후 재시작', () => {
+  const cl = [100, 100, 89, 79, 85, 90, 90, 90], d = { d: [], o: cl.slice(), h: cl.slice(), l: cl.slice(), c: cl.slice(), v: cl.map(() => 1000), hasVol: true, hasHL: true };
+  const dt = new Date('2024-01-01'); cl.forEach(() => { d.d.push(dt.toISOString().slice(0, 10)); dt.setDate(dt.getDate() + 1); });
+  const cfg = mk([{ type: 'dropLast', pct: 10, basis: 'last', first: 'yes' }], [{ type: 'avgPct', dir: 'up', pct: 5 }], { fill: 'close', qty: 10, growth: 2 });
+  const r = SM.runBacktest(d, cfg, S);
+  assert.deepEqual(r.buys.slice(0, 3).map((b) => [b.price, b.qty]), [[100, 10], [89, 20], [79, 40]]); // 10 → 20 → 40
+  assert.equal(r.cycles.length, 1); const c = r.cycles[0];
+  assert.equal(c.lots, 3); assert.equal(c.maxLots, 3); assert.equal(c.qty, 70); assert.equal(c.startDate, d.d[0]); assert.equal(c.endDate, d.d[5]); assert.equal(c.days, 5); // 평단 84.86 → 목표 89.1 → 종가 90에서 청산
+  assert(Math.abs(c.peakInv - 5940) < 60, 'peakInv ' + c.peakInv); assert(c.realized > 0 && c.ret > 0); assert(c.worst < 0, '중간에는 평가손실'); assert.equal(c.lowPrice, 79); assert.equal(c.firstPrice, 100);
+  assert(r.openCycle && r.openCycle.open && r.openCycle.lots === 1 && r.openCycle.startDate === d.d[6]); // 청산 다음 날 다시 시작
+  assert.equal(r.cycleStats.count, 1); assert.equal(r.cycleStats.maxLots, 3); assert.equal(r.cycleStats.avgDays, 5); assert.equal(r.cycleStats.wins, 1); assert(r.cycleStats.worst < 0);
+  const lim = SM.runBacktest(d, Object.assign({}, cfg, { maxLots: 2 }), S); assert.equal(lim.cycleStats.maxLots, 2); // 최대 순번 제한
+});
 t('분할매수 조건/최대투입금/수량증가', () => {
   const n = 120, d = { d: [], o: [], h: [], l: [], c: [], v: [], hasVol: true, hasHL: true };
   const dt = new Date('2024-01-01'); let p = 10000;
