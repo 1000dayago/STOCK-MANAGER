@@ -180,6 +180,14 @@ function fixtures() {
     await page.uncheck('[data-chartopt=flow]'); await page.waitForTimeout(120); ok('수급 패널 끄면 차트가 낮아짐', (await page.$eval('canvas.stockchart', (c) => c.clientHeight)) < h3); await page.check('[data-chartopt=flow]');
     await page.click('[data-act=chartFull]'); ok('전체 화면 모드', await page.$eval('#chartCard', (e) => e.classList.contains('chart-full'))); await page.keyboard.press('Escape'); await page.waitForTimeout(100); ok('Esc로 전체 화면 닫힘', !(await page.$eval('#chartCard', (e) => e.classList.contains('chart-full'))));
     ok('5) 오류 없음', errs.length === 0, errs); await ctx.close(); }
+  { const { ctx, page, errs } = await open(); await addStocks(page); // 종목 화면: 매수 B · 매도 S 표시
+    await page.evaluate(() => { const A = SM.app, S = A.getState(), k = S.stocks[0], set = S.settings, lot = k.lots[0], c = SM.computeSale(k, [{ lotId: lot.id, qty: 4 }], { price: 26000, date: '2026-10-20' }, set); SM.recordSale(k, c); A.save(); A.ui.view = 'stocks'; A.ui.stockTab = 'held'; A.ui.stockId = k.id; A.render(); });
+    await page.waitForSelector('canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(600);
+    const sl = await page.evaluate(() => SM.app._chart().state.cfg.sells);
+    ok('종목 차트에 매도 기록이 전달됨(매도일·가격·손익)', sl.length === 1 && sl[0].date === '2026-10-20' && sl[0].price === 26000 && sl[0].qty === 4 && sl[0].pnl > 0 && sl[0].cost > 0, sl);
+    if (process.env.STK_SHOT) { await page.click('[data-act=chartMonths][data-v="6"]'); await page.waitForTimeout(300); await (await page.$('#chartHost')).screenshot({ path: process.env.STK_SHOT }); }
+    const px = await page.evaluate(() => { const c = document.querySelector('canvas.stockchart'); const g = c.getContext('2d'), d = SM.app._chart().state.geom; return !!d; }); ok('매도 S 원이 그려져도 차트가 정상(오류 없음)', px && errs.length === 0, errs);
+    ok('7-1) 오류 없음', errs.length === 0, errs); await ctx.close(); }
   { const { ctx, page, errs } = await open(); await addStocks(page); // 영업이익 패널(DART 분기 실적)
     await page.evaluate(() => { const A = SM.app; A.ui.view = 'stocks'; A.ui.stockTab = 'held'; A.ui.stockId = A.getState().stocks[0].id; A.render(); });
     await page.waitForSelector('canvas.stockchart', { timeout: 10000 }); await page.waitForFunction(() => /실적\(DART\)/.test(document.querySelector('#chartMsg').textContent), null, { timeout: 10000 }); await page.waitForTimeout(800);

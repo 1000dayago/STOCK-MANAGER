@@ -66,7 +66,9 @@
     const sm = SM.stockSummary(st, A.getState().settings);
     const avg = st.market === 'US' ? (sm && sm.avgLocal) : sm && sm.avg;
     const lots = st.lots.filter((l) => SM.lotRem(st, l) > 0).map((l) => ({ date: l.date, no: l.no }));
-    return { ma: prefs.ma, bb: { on: prefs.bbOn, n: Math.max(2, Math.min(200, Math.round(+prefs.bbN) || 20)), k: Math.max(0.5, Math.min(5, +prefs.bbK || 2)) }, flow: prefs.flow, vol: prefs.vol, earn: prefs.earnView === 'line', chg: prefs.chg, chgScale: prefs.chgScale, earnStep: !!prefs.earnStep, avg: sm && sm.qty > 0 && avg ? avg : null, lots };
+    // 매도 기록: 날짜별로 합쳐 S 원으로 표시(손익률 = 손익 ÷ 원가, 현지 통화 기준)
+    const sells = (st.sales || []).map((x) => ({ date: x.date, price: x.price, qty: x.qty, pnl: x.pnlLocal, cost: (x.lines || []).reduce((a, l) => a + (l.costLocal || 0), 0), lots: (x.lines || []).map((l) => l.lotNo) })).filter((x) => x.date);
+    return { sells, ma: prefs.ma, bb: { on: prefs.bbOn, n: Math.max(2, Math.min(200, Math.round(+prefs.bbN) || 20)), k: Math.max(0.5, Math.min(5, +prefs.bbK || 2)) }, flow: prefs.flow, vol: prefs.vol, earn: prefs.earnView === 'line', chg: prefs.chg, chgScale: prefs.chgScale, earnStep: !!prefs.earnStep, avg: sm && sm.qty > 0 && avg ? avg : null, lots };
   }
 
   // 분기 실적 표(최근 분기부터): 매출·영업이익·전년 동기 대비·영업이익률·순이익(억원)

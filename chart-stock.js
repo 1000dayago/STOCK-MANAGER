@@ -169,7 +169,7 @@
     canvas.className = 'stockchart';
     canvas.style.touchAction = 'pan-y'; // 세로 스크롤은 페이지가, 가로 드래그·핀치는 차트가
     host.appendChild(canvas);
-    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, reveal: null, rawFull: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, chg: false, chgScale: 'zero', cycles: null, cycleTarget: 0, earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
+    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, reveal: null, rawFull: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, chg: false, chgScale: 'zero', cycles: null, cycleTarget: 0, sells: [], earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
 
     function rebuild(keepWindow) {
       if (!S.raw) { S.bars = null; return; }
@@ -293,6 +293,18 @@
           const x = X(iE), y = Y(b.h[iE]) - 11, good = (cy.ret || 0) >= 0; ctx.fillStyle = good ? T.up : T.down; ctx.beginPath(); ctx.arc(x, y, 7.5, 0, Math.PI * 2); ctx.fill(); // 매도: 원 안에 S(이익이면 상승색, 손실이면 하락색)
           ctx.fillStyle = '#fff'; ctx.font = 'bold 10px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'center'; ctx.fillText('S', x, y + 0.5); ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif'; ctx.fillStyle = good ? T.up : T.down;
           ctx.fillText(`${cy.no}✓${cy.ret != null ? ' ' + (cy.ret >= 0 ? '+' : '') + (cy.ret * 100).toFixed(1) + '%' : ''}`, Math.min(W - PR - 24, Math.max(PL + 24, x)), y - 17); ctx.textAlign = 'left';
+        }
+      }
+      // 종목 화면의 매도 기록: 매도일 캔들 위에 S 원(손익률, 이익이면 상승색·손실이면 하락색). 같은 봉의 여러 매도는 합산
+      if ((S.cfg.sells || []).length) {
+        const byBar = new Map();
+        for (const sl of S.cfg.sells) { const i = firstIdxOnOrAfter(b.d, sl.date); if (i < from || i > to) continue; const o = byBar.get(i) || { pnl: 0, cost: 0, qty: 0 }; o.pnl += sl.pnl || 0; o.cost += sl.cost || 0; o.qty += sl.qty || 0; byBar.set(i, o); }
+        for (const [i, o] of byBar) {
+          const x = X(i), y = Y(b.h[i]) - 11, good = o.pnl >= 0, ret = o.cost > 0 ? o.pnl / o.cost : null;
+          ctx.fillStyle = good ? T.up : T.down; ctx.beginPath(); ctx.arc(x, y, 7.5, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#fff'; ctx.font = 'bold 10px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'center'; ctx.fillText('S', x, y + 0.5);
+          if (ret != null) { ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif'; ctx.fillStyle = good ? T.up : T.down; ctx.fillText((ret >= 0 ? '+' : '') + (ret * 100).toFixed(1) + '%', Math.min(W - PR - 20, Math.max(PL + 20, x)), y - 17); }
+          ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'left';
         }
       }
       // 최고·최저 표시 (현재 종가 대비 %)
