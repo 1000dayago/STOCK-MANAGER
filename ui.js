@@ -399,17 +399,22 @@
   function stockForm(st) {
     const watch = st ? !!st.watch : ui.stockTab === 'watch';
     openModal(`<h3>${st ? (watch ? '관심 종목 수정' : '종목 수정') : (watch ? '관심 종목 추가' : '종목 추가')}</h3>
-      <label>종목명<input name="name" value="${esc(st ? st.name : '')}" required placeholder="예: 한국전력"></label>
-      <label>종목코드/티커 (선택)<input name="code" value="${esc(st ? st.code : '')}" placeholder="예: 015760 / AAPL"></label>
+      <label>종목명 <small class="muted">(국내 종목은 이름·초성으로 검색)</small><input name="name" value="${esc(st ? st.name : '')}" required placeholder="예: 한국전력, 산일, ㅅㅇㅈㄱ" data-suggest="name" autocomplete="off"></label>
+      <div class="suggest" id="stSuggest" hidden></div>
+      <label>종목코드/티커 (선택)<input name="code" value="${esc(st ? st.code : '')}" placeholder="국내 6자리 코드(예: 015760) / 해외 티커(예: AAPL)" data-suggest="code" autocomplete="off" autocapitalize="characters"></label>
+      <div class="codehint" id="stCodeHint" aria-live="polite"></div>
       <label>시장<select name="market" data-seg ${st && st.lots.length ? 'disabled' : ''}>${opts([['KR', '국내 (원화)'], ['US', '해외 (달러, 환율 기록)']], st ? st.market : 'KR')}</select></label>
       ${watch ? `<label>목표 매수가 (선택)<input name="target" value="${st && st.target ? st.target : ''}" inputmode="decimal" placeholder="이 가격 이하면 사고 싶다"></label>` : ''}
       ${st && st.lots.length ? '<p class="hint">매수 기록이 있는 종목은 시장을 바꿀 수 없습니다.</p>' : ''}
       <div class="btns"><button class="btn primary" type="submit">저장</button><button class="btn" type="button" data-act="closeModal">취소</button></div>`, (fd) => {
       const name = String(fd.get('name') || '').trim();
       if (!name) return toast('종목명을 입력하세요', true);
+      let code = String(fd.get('code') || '').trim();
+      if (fd.get('market') === 'KR' && code) code = code.toUpperCase(); // 국내 코드는 대문자(예: 0126Z0)
+      if (fd.get('market') === 'KR' && code && !/^[0-9A-Z]{6}$/.test(code) && !confirm(`국내 종목코드는 6자리(숫자·영문 대문자)입니다. “${code}”는 가격이 아닌가요?\n이대로 저장하면 자동 수집 대상에서 빠집니다. 그래도 저장할까요?`)) return;
       const target = fd.has('target') && String(fd.get('target')).trim() !== '' ? num(fd.get('target')) : null;
-      if (st) { st.name = name; st.code = fd.get('code') || ''; if (!st.lots.length) st.market = fd.get('market'); if (fd.has('target')) st.target = target; }
-      else { const ns = SM.newStock({ name, code: fd.get('code'), market: fd.get('market'), watch }); if (watch) ns.target = target; state.stocks.push(ns); ui.stockId = ns.id; }
+      if (st) { st.name = name; st.code = code; if (!st.lots.length) st.market = fd.get('market'); if (fd.has('target')) st.target = target; }
+      else { const ns = SM.newStock({ name, code, market: fd.get('market'), watch }); if (watch) ns.target = target; state.stocks.push(ns); ui.stockId = ns.id; }
       save(); closeModal(); render();
     });
   }
@@ -839,7 +844,7 @@ service cloud.firestore {
     collectToggle: () => { const st = curStock(); st.collect = !st.collect; save(); render();
       const code = String(st.code || '').trim();
       if (st.collect && st.market !== 'KR') return toast('해외 종목은 자동 수집을 지원하지 않아 수집 대상 목록에 들어가지 않습니다.', true);
-      if (st.collect && !/^\d{6}$/.test(code)) return toast(`종목코드가 ${code ? '“' + code + '”로 6자리 숫자가 아니라' : '비어 있어'} 목록에 들어가지 않습니다. ⋯ 메뉴 › 종목 수정에서 6자리 코드를 입력하세요.`, true);
+      if (st.collect && !/^[0-9A-Z]{6}$/.test(code)) return toast(`종목코드가 ${code ? '“' + code + '”로 6자리(숫자·영문 대문자) 코드가 아니라' : '비어 있어'} 목록에 들어가지 않습니다. ⋯ 메뉴 › 종목 수정에서 6자리 코드를 입력하세요.`, true);
       toast(st.collect ? '자동 수집 대상에 포함했습니다. 공개 저장소의 목록에 이 종목이 보입니다.' : '자동 수집 대상에서 뺐습니다'); },
     simForStock: () => { const st = curStock(); if (A.ui.bt) { A.ui.bt.stockId = st.id; A.ui.bt.simTab = 'bt'; if (A.btPickStock) A.btPickStock(st.id); } ui.view = 'backtest'; render(); window.scrollTo(0, 0); },
     note: (el) => openNote(el.dataset.key),

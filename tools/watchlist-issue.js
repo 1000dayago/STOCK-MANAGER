@@ -24,7 +24,7 @@ function extractJson(body) {
 // existing: 현재 data/watchlist.json 내용(객체 또는 배열)
 function applyWatchlist(body, existing) {
   const ex = Array.isArray(existing) ? { stocks: existing } : existing && typeof existing === 'object' ? existing : { stocks: [] };
-  const exStocks = new Map((Array.isArray(ex.stocks) ? ex.stocks : []).filter((s) => s && /^\d{6}$/.test(String(s.code))).map((s) => [String(s.code), s]));
+  const exStocks = new Map((Array.isArray(ex.stocks) ? ex.stocks : []).filter((s) => s && /^[0-9A-Z]{6}$/.test(String(s.code))).map((s) => [String(s.code), s]));
   const ext = extractJson(body);
   if (ext.error) return { ok: false, error: ext.error };
   const req = ext.value;
@@ -39,7 +39,7 @@ function applyWatchlist(body, existing) {
   if (to) out.to = to;
   for (const s of req.stocks) {
     const code = String((s && s.code) || '').trim();
-    if (!/^\d{6}$/.test(code)) { skipped.push(String((s && (s.name || s.code)) || '?').slice(0, 20)); continue; }
+    if (!/^[0-9A-Z]{6}$/.test(code)) { skipped.push(String((s && (s.name || s.code)) || '?').slice(0, 20)); continue; }
     if (seen.has(code)) continue;
     seen.add(code);
     const prev = exStocks.get(code) || {};

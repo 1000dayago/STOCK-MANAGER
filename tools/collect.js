@@ -305,7 +305,7 @@ function readWatchlist(dir) {
   for (const s of list) {
     const code = String((s && s.code) || '').trim();
     const name = String((s && s.name) || '').trim();
-    if (!/^\d{6}$/.test(code)) { skipped.push(`${name || code}: 국내 종목코드(6자리)가 아닙니다`); continue; }
+    if (!/^[0-9A-Z]{6}$/.test(code)) { skipped.push(`${name || code}: 국내 종목코드(6자리 숫자·영문 대문자)가 아닙니다`); continue; }
     if (seen.has(code)) continue;
     seen.add(code); ok.push({ code, name: name || code, years: s.years != null ? clampYears(s.years) : null, from: isYmd(s.from) ? s.from : null, to: isYmd(s.to) ? s.to : null });
   }

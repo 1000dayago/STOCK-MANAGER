@@ -21,7 +21,7 @@
   D.watchlist = async (force) => {
     const w = await memo('watch', () => get('data/watchlist.json'), force);
     const list = Array.isArray(w) ? w : (w && w.stocks) || [];
-    return list.filter((s) => s && /^\d{6}$/.test(String(s.code))).map((s) => ({ code: String(s.code), name: s.name || String(s.code) }));
+    return list.filter((s) => s && /^[0-9A-Z]{6}$/.test(String(s.code))).map((s) => ({ code: String(s.code), name: s.name || String(s.code) }));
   };
   D.status = (force) => memo('status', () => get('data/status.json'), force);
   D.news = (c, force) => memo('news' + c, () => get(`data/news/${c}.json`), force);
@@ -54,15 +54,38 @@
   D.watchExcluded = (stocks) => stocks.map((s) => {
     const code = String(s.code || '').trim();
     if (s.market !== 'KR') return { name: s.name, reason: '해외 종목은 자동 수집을 지원하지 않습니다' };
-    if (!/^\d{6}$/.test(code)) return { name: s.name, reason: code ? `종목코드 “${code}”가 6자리 숫자가 아닙니다` : '종목코드가 비어 있습니다' };
+    if (!/^[0-9A-Z]{6}$/.test(code)) return { name: s.name, reason: code ? `종목코드 “${code}”가 6자리(숫자·영문 대문자) 코드가 아닙니다` : '종목코드가 비어 있습니다' };
     if (s.watch && !s.collect) return { name: s.name, reason: '관심 종목의 자동 수집이 꺼져 있습니다(종목 화면의 ⋯ 메뉴에서 켜기)' };
     return null;
   }).filter(Boolean);
+  /* ---------- 종목 검색(이름·초성·코드): data/stocks.json 목록으로 앱 안에서 검색 ---------- */
+  D.stockList = (force) => memo('stocklist', () => get('data/stocks.json'), force);
+  const CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+  const normQ = (v) => String(v == null ? '' : v).toLowerCase().replace(/\s+/g, '');
+  const choOf = (v) => Array.from(v).map((ch) => { const c = ch.charCodeAt(0) - 0xAC00; return c >= 0 && c <= 11171 ? CHO[Math.floor(c / 588)] : ch; }).join('');
+  const MK = { P: '코스피', Q: '코스닥' }, TY = { s: '주식', e: 'ETF', n: 'ETN' };
+  function indexOf(rows) { // 처음 한 번만 검색용 값을 만들어 둡니다
+    if (rows._idx) return rows._idx;
+    return (Object.defineProperty(rows, '_idx', { value: rows.map((r) => { const n = normQ(r[1]); return { r, n, c: choOf(n), code: String(r[0]).toLowerCase() }; }), enumerable: false }), rows._idx);
+  }
+  const shape = (r) => ({ code: r[0], name: r[1], market: MK[r[2]] || '', type: TY[r[3]] || '주식' });
+  // 우선순위: 이름이 입력으로 시작 → 이름에 포함 → 초성 포함. 같은 순위 안에서는 목록 순서(시가총액 큰 순).
+  D.searchStocks = (rows, q, limit) => {
+    const nq = normQ(q), max = limit || 8;
+    if (!nq || !Array.isArray(rows)) return [];
+    const idx = indexOf(rows), out = [], seen = new Set();
+    const take = (pred) => { for (const e of idx) { if (out.length >= max) return; if (!seen.has(e.r[0]) && pred(e)) { seen.add(e.r[0]); out.push(shape(e.r)); } } };
+    if (/^[ㄱ-ㅎ]+$/.test(nq)) { take((e) => e.c.startsWith(nq)); take((e) => e.c.includes(nq)); return out; } // 초성만 입력
+    if (/\d/.test(nq) && /^[0-9a-z]+$/.test(nq)) take((e) => e.code.startsWith(nq)); // 숫자가 든 영숫자는 코드 앞부분을 먼저
+    take((e) => e.n.startsWith(nq)); take((e) => e.n.includes(nq)); take((e) => e.code.startsWith(nq));
+    return out;
+  };
+  D.stockByCode = (rows, code) => { const c = String(code || '').trim().toUpperCase(); const r = Array.isArray(rows) ? rows.find((x) => x[0] === c) : null; return r ? shape(r) : null; };
   D.MARKER = '<!-- stock-manager:watchlist -->'; // tools/watchlist-issue.js 와 같아야 함
   D.watchRaw = async (force) => memo('watchraw', () => get('data/watchlist.json'), force);
   // 저장소 목록(raw)과 앱의 목록(JSON 문자열)을 비교
   D.watchDiff = (raw, curJson) => {
-    const cur = JSON.parse(curJson), list = (r) => (Array.isArray(r) ? r : (r && r.stocks) || []).filter((s) => s && /^\d{6}$/.test(String(s.code)));
+    const cur = JSON.parse(curJson), list = (r) => (Array.isArray(r) ? r : (r && r.stocks) || []).filter((s) => s && /^[0-9A-Z]{6}$/.test(String(s.code)));
     const rs = list(raw), cs = list(cur), rc = new Set(rs.map((s) => String(s.code))), cc = new Set(cs.map((s) => String(s.code)));
     const rr = raw && !Array.isArray(raw) ? raw : {};
     const added = cs.filter((s) => !rc.has(String(s.code))).map((s) => s.name || s.code), removed = rs.filter((s) => !cc.has(String(s.code))).map((s) => s.name || s.code);
@@ -78,5 +101,5 @@
     return url.length > 7500 ? { tooLong: true } : url;
   };
   // 앱의 종목 목록 → 자동 수집 대상 JSON (국내 6자리 코드만)
-  D.watchJson = (stocks, opt) => JSON.stringify(Object.assign(typeof opt === 'number' ? { years: opt } : Object.assign(opt && opt.years ? { years: opt.years } : {}, opt && opt.from ? { from: opt.from } : {}, opt && opt.to ? { to: opt.to } : {}), { stocks: stocks.filter((s) => s.market === 'KR' && /^\d{6}$/.test(String(s.code || '').trim()) && (!s.watch || s.collect)).map((s) => ({ code: String(s.code).trim(), name: s.name })) }), null, 2);
+  D.watchJson = (stocks, opt) => JSON.stringify(Object.assign(typeof opt === 'number' ? { years: opt } : Object.assign(opt && opt.years ? { years: opt.years } : {}, opt && opt.from ? { from: opt.from } : {}, opt && opt.to ? { to: opt.to } : {}), { stocks: stocks.filter((s) => s.market === 'KR' && /^[0-9A-Z]{6}$/.test(String(s.code || '').trim()) && (!s.watch || s.collect)).map((s) => ({ code: String(s.code).trim(), name: s.name })) }), null, 2);
 })(typeof globalThis !== 'undefined' ? globalThis : this);

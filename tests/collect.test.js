@@ -2,6 +2,7 @@ const assert = require('assert');
 const fs = require('fs'), os = require('os'), path = require('path'), zlib = require('zlib');
 const C = require('../tools/collect.js');
 const W = require('../tools/watchlist-issue.js');
+const L = require('../tools/build-stocklist.js');
 let ok = 0, bad = 0;
 const t = async (name, fn) => { try { await fn(); ok++; console.log('✓', name); } catch (e) { bad++; console.log('✗', name, '\n   ', e.stack.split('\n').slice(0, 3).join('\n    ')); process.exitCode = 1; } };
 
@@ -285,6 +286,41 @@ const KEYS = { DATA_GO_KR_KEY: 'pub+key/with=chars', DART_API_KEY: 'dartSecret12
     // 기존 목록이 배열 형식이어도 동작, 같은 내용이면 optsChanged=false
     r = W.applyWatchlist(body({ stocks: [{ code: '003490', name: '대한항공' }] }), [{ code: '003490', name: '대한항공' }]);
     assert.equal(r.ok, true); assert.deepEqual(r.added, []); assert.equal(r.optsChanged, false);
+  });
+  await t('종목 목록 만들기: 페이지 넘김·중복/이상 항목 제거·영숫자 코드·최소 개수 보호·변경 없으면 쓰지 않음', async () => {
+    const mkRows = (prefix, n, extra = []) => Array.from({ length: n }, (_, i) => ({ itemCode: prefix + String(1000 + i).padStart(5, '0').slice(-5), stockName: prefix + '종목' + i, stockEndType: i % 7 === 0 ? 'etf' : i % 11 === 0 ? 'etn' : 'stock' })).concat(extra);
+    const state = { calls: [] };
+    const fetchFn = (data) => async (url) => {
+      state.calls.push(url);
+      const m = url.match(/marketValue\/(\w+)\?page=(\d+)&pageSize=(\d+)/), all = data[m[1]], pg = +m[2], size = +m[3];
+      return resp(JSON.stringify({ stocks: all.slice((pg - 1) * size, pg * size), totalCount: all.length, page: pg, pageSize: size }));
+    };
+    const data = { KOSPI: mkRows('1', 250, [{ itemCode: '0126Z0', stockName: '삼성에피스홀딩스', stockEndType: 'stock' }, { itemCode: '12345', stockName: '다섯자리', stockEndType: 'stock' }, { itemCode: '100000', stockName: '  ', stockEndType: 'stock' }]), KOSDAQ: mkRows('2', 120, [{ itemCode: '0126Z0', stockName: '중복코드', stockEndType: 'stock' }]) };
+    const dir = tmp(), file = path.join(dir, 'stocks.json');
+    let r = await L.run({ fetch: fetchFn(data), file, delayMs: 0, minCount: 300, now: new Date('2026-11-27T00:00:00Z') });
+    assert.equal(r.changed, true); const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.equal(j.updatedAt, '2026-11-27T00:00:00.000Z'); assert.equal(j.count, j.stocks.length);
+    assert.equal(j.stocks.length, 250 + 1 + 120, JSON.stringify(j.stocks.length)); // 다섯자리·이름 없음 제외, 다른 시장의 같은 코드는 먼저 나온 1개만
+    assert(!j.stocks.some((x) => x[1] === '중복코드'));
+    assert(j.stocks.some((x) => x[0] === '0126Z0' && x[1] === '삼성에피스홀딩스' && x[2] === 'P' && x[3] === 's')); assert(!j.stocks.some((x) => x[1] === '다섯자리'));
+    assert.deepEqual(j.stocks[0], ['101000', '1종목0', 'P', 'e']); assert(j.stocks.every((x) => x.length === 4 && /^[0-9A-Z]{6}$/.test(x[0])));
+    assert.equal(new Set(j.stocks.map((x) => x[0])).size, j.stocks.length); assert(j.stocks.some((x) => x[2] === 'Q'));
+    assert(state.calls.length >= 3 + 2, '페이지를 넘겨 받음 ' + state.calls.length); assert(state.calls.every((u) => /pageSize=100/.test(u)));
+    // 같은 내용이면 다시 쓰지 않음(updatedAt 유지)
+    r = await L.run({ fetch: fetchFn(data), file, delayMs: 0, minCount: 300, now: new Date('2027-01-01T00:00:00Z') });
+    assert.equal(r.changed, false); assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).updatedAt, '2026-11-27T00:00:00.000Z');
+    // 새 종목이 생기면 갱신
+    data.KOSDAQ.push({ itemCode: '999990', stockName: '신규상장', stockEndType: 'stock' });
+    r = await L.run({ fetch: fetchFn(data), file, delayMs: 0, minCount: 300, now: new Date('2027-01-01T00:00:00Z') });
+    assert.equal(r.changed, true); assert.equal(r.added, 1); assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).count, 372);
+    // 받은 종목이 너무 적으면 기존 파일을 보호하고 실패
+    const keep = fs.readFileSync(file, 'utf8');
+    await assert.rejects(() => L.run({ fetch: fetchFn({ KOSPI: mkRows('1', 5), KOSDAQ: mkRows('2', 5) }), file, delayMs: 0 }), /기존 파일을 그대로/);
+    assert.equal(fs.readFileSync(file, 'utf8'), keep);
+    // 형식이 바뀐 응답/HTTP 오류
+    await assert.rejects(() => L.run({ fetch: async () => resp('<html>점검</html>'), file, delayMs: 0 }), /읽지 못했습니다/);
+    await assert.rejects(() => L.run({ fetch: async () => resp(JSON.stringify({ nothing: 1 })), file, delayMs: 0 }), /형식이 예상과 다릅니다/);
+    assert.equal(fs.readFileSync(file, 'utf8'), keep);
   });
   console.log(`${ok} passed${bad ? ', ' + bad + ' failed' : ''}`);
 })();

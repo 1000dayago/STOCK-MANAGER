@@ -58,7 +58,7 @@
     if (!el) return;
     const st = A.curStock();
     if (!st) return;
-    if (!/^\d{6}$/.test(String(st.code || '').trim()) || st.market !== 'KR') {
+    if (!/^[0-9A-Z]{6}$/.test(String(st.code || '').trim()) || st.market !== 'KR') {
       el.innerHTML = '<p class="muted">자동 수집은 국내 종목(종목코드 6자리)만 지원합니다. 종목 수정에서 종목코드를 입력하세요.</p>';
       return;
     }
@@ -83,7 +83,7 @@
     const link = (u, t) => (u ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${t}${ic('ext')}</a>` : t);
     const cs = A.getState().settings, years = cs.collectYears, cfrom = cs.collectFrom, cto = cs.collectTo;
     const json = D.watchJson(A.getState().stocks, { years, from: cfrom, to: cto });
-    const kr = A.getState().stocks.filter((s) => s.market === 'KR' && /^\d{6}$/.test(String(s.code || '').trim())).length;
+    const kr = A.getState().stocks.filter((s) => s.market === 'KR' && /^[0-9A-Z]{6}$/.test(String(s.code || '').trim())).length;
     return `<section class="card" id="autoCard"><h2>자동 수집 <small class="muted">공시 · 뉴스 · 재무 · 일봉 시세 · 수급 (국내 종목)</small></h2>
       <p class="hint">GitHub Actions가 평일 저녁 7시(한국시간)에 공식 API로 자료를 받아 저장소의 <code>data/</code> 폴더에 저장하고, 앱이 그 파일을 읽어 보여줍니다. 키는 GitHub Secrets에만 저장되며 앱이나 코드에는 들어가지 않습니다.</p>
       <div id="autoStatus" class="autostat-box"><span class="muted">상태를 확인하는 중…</span></div>
@@ -146,5 +146,69 @@
       try { await navigator.clipboard.writeText(t); A.toast('수집 대상 목록을 복사했습니다'); }
       catch (e) { const ta = document.getElementById('watchJson'); ta.focus(); ta.select(); A.toast('자동 복사가 안 돼요. 선택된 내용을 직접 복사하세요', true); }
     },
+  });
+
+  /* ---------- 종목 입력창: 이름·초성으로 검색해 코드 자동 채우기 (data/stocks.json) ---------- */
+  let stockListP = null;
+  const getStockList = () => stockListP || (stockListP = D.stockList().then((d) => (d && Array.isArray(d.stocks) && d.stocks.length ? d : null)));
+  function setMarketKR(modal) {
+    const sel = modal.querySelector('select[name=market]');
+    if (!sel || sel.disabled || sel.value === 'KR') return;
+    sel.value = 'KR';
+    const w = sel.nextElementSibling;
+    if (w && w.classList.contains('segsel')) w.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.sv === 'KR')));
+  }
+  const tagOf = (x) => `${esc(x.market)}${x.type !== '주식' ? ' · ' + esc(x.type) : ''}`;
+  function renderSuggest(modal, data, q) {
+    const box = modal.querySelector('#stSuggest');
+    if (!box) return;
+    const v = String(q || '').trim();
+    if (!v) { box.hidden = true; box.innerHTML = ''; return; }
+    if (!data) { box.hidden = false; box.innerHTML = '<div class="sug-none">종목 검색 목록(data/stocks.json)이 아직 없습니다. 코드를 직접 입력하세요. (저장소 Actions의 “종목 목록 갱신”을 실행하면 생깁니다)</div>'; return; }
+    const items = D.searchStocks(data.stocks, v, 8);
+    const when = data.updatedAt ? String(data.updatedAt).slice(0, 10) : '';
+    box.hidden = false;
+    box.innerHTML = items.length
+      ? items.map((x) => `<button type="button" class="sug" data-pick="${esc(x.code)}"><span class="sug-name">${esc(x.name)}</span><span class="sug-meta">${esc(x.code)} · ${tagOf(x)}</span></button>`).join('') + `<div class="sug-foot">목록 기준 ${esc(when)} · ${SM.fmtNum(data.stocks.length)}종목 · 누르면 이름·코드·시장이 채워집니다</div>`
+      : '<div class="sug-none">일치하는 국내 종목이 없습니다. 해외 종목이거나 신규 상장이면 아래에 직접 입력하세요.</div>';
+  }
+  function updateCodeHint(modal, data) {
+    const hint = modal.querySelector('#stCodeHint'), codeEl = modal.querySelector('input[name=code]'), nameEl = modal.querySelector('input[name=name]'), mk = modal.querySelector('select[name=market]');
+    if (!hint || !codeEl) return;
+    const v = codeEl.value.trim().toUpperCase(), market = mk ? mk.value : 'KR';
+    if (!v) { hint.innerHTML = ''; return; }
+    if (/^[0-9A-Z]{6}$/.test(v)) {
+      const f = data ? D.stockByCode(data.stocks, v) : null;
+      if (f) {
+        hint.innerHTML = `<span class="ok">${ic('check')} ${esc(f.name)} · ${tagOf(f)}</span>`;
+        if (nameEl && !nameEl.value.trim()) nameEl.value = f.name; // 이름이 비어 있으면 채움
+        if (market !== 'KR') setMarketKR(modal);
+      } else hint.innerHTML = data ? `<span class="warn">${ic('alert')} 목록에 없는 코드입니다. 신규 상장이거나 오타일 수 있습니다.</span>` : '<span class="muted">종목 목록이 없어 코드를 확인하지 못했습니다.</span>';
+    } else if (/^[A-Z.\-]{1,6}$/.test(v)) {
+      hint.innerHTML = market === 'US' ? '<span class="muted">해외 티커로 저장됩니다.</span>' : `<span class="warn">${ic('alert')} 해외 티커라면 아래 시장을 “해외”로 바꾸세요.</span>`;
+    } else hint.innerHTML = `<span class="warn">${ic('alert')} 국내 종목코드는 6자리(숫자·영문 대문자)입니다. 가격을 넣은 것은 아닌지 확인하세요.</span>`;
+  }
+  document.addEventListener('focusin', (e) => { if (e.target && e.target.dataset && e.target.dataset.suggest) getStockList(); });
+  document.addEventListener('input', async (e) => {
+    const el = e.target;
+    if (!el || !el.dataset || !el.dataset.suggest) return;
+    const modal = el.closest('.modal');
+    if (!modal) return;
+    const data = await getStockList();
+    if (!el.isConnected) return;
+    if (el.dataset.suggest === 'name') renderSuggest(modal, data, el.value);
+    else updateCodeHint(modal, data);
+  });
+  document.addEventListener('click', async (e) => {
+    const b = e.target && e.target.closest ? e.target.closest('.suggest [data-pick]') : null;
+    if (!b) return;
+    const modal = b.closest('.modal'), data = await getStockList();
+    const f = data ? D.stockByCode(data.stocks, b.dataset.pick) : null;
+    if (!modal || !f) return;
+    modal.querySelector('input[name=name]').value = f.name;
+    modal.querySelector('input[name=code]').value = f.code;
+    setMarketKR(modal);
+    renderSuggest(modal, data, '');
+    updateCodeHint(modal, data);
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

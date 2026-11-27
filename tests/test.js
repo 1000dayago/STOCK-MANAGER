@@ -469,6 +469,26 @@ t('수집 대상에서 빠진 종목과 이유', () => {
   assert.equal(inc.length + ex.length, stocks.length); // 포함 + 제외 = 전체(빠짐없이 설명)
   assert.deepEqual(D.watchExcluded([mk({ name: '공백코드', code: ' 003490 ' })]), []);
 });
+t('종목 검색: 이름 앞부분·포함·초성·코드, 순위, 개수 제한, 영숫자 코드', () => {
+  const D = SM.data;
+  const rows = [['005930', '삼성전자', 'P', 's'], ['000660', 'SK하이닉스', 'P', 's'], ['005935', '삼성전자우', 'P', 's'], ['062040', '산일전기', 'P', 's'], ['003490', '대한항공', 'P', 's'], ['0126Z0', '삼성에피스홀딩스', 'P', 's'],
+    ['069500', 'KODEX 200', 'P', 'e'], ['0043B0', 'TIGER 머니마켓액티브', 'P', 'e'], ['196170', '알테오젠', 'Q', 's'], ['000270', '기아', 'P', 's'], ['200670', '휴메딕스', 'Q', 's']];
+  const names = (q, n) => D.searchStocks(rows, q, n).map((x) => x.name);
+  assert.deepEqual(names('삼성'), ['삼성전자', '삼성전자우', '삼성에피스홀딩스']); // 시가총액 순(목록 순서) 유지
+  assert.deepEqual(names('전자'), ['삼성전자', '삼성전자우']); // 포함
+  assert.deepEqual(names('  삼성 전자 '), ['삼성전자', '삼성전자우']); // 공백 무시
+  assert.deepEqual(names('산일'), ['산일전기']); assert.deepEqual(names('ㅅㅇㅈㄱ'), ['산일전기']); assert.deepEqual(names('ㅇㅌㅇㅈ'), ['알테오젠']); // 초성
+  assert.deepEqual(names('ㅅㅅ'), ['삼성전자', '삼성전자우', '삼성에피스홀딩스']);
+  assert.deepEqual(names('0626'), []); assert.deepEqual(names('0620'), ['산일전기']); // 코드 앞부분
+  assert.deepEqual(names('0126z'), ['삼성에피스홀딩스']); assert.deepEqual(names('0043b0'), ['TIGER 머니마켓액티브']); // 영숫자 코드, 대소문자 무시
+  assert.deepEqual(names('kodex'), ['KODEX 200']); assert.deepEqual(names('kodex 200'), ['KODEX 200']); assert.deepEqual(names('sk'), ['SK하이닉스']);
+  assert.equal(names('삼성', 2).length, 2); assert.deepEqual(names(''), []); assert.deepEqual(names('   '), []); assert.deepEqual(names('없는종목'), []);
+  assert.deepEqual(D.searchStocks(null, '삼성'), []); assert.deepEqual(D.searchStocks(rows, '삼성')[0], { code: '005930', name: '삼성전자', market: '코스피', type: '주식' });
+  assert.equal(D.searchStocks(rows, 'kodex')[0].type, 'ETF'); assert.equal(D.searchStocks(rows, '알테')[0].market, '코스닥');
+  assert.equal(D.stockByCode(rows, ' 062040 ').name, '산일전기'); assert.equal(D.stockByCode(rows, '0126z0').name, '삼성에피스홀딩스'); assert.equal(D.stockByCode(rows, '999999'), null); assert.equal(D.stockByCode(null, '062040'), null);
+  // 목록이 커도 같은 목록으로 반복 검색할 때 색인을 다시 만들지 않음(숨은 속성), JSON 직렬화에는 영향 없음
+  D.searchStocks(rows, '삼성'); assert.equal(JSON.stringify(rows).includes('_idx'), false);
+});
 t('버전 비교', () => {
   assert.equal(SM.compareVersions('1.10.0', '1.9.9'), 1);
   assert.equal(SM.compareVersions('1.2.0', '1.2.0'), 0);

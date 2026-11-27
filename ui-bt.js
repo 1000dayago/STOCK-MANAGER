@@ -101,7 +101,7 @@
   };
   A.btRepoEnsureFor = async (st) => { // 이 종목이 자동 수집 대상이면 데이터를 읽어 둡니다(종가 채우기·비교용)
     const code = String(st.code || '').trim();
-    if (st.market !== 'KR' || !/^\d{6}$/.test(code)) return;
+    if (st.market !== 'KR' || !/^[0-9A-Z]{6}$/.test(code)) return;
     await A.btRepoInit();
     if (repo.list.some((w) => w.code === code)) await A.btRepoLoad(code);
   };
@@ -566,7 +566,7 @@
     try { await A.btRepoEnsureFor(st); } catch (e) { /* 저장소를 못 읽어도 다른 방법으로 */ }
     for (const [, d] of linkedDatasets(st.id).filter(([, x]) => x.data)) { const r = SM.closeOn(d.data, date); if (r) return Object.assign(r, { src: `가격 데이터 “${d.name}”` }); }
     const code = String(st.code || '').trim();
-    if (st.market === 'KR' && /^\d{6}$/.test(code)) {
+    if (st.market === 'KR' && /^[0-9A-Z]{6}$/.test(code)) {
       try {
         const wl = await SM.data.watchlist();
         if (wl.some((w) => w.code === code)) {
@@ -593,7 +593,7 @@
       const st = A.getState().stocks.find((x) => x.id === bt.stockId);
       const code = st ? String(st.code || '').trim() : '';
       const wl = await SM.data.watchlist(true);
-      if (!/^\d{6}$/.test(code) || !wl.some((w) => w.code === code)) return toast('이 종목은 자동 수집 대상이 아닙니다. 설정 > 자동 수집에서 대상에 추가하거나 파일로 불러오세요.', true);
+      if (!/^[0-9A-Z]{6}$/.test(code) || !wl.some((w) => w.code === code)) return toast('이 종목은 자동 수집 대상이 아닙니다. 설정 > 자동 수집에서 대상에 추가하거나 파일로 불러오세요.', true);
       A.btLoadRepo(code);
     },
     btStockFile: () => { bt.imp.stockId = bt.stockId; const inp = document.querySelector('input[data-change=btFiles]'); if (inp) inp.click(); },
