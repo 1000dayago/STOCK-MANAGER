@@ -372,6 +372,81 @@
     return { groups, total, rows, usTax };
   }
 
+
+  /* ---------- 매수 입력 미리보기 (저장 전) ---------- */
+  // 금액으로 입력했을 때 살 수 있는 수량 (국내: 정수 주 내림, 해외: 소수 4자리 내림)
+  function qtyForAmount(stock, amount, price, settings, feeInput) {
+    const a = num(amount), p = num(price);
+    if (!(a > 0) || !(p > 0)) return { qty: 0, used: 0, rest: a > 0 ? a : 0 };
+    const rate = ratesOf(settings, stock.market).buyFee / 100;
+    let q = isBlank(feeInput) ? a / (p * (1 + rate)) : (a - num(feeInput)) / p;
+    q = stock.market === 'US' ? Math.floor(q * 1e4 + 1e-9) / 1e4 : Math.floor(q + 1e-9);
+    q = Math.max(0, q);
+    const fee = isBlank(feeInput) ? q * p * rate : num(feeInput);
+    const used = q * p + (q > 0 ? fee : 0);
+    return { qty: q, used, rest: a - used };
+  }
+  // f: {price, qty, fee, fx, date}. editLotId 가 있으면 그 순번을 f 값으로 바꾼 경우와 비교합니다.
+  function lotPreview(stock, f, settings, editLotId, today) {
+    const out = { ok: false, warnings: [], errors: [] };
+    const us = stock.market === 'US';
+    const price = num(f.price), qty = num(f.qty);
+    if (!(price > 0) || !(qty > 0)) { out.msg = '매수가와 수량을 입력하면 평단가 미리보기가 나타납니다.'; return out; }
+    const rates = ratesOf(settings, stock.market);
+    const fx = us ? num(f.fx, settings.fxNow) : 1;
+    const fee = isBlank(f.fee) ? autoBuyFee(settings, stock.market, qty, price) : num(f.fee);
+    out.feeAuto = isBlank(f.fee);
+    const before = [], after = [];
+    for (const lot of stock.lots) {
+      const rem = lotRem(stock, lot);
+      const old = { rem, price: lot.price, feePS: lotFeePerShare(lot), fx: lot.fx || 1 };
+      if (editLotId && lot.id === editLotId) {
+        const sold = lotSold(stock, lot.id);
+        before.push(old);
+        if (qty < sold - 1e-9) out.errors.push(`이미 ${sold}주가 매도되어 수량을 그보다 적게 할 수 없습니다.`);
+        after.push({ rem: Math.max(0, r6(qty - sold)), price, feePS: fee / qty, fx });
+      } else { before.push(old); after.push(old); }
+    }
+    if (!editLotId) after.push({ rem: qty, price, feePS: fee / qty, fx });
+    const agg = (arr) => {
+      let q = 0, noFee = 0, cost = 0, costKRW = 0;
+      for (const l of arr) { if (l.rem <= 0) continue; q += l.rem; noFee += l.rem * l.price; cost += l.rem * (l.price + l.feePS); costKRW += l.rem * (l.price + l.feePS) * l.fx; }
+      return { qty: q, cost, costKRW, avg: q > 0 ? noFee / q : null, avgInclFee: q > 0 ? cost / q : null, avgKRW: q > 0 ? costKRW / q : null };
+    };
+    const b = agg(before), a = agg(after);
+    out.before = b; out.after = a; out.editing = !!editLotId;
+    out.buy = { gross: qty * price, fee, total: qty * price + fee, fx, totalKRW: (qty * price + fee) * fx };
+    out.change = {
+      qty: a.qty - b.qty,
+      avg: b.avg && a.avg ? a.avg / b.avg - 1 : null,
+      avgInclFee: b.avgInclFee && a.avgInclFee ? a.avgInclFee / b.avgInclFee - 1 : null,
+      cost: a.cost - b.cost,
+    };
+    // 손익분기 매도가 (매도 수수료·세금 반영, 현지통화 기준)
+    const d = 1 - (rates.sellFee + rates.sellTax) / 100;
+    const be = (x) => (x.avgInclFee && d > 0 ? x.avgInclFee / d : null);
+    out.breakEven = { before: be(b), after: be(a) };
+    // 현재가 기준 평가손익과 -10% 시나리오 (원화)
+    const cur = stock.price > 0 ? stock.price : null;
+    const ref = cur || price;
+    const fxNow = us ? settings.fxNow : 1;
+    const unrl = (x, p) => (x.qty > 0 ? x.qty * p * fxNow - x.costKRW : 0);
+    out.refIsBuy = !cur;
+    out.refPrice = ref;
+    out.riseNeeded = cur && out.breakEven.after ? out.breakEven.after / cur - 1 : null;
+    out.unrl = { before: unrl(b, ref), after: unrl(a, ref) };
+    out.down10 = { price: ref * 0.9, before: unrl(b, ref * 0.9), after: unrl(a, ref * 0.9) };
+    out.down10.extra = out.down10.after - out.down10.before - (out.unrl.after - out.unrl.before); // 가격이 10% 더 빠질 때 늘어나는 손실
+    // 경고
+    if (cur && Math.abs(price / cur - 1) > 0.3) out.warnings.push(`매수가가 현재가(${num(cur)})와 ${(Math.abs(price / cur - 1) * 100).toFixed(0)}% 차이 납니다. 가격을 다시 확인하세요.`);
+    if (f.date && f.date > (today || todayStr())) out.warnings.push('매수일이 오늘보다 미래입니다.');
+    if (!us && Math.abs(qty - Math.round(qty)) > 1e-9) out.warnings.push('국내 주식은 보통 정수 주 단위입니다. 수량을 확인하세요.');
+    if (fee > out.buy.gross * 0.05) out.warnings.push('수수료가 매수금액의 5%를 넘습니다. 직접 입력한 값이 맞는지 확인하세요.');
+    if (us && !(fx > 0)) out.errors.push('매수 환율을 입력하세요.');
+    out.ok = true;
+    return out;
+  }
+
   /* ---------- 평단가 계산기 ---------- */
   function avgCalc({ baseQty, baseAvg, buys, feeRate }) {
     let qty = num(baseQty), cost = num(baseQty) * num(baseAvg);
@@ -484,7 +559,7 @@
   }
 
   Object.assign(SM, {
-    compareVersions, setPrice, priceAge, splitAdjust, addEvent, removeEvent, upcomingEvents, fillLink, linksFor, portfolio, noteKey, noteKeysOfStock,
+    qtyForAmount, lotPreview, compareVersions, setPrice, priceAge, splitAdjust, addEvent, removeEvent, upcomingEvents, fillLink, linksFor, portfolio, noteKey, noteKeysOfStock,
     DEFAULT_SETTINGS, uid, todayStr, num, isBlank, daysBetween, fmtNum, fmtMoney, fmtPct, curOf, ratesOf,
     newState, normalizeState, newStock, lotSold, lotRem, lotFeePerShare, addLot, updateLot, deleteLot,
     mergeLots, unmergeLot, splitLot, stockSummary, lotView, computeSale, allocate, remainingAfter,

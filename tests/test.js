@@ -223,6 +223,49 @@ t('이어붙이기: 수급 표(시가·고가·저가 없음)는 기존 OHLC를 
   const other = Object.assign({}, b, { c: b.c.map((x) => x * 3) }); assert.equal(SM.sameStockScore(a, other).ratio, 0);
 });
 
+
+t('매수 미리보기: 평단 변화/총액/손익분기/시나리오', () => {
+  const st = SM.newStock({ name: '삼성', market: 'KR' });
+  SM.addLot(st, { qty: 10, price: 60000, fee: 0 }, S); SM.addLot(st, { qty: 20, price: 40000, fee: 0 }, S); st.price = 50000;
+  const p = SM.lotPreview(st, { price: 50000, qty: 10, fee: 0 }, S, null, '2026-11-27');
+  assert(p.ok); approx(p.before.avg, 46666.6667, 1e-3); approx(p.after.avg, 47500); assert.equal(p.after.qty, 40);
+  approx(p.change.avg, 47500 / 46666.6667 - 1, 1e-6); approx(p.buy.total, 500000); approx(p.change.cost, 500000);
+  const d = 1 - (S.kr.sellFee + S.kr.sellTax) / 100; approx(p.breakEven.after, 47500 / d, 1e-6);
+  approx(p.riseNeeded, 47500 / d / 50000 - 1, 1e-6);
+  // 현재가 50000 기준: 평가손익 before = 30*...  (30주 × 50000 − 1,400,000 = 100,000), after = 40주 × 50000 − 1,900,000 = 100,000
+  approx(p.unrl.before, 100000); approx(p.unrl.after, 100000);
+  // -10%: before = 30*45000 − 1,400,000 = −50,000 / after = 40*45000 − 1,900,000 = −100,000
+  approx(p.down10.before, -50000); approx(p.down10.after, -100000); approx(p.down10.extra, -50000);
+  assert.deepEqual(p.warnings, []);
+});
+t('매수 미리보기: 입력 부족/경고/수수료 자동·직접', () => {
+  const st = SM.newStock({ name: 'A', market: 'KR' }); st.price = 10000;
+  assert(!SM.lotPreview(st, { price: 100, qty: '' }, S).ok);
+  const p = SM.lotPreview(st, { price: 20000, qty: 10.5, date: '2099-01-01', fee: '' }, S, null, '2026-11-27');
+  assert(p.ok && p.feeAuto); assert.equal(p.before.qty, 0); assert.equal(p.change.avg, null);
+  assert.equal(p.warnings.length, 3, p.warnings.join('|'));  // 현재가와 100% 차이, 미래 날짜, 소수 수량
+  approx(p.buy.fee, 10.5 * 20000 * 0.00015);
+  const p2 = SM.lotPreview(st, { price: 10000, qty: 10, fee: 20000 }, S); assert(!p2.feeAuto); assert(p2.warnings.some((w) => /수수료/.test(w)));
+});
+t('매수 미리보기: 수정 모드(수정 전→후), 매도된 수량 보호, 해외 원화', () => {
+  const st = SM.newStock({ name: 'AAPL', market: 'US' });
+  const l1 = SM.addLot(st, { qty: 10, price: 100, fx: 1300, fee: 0 }, S), l2 = SM.addLot(st, { qty: 10, price: 200, fx: 1400, fee: 0 }, S);
+  const p = SM.lotPreview(st, { price: 150, qty: 10, fx: 1300, fee: 0 }, S, l2.id);
+  assert(p.editing); approx(p.before.avg, 150); approx(p.after.avg, 125); approx(p.before.avgKRW, (10 * 100 * 1300 + 10 * 200 * 1400) / 20); approx(p.after.avgKRW, (10 * 100 * 1300 + 10 * 150 * 1300) / 20);
+  SM.recordSale(st, SM.computeSale(st, [{ lotId: l1.id, qty: 6 }], { price: 120, fx: 1350, sellFee: 0, tax: 0 }, S));
+  const q = SM.lotPreview(st, { price: 100, qty: 4, fx: 1300, fee: 0 }, S, l1.id);
+  assert(q.errors.some((e) => /매도되어/.test(e)));
+  assert(SM.lotPreview(st, { price: 100, qty: 10, fx: 0, fee: 0 }, S).errors.length === 1);
+});
+t('금액으로 수량 계산', () => {
+  const kr = SM.newStock({ name: 'K', market: 'KR' });
+  let r = SM.qtyForAmount(kr, 1000000, 70000, S, ''); assert.equal(r.qty, 14); assert(r.used <= 1000000 && r.rest >= 0);
+  r = SM.qtyForAmount(kr, 70000, 70000, S, ''); assert.equal(r.qty, 0);          // 수수료 때문에 1주도 못 삼
+  r = SM.qtyForAmount(kr, 1000000, 70000, S, 5000); assert.equal(r.qty, 14); approx(r.used, 14 * 70000 + 5000);
+  const us = SM.newStock({ name: 'U', market: 'US' }); r = SM.qtyForAmount(us, 1000, 333, S, ''); assert(r.qty > 2.9 && r.qty < 3 && Math.abs(r.qty * 1e4 - Math.round(r.qty * 1e4)) < 1e-6);
+  assert.equal(SM.qtyForAmount(kr, '', 100, S, '').qty, 0);
+});
+
 console.log(ok + ' passed');
 t('버전 비교', () => {
   assert.equal(SM.compareVersions('1.10.0', '1.9.9'), 1);

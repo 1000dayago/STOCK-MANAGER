@@ -52,7 +52,7 @@
     const f = r.querySelector('input:not([type=hidden]):not([type=checkbox]),select');
     if (f && !wide) f.focus();
   }
-  function closeModal() { document.getElementById('modal-root').innerHTML = ''; modalSubmit = null; A.sell = null; }
+  function closeModal() { document.getElementById('modal-root').innerHTML = ''; modalSubmit = null; A.sell = null; A.lotPrev = null; }
   Object.assign(A, { toast, openModal, closeModal });
   function ask(title, label, def, cb) {
     openModal(`<h3>${esc(title)}</h3><label>${esc(label)}<input name="v" value="${esc(def)}" inputmode="decimal"></label><div class="btns"><button class="btn primary" type="submit">확인</button><button class="btn" type="button" data-act="closeModal">취소</button></div>`, (fd) => cb(fd.get('v')));
@@ -348,18 +348,82 @@
       save(); closeModal(); render();
     });
   }
+  /* 매수 입력 미리보기: 저장 전에 평단·총액·손익분기·하락 시나리오를 보여줍니다 */
+  function lotPrevHtml(st, res, qtyNote) {
+    const cur = SM.curOf(st), us = st.market === 'US';
+    const edit = res.editing;
+    let h = `<div class="prev-h">${ic('info')}<b>저장 전 미리보기</b><small>${edit ? '수정 전 → 수정 후' : '이번 매수를 반영하면'}</small></div>`;
+    if (qtyNote) h += `<p class="prev-note">${esc(qtyNote)}</p>`;
+    if (!res.ok) return h + `<p class="muted prev-empty">${esc(res.msg)}</p>`;
+    const b = res.before, a = res.after, ch = res.change;
+    const row = (label, before, after, sub, cls) => `<div class="prow ${cls || ''}"><span class="pl">${label}</span><span class="b">${before}</span><span class="ar">${ic('chevR')}</span><span class="a">${after}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
+    const dash = '<span class="muted">-</span>';
+    const chip = (v) => (v == null ? '' : `<span class="chip neu">${fmtPct(v)}</span>`);
+    h += `<div class="prow head"><span></span><span class="b">${edit ? '수정 전' : '현재'}</span><span></span><span class="a">${edit ? '수정 후' : '매수 후'}</span></div>`;
+    h += row('보유 수량', b.qty > 0 ? qn(b.qty) + '주' : dash, qn(a.qty) + '주', ch.qty ? `${ch.qty > 0 ? '+' : ''}${qn(ch.qty)}주` : '');
+    h += row('평단가', b.avg != null ? fmtMoney(b.avg, cur) : dash, `${fmtMoney(a.avg, cur)} ${chip(ch.avg)}`);
+    h += row('수수료 포함', b.avgInclFee != null ? fmtMoney(b.avgInclFee, cur) : dash, fmtMoney(a.avgInclFee, cur));
+    if (us) h += row('원화 평단', b.avgKRW != null ? fmtMoney(b.avgKRW, 'KRW') : dash, fmtMoney(a.avgKRW, 'KRW'), `매수 환율 ${fmtNum(res.buy.fx, 2)} 반영`);
+    h += row('총 매입금', b.qty > 0 ? fmtMoney(b.cost, cur) : dash, fmtMoney(a.cost, cur), `${edit ? '변화' : '이번 매수'} ${ch.cost >= 0 ? '+' : ''}${fmtMoney(ch.cost, cur)}`);
+    h += `<div class="prow sum"><span class="pl">이번 매수 금액</span><span class="a wide">${fmtMoney(res.buy.total, cur)}</span><small>${fmtMoney(res.buy.gross, cur)} + 수수료 ${fmtMoney(res.buy.fee, cur)} (${res.feeAuto ? '설정 요율로 자동' : '직접 입력'})${us ? ` · 약 ${fmtMoney(res.buy.totalKRW, 'KRW')}` : ''}</small></div>`;
+    const be = res.breakEven;
+    h += row('손익분기 매도가', be.before && b.qty > 0 ? fmtMoney(be.before, cur) : dash, fmtMoney(be.after, cur), `매도 수수료·세금 반영${res.riseNeeded != null ? (res.riseNeeded > 0 ? ` · 현재가에서 <b>${fmtPct(res.riseNeeded)}</b> 올라야 본전` : ` · 현재가가 손익분기보다 <b>${(Math.abs(res.riseNeeded) * 100).toFixed(1)}%</b> 높음`) : ''}${us ? ' · 환율 변동 제외' : ''}`);
+    const refTxt = res.refIsBuy ? `이번 매수가 ${fmtNum(res.refPrice, us ? 2 : 0)}` : `현재가 ${fmtNum(res.refPrice, us ? 2 : 0)}`;
+    h += row('평가손익', b.qty > 0 ? money(res.unrl.before, 'KRW') : dash, money(res.unrl.after, 'KRW'), `${refTxt} 기준${res.refIsBuy ? ' (현재가 미입력)' : ''}`);
+    const lossB = res.unrl.before - res.down10.before, lossA = res.unrl.after - res.down10.after;
+    h += row('10% 하락 시', b.qty > 0 ? money(res.down10.before, 'KRW') : dash, money(res.down10.after, 'KRW'), `${fmtNum(res.down10.price, us ? 2 : 0)}로 하락 · 줄어드는 금액 ${b.qty > 0 ? fmtMoney(lossB, 'KRW') + ' → ' : ''}<b>${fmtMoney(lossA, 'KRW')}</b>${b.qty > 0 && lossA > lossB ? ` (+${fmtMoney(lossA - lossB, 'KRW')})` : ''}`);
+    h += `<p class="hint prev-foot">평단이 낮아져도 이미 난 손실이 줄어드는 것은 아니고, 투입금이 늘어난 만큼 이후 가격 변동의 영향도 커집니다.${us ? ' 평가손익은 현재 환율 ' + fmtNum(state.settings.fxNow, 0) + '원 기준 원화입니다.' : ''}</p>`;
+    h += res.errors.map((e) => `<p class="prev-err">${ic('alert')} ${esc(e)}</p>`).join('') + res.warnings.map((w) => `<p class="prev-warn">${ic('alert')} ${esc(w)}</p>`).join('');
+    return h;
+  }
+  function lotPrevRefresh() {
+    const ctx = A.lotPrev;
+    const form = document.getElementById('mform');
+    const host = document.getElementById('lotPrev');
+    if (!ctx || !form || !host) return;
+    const st = state.stocks.find((x) => x.id === ctx.stockId);
+    if (!st) return;
+    const g = (n) => (form.elements[n] ? form.elements[n].value : '');
+    const cur = SM.curOf(st);
+    const byAmt = !!(form.elements.byAmount && form.elements.byAmount.checked);
+    const amtRow = form.querySelector('.amtrow');
+    if (amtRow) amtRow.hidden = !byAmt;
+    form.elements.qty.readOnly = byAmt;
+    let qtyNote = '';
+    if (byAmt) {
+      const r = SM.qtyForAmount(st, g('amount'), g('price'), state.settings, g('fee'));
+      form.elements.qty.value = r.qty > 0 ? String(r.qty) : '';
+      qtyNote = r.qty > 0 ? `금액 ${fmtMoney(num(g('amount')), cur)} → ${qn(r.qty)}주 (사용 ${fmtMoney(r.used, cur)}, 남는 금액 ${fmtMoney(r.rest, cur)})` : (num(g('amount')) > 0 && num(g('price')) > 0 ? '입력한 금액으로는 1주도 살 수 없습니다.' : '금액과 매수가를 입력하면 수량이 자동 계산됩니다.');
+    }
+    const res = SM.lotPreview(st, { price: g('price'), qty: g('qty'), fee: g('fee'), fx: g('fx'), date: g('date') }, state.settings, ctx.lotId);
+    host.innerHTML = lotPrevHtml(st, res, qtyNote);
+    const bar = document.getElementById('lotPrevBar');
+    if (bar) bar.innerHTML = lotPrevBarHtml(st, res);
+  }
+  function lotPrevBarHtml(st, res) {
+    if (!res.ok) return `<span class="muted">${ic('info')} 매수가와 수량을 입력하면 평단가가 여기에 표시됩니다.</span>`;
+    const cur = SM.curOf(st), b = res.before, a = res.after, ch = res.change;
+    return `<span class="pb-l">${res.editing ? '수정 후' : '매수 후'} 평단</span><span class="pb-v">${b.avg != null ? `<s>${fmtMoney(b.avg, cur)}</s> ${ic('chevR')}` : ''}<b>${fmtMoney(a.avg, cur)}</b>${ch.avg != null ? ` <span class="chip neu">${fmtPct(ch.avg)}</span>` : ''}</span><span class="pb-s">${qn(a.qty)}주 · 총 ${fmtMoney(a.cost, cur)}</span>`;
+  }
+  A.lotPrevRefresh = lotPrevRefresh;
+
   function lotForm(st, lot) {
     const us = st.market === 'US', cur = SM.curOf(st);
+    A.lotPrev = { stockId: st.id, lotId: lot ? lot.id : null };
     openModal(`<h3>${lot ? lot.no + '번 수정' : '매수 추가'} · ${esc(st.name)}</h3>
       <div class="grid2"><label>매수일<input type="date" name="date" value="${lot ? lot.date : todayStr()}" required></label>
       <label>매수가 (${cur})<input name="price" value="${lot ? lot.price : ''}" inputmode="decimal" required></label>
       <label>수량(주)<input name="qty" value="${lot ? lot.qty : ''}" inputmode="decimal" required></label>
+      <label class="amtrow" hidden>금액 (${cur})<input name="amount" inputmode="decimal" placeholder="예: ${us ? '1000' : '1000000'}"></label>
       ${us ? `<label>매수 환율 (원/$)<input name="fx" value="${lot ? lot.fx : state.settings.fxNow}" inputmode="decimal"></label>` : ''}
       <label>매수 수수료 (${cur})<input name="fee" value="${lot ? lot.fee : ''}" inputmode="decimal" placeholder="비우면 설정 요율로 자동"></label>
       <label>메모<input name="note" value="${esc(lot ? lot.note : '')}" placeholder="선택"></label></div>
+      ${lot ? '' : '<label class="chk"><input type="checkbox" name="byAmount"> 금액으로 입력 (수량을 자동 계산)</label>'}
+      <div id="lotPrev" class="prev" aria-live="polite"></div>
       ${lot && lot.parts ? '<p class="hint warn">병합된 순번을 수정하면 “병합 취소”로 되돌릴 수 없게 됩니다.</p>' : ''}
       <label class="chk"><input type="checkbox" name="writeNote" ${lot ? '' : 'checked'}> 저장 후 매수 사유 작성하기 (서식·표·사진 가능)</label>
-      <div class="btns"><button class="btn primary" type="submit">저장</button><button class="btn" type="button" data-act="closeModal">취소</button></div>`, (fd) => {
+      <div class="btns"><button class="btn primary" type="submit">저장</button><button class="btn" type="button" data-act="closeModal">취소</button></div>
+      <div id="lotPrevBar" class="prev-bar" aria-hidden="true"></div>`, (fd) => {
       const f = Object.fromEntries(fd.entries());
       let saved;
       try { saved = lot ? SM.updateLot(st, lot.id, f, state.settings) : SM.addLot(st, f, state.settings); }
@@ -367,6 +431,7 @@
       save(); closeModal(); render(); toast(lot ? '수정했습니다' : '매수를 기록했습니다');
       if (f.writeNote) editNote('lot_' + saved.id);
     });
+    lotPrevRefresh();
   }
 
   /* ---------- 매도 / 시뮬레이션 ---------- */
@@ -813,6 +878,7 @@ service cloud.firestore {
   });
   document.addEventListener('change', (e) => {
     const el = e.target;
+    if (A.lotPrev && el.closest && el.closest('#mform')) { lotPrevRefresh(); return; }
     if (el.dataset && el.dataset.change && C[el.dataset.change]) return C[el.dataset.change](el, e);
     if (el.dataset && el.dataset.link) {
       const [i, k] = el.dataset.link.split('.');
@@ -837,6 +903,7 @@ service cloud.firestore {
   });
   document.addEventListener('input', (e) => {
     const el = e.target;
+    if (A.lotPrev && el.closest && el.closest('#mform')) { lotPrevRefresh(); return; }
     if (A.sell && el.closest && el.closest('#mform')) { sellRefresh(); return; }
     if (el.dataset && el.dataset.calc) {
       const k = el.dataset.calc;
