@@ -1,6 +1,7 @@
 const assert = require('assert');
 const fs = require('fs'), os = require('os'), path = require('path'), zlib = require('zlib');
 const C = require('../tools/collect.js');
+const W = require('../tools/watchlist-issue.js');
 let ok = 0, bad = 0;
 const t = async (name, fn) => { try { await fn(); ok++; console.log('✓', name); } catch (e) { bad++; console.log('✗', name, '\n   ', e.stack.split('\n').slice(0, 3).join('\n    ')); process.exitCode = 1; } };
 
@@ -256,6 +257,34 @@ const KEYS = { DATA_GO_KR_KEY: 'pub+key/with=chars', DART_API_KEY: 'dartSecret12
     assert.equal(C.isYmd('2025-03-03'), true); assert.equal(C.isYmd('2025-3-3'), false); assert.equal(C.isYmd('abc'), false);
     const dir4 = tmp(); fs.writeFileSync(path.join(dir4, 'watchlist.json'), JSON.stringify({ from: '잘못', stocks: [{ code: '003490', name: 'x', to: '2025-13-45' }] }));
     const wl = C.readWatchlist(dir4); assert.equal(wl.from, null); assert.equal(wl.stocks[0].to, null);
+  });
+  await t('수집 대상 반영 이슈: 검증·병합·거부(비어 있음/형식 오류/표시 없음/이상한 입력)', async () => {
+    const body = (obj, marker = true) => (marker ? W.MARKER + '\n' : '') + '앱에서 만든 목록입니다.\n\n```json\n' + JSON.stringify(obj, null, 2) + '\n```\n';
+    const existing = { years: 3, stocks: [{ code: '003490', name: '대한항공', years: 5 }, { code: '005930', name: '삼성전자' }] };
+    // 추가·제외·기존 종목의 개별 기간 유지
+    let r = W.applyWatchlist(body({ years: 10, from: '2017-01-02', stocks: [{ code: '003490', name: '대한항공' }, { code: '015760', name: '한국전력' }] }), existing);
+    assert.equal(r.ok, true); const o = JSON.parse(r.json);
+    assert.deepEqual(o, { years: 10, from: '2017-01-02', stocks: [{ code: '003490', name: '대한항공', years: 5 }, { code: '015760', name: '한국전력' }] });
+    assert.deepEqual(r.added, ['한국전력']); assert.deepEqual(r.removed, ['삼성전자']); assert.equal(r.optsChanged, true); assert(r.json.endsWith('\n'));
+    assert(/한국전력/.test(W.commentFor(r)) && /2017-01-02 ~ 오늘/.test(W.commentFor(r)));
+    // 6자리가 아닌 코드·중복 제거, 이름의 위험 문자 제거, 길이 제한, 이름이 없으면 코드
+    r = W.applyWatchlist(body({ stocks: [{ code: 'AAPL', name: 'Apple' }, { code: '003490', name: '<b>대한`항공</b>$(rm -rf)' + 'x'.repeat(100) }, { code: '003490', name: '중복' }, { code: '000660' }] }), { stocks: [] });
+    assert.equal(r.ok, true); const o2 = JSON.parse(r.json);
+    assert.equal(o2.stocks.length, 2); assert.deepEqual(r.skipped, ['Apple']); assert(!/[<>`$\\]/.test(o2.stocks[0].name)); assert(o2.stocks[0].name.length <= 40); assert.equal(o2.stocks[1].name, '000660');
+    // 거부: 기존 목록은 건드리지 않음(ok=false, json 없음)
+    for (const [label, b, re] of [
+      ['빈 목록', body({ stocks: [] }), /기존 목록을 그대로/], ['국내 종목 없음', body({ stocks: [{ code: 'AAPL', name: 'A' }] }), /기존 목록을 그대로/],
+      ['표시 없음', body({ stocks: [{ code: '003490', name: 'x' }] }, false), /표시가 없습니다/], ['JSON 블록 없음', W.MARKER + '\n그냥 글', /찾지 못/],
+      ['깨진 JSON', W.MARKER + '\n```json\n{ stocks: [\n```', /읽지 못/], ['형식 오류', body([1, 2]), /형식이 올바르지/],
+      ['시작>종료', body({ from: '2025-10-01', to: '2025-01-01', stocks: [{ code: '003490', name: 'x' }] }), /시작일이 종료일보다/],
+      ['종목 과다', body({ stocks: Array.from({ length: 201 }, (_, i) => ({ code: String(100000 + i), name: 'n' })) }), /너무 많습니다/],
+    ]) { const x = W.applyWatchlist(b, existing); assert.equal(x.ok, false, label); assert(re.test(x.error), label + ': ' + x.error); assert.equal(x.json, undefined); assert(/반영하지 못했습니다/.test(W.commentFor(x))); }
+    // 잘못된 날짜 값·기간 값은 무시/보정
+    r = W.applyWatchlist(body({ years: 99, from: '잘못', to: '2025-13-45', stocks: [{ code: '003490', name: 'x', years: 0 }] }), { stocks: [] });
+    assert.deepEqual(JSON.parse(r.json), { years: 15, stocks: [{ code: '003490', name: 'x', years: 1 }] });
+    // 기존 목록이 배열 형식이어도 동작, 같은 내용이면 optsChanged=false
+    r = W.applyWatchlist(body({ stocks: [{ code: '003490', name: '대한항공' }] }), [{ code: '003490', name: '대한항공' }]);
+    assert.equal(r.ok, true); assert.deepEqual(r.added, []); assert.equal(r.optsChanged, false);
   });
   console.log(`${ok} passed${bad ? ', ' + bad + ' failed' : ''}`);
 })();

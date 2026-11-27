@@ -10,3 +10,6 @@
 - `dart/<코드>.json` 최근 공시, `fin/<코드>.json` 재무 요약 (DART)
 - `news/<코드>.json` 뉴스 헤드라인 (네이버 검색 API)
 - `status.json` 마지막 수집 결과(성공/오류)
+
+## 수집 대상 반영(이슈 방식)
+앱 설정 › 자동 수집의 **수집 대상 반영** 버튼은 `수집 대상 반영` 제목의 GitHub 새 이슈 화면을 엽니다(목록이 JSON으로 미리 채워짐). **Submit new issue**를 누르면 `.github/workflows/watchlist-issue.yml`이 `tools/watchlist-issue.js`로 목록을 검증해 `data/watchlist.json`을 갱신하고, “자료 수집”을 바로 실행한 뒤 결과를 댓글로 남기고 이슈를 닫습니다. 저장소 소유자가 연 이슈만 처리하고, 앱이 만든 표시가 없거나 목록이 비어 있거나 형식이 틀리면 기존 목록을 그대로 둡니다. 종목별 `years`/`from`/`to`는 이슈에 없으면 기존 값을 유지합니다. 토큰은 쓰지 않습니다.

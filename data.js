@@ -50,6 +50,25 @@
     const base = `https://github.com/${m[1]}/${repo}`;
     return { owner: m[1], repo, base, actions: `${base}/actions/workflows/collect.yml`, secrets: `${base}/settings/secrets/actions`, editWatch: `${base}/edit/main/data/watchlist.json`, newSecret: `${base}/settings/secrets/actions/new` };
   };
+  D.MARKER = '<!-- stock-manager:watchlist -->'; // tools/watchlist-issue.js 와 같아야 함
+  D.watchRaw = async (force) => memo('watchraw', () => get('data/watchlist.json'), force);
+  // 저장소 목록(raw)과 앱의 목록(JSON 문자열)을 비교
+  D.watchDiff = (raw, curJson) => {
+    const cur = JSON.parse(curJson), list = (r) => (Array.isArray(r) ? r : (r && r.stocks) || []).filter((s) => s && /^\d{6}$/.test(String(s.code)));
+    const rs = list(raw), cs = list(cur), rc = new Set(rs.map((s) => String(s.code))), cc = new Set(cs.map((s) => String(s.code)));
+    const rr = raw && !Array.isArray(raw) ? raw : {};
+    const added = cs.filter((s) => !rc.has(String(s.code))).map((s) => s.name || s.code), removed = rs.filter((s) => !cc.has(String(s.code))).map((s) => s.name || s.code);
+    const optsChanged = (rr.years || null) !== (cur.years || null) || (rr.from || null) !== (cur.from || null) || (rr.to || null) !== (cur.to || null);
+    return { same: !added.length && !removed.length && !optsChanged, added, removed, optsChanged, none: !raw };
+  };
+  // “수집 대상 반영” 이슈 주소: GitHub 새 이슈 화면(제목·본문 미리 채움). 저장소 주소를 알 수 없으면 null, 너무 길면 { tooLong: true }
+  D.issueUrl = (curJson) => {
+    const r = D.repo();
+    if (!r) return null;
+    const body = `${D.MARKER}\n앱의 “수집 대상 반영” 버튼으로 만든 목록입니다. 아래 **Submit new issue**만 누르면 반영됩니다. (내용은 고치지 마세요)\n\n\`\`\`json\n${curJson}\n\`\`\`\n`;
+    const url = `${r.base}/issues/new?title=${encodeURIComponent('수집 대상 반영')}&body=${encodeURIComponent(body)}`;
+    return url.length > 7500 ? { tooLong: true } : url;
+  };
   // 앱의 종목 목록 → 자동 수집 대상 JSON (국내 6자리 코드만)
   D.watchJson = (stocks, opt) => JSON.stringify(Object.assign(typeof opt === 'number' ? { years: opt } : Object.assign(opt && opt.years ? { years: opt.years } : {}, opt && opt.from ? { from: opt.from } : {}, opt && opt.to ? { to: opt.to } : {}), { stocks: stocks.filter((s) => s.market === 'KR' && /^\d{6}$/.test(String(s.code || '').trim()) && (!s.watch || s.collect)).map((s) => ({ code: String(s.code).trim(), name: s.name })) }), null, 2);
 })(typeof globalThis !== 'undefined' ? globalThis : this);

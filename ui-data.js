@@ -71,6 +71,13 @@
   A.afterRender.stocks = () => fillAuto(false);
 
   /* ---------- 설정: 자동 수집 카드 ---------- */
+  // “수집 대상 반영” 버튼: GitHub 이슈 화면을 새 창으로 엽니다(제출만 누르면 목록 갱신과 수집이 자동 실행). 토큰은 쓰지 않습니다.
+  function issueBtn(json) {
+    const u = D.issueUrl(json);
+    if (!u) return `<span class="btn" aria-disabled="true" title="GitHub Pages 주소로 열었을 때만 쓸 수 있습니다" style="opacity:.5">${ic('stocks')}수집 대상 반영 (GitHub Pages에서만)</span>`;
+    if (u.tooLong) return `<span class="btn" aria-disabled="true" style="opacity:.5">${ic('stocks')}목록이 너무 길어 이슈로는 반영할 수 없습니다. 아래 “GitHub에서 편집”을 쓰세요</span>`;
+    return `<a class="btn primary" id="issueBtn" href="${esc(u)}" target="_blank" rel="noopener noreferrer">${ic('stocks')}수집 대상 반영 (GitHub에서 제출 한 번)${ic('ext')}</a>`;
+  }
   A.autoCard = () => {
     const repo = D.repo();
     const link = (u, t) => (u ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${t}${ic('ext')}</a>` : t);
@@ -90,7 +97,7 @@
           <li>${link(repo && repo.secrets, 'GitHub 저장소 Settings › Secrets and variables › Actions')}에서 <b>New repository secret</b>으로 아래 4개를 등록합니다. 이름은 정확히 같아야 합니다.
             <div class="tablewrap"><table class="mini"><thead><tr><th>이름(Name)</th><th>넣을 값</th></tr></thead><tbody><tr><td><code>DATA_GO_KR_KEY</code></td><td>공공데이터포털 일반 인증키</td></tr><tr><td><code>DART_API_KEY</code></td><td>DART 인증키</td></tr><tr><td><code>NAVER_CLIENT_ID</code></td><td>네이버 Client ID</td></tr><tr><td><code>NAVER_CLIENT_SECRET</code></td><td>네이버 Client Secret</td></tr></tbody></table></div>
             <small class="muted">키는 채팅이나 코드에 붙여 넣지 마세요. 일부만 등록해도 되며, 없는 항목은 건너뜁니다.</small></li>
-          <li><b>수집할 종목</b>: 아래 목록을 복사해서 ${link(repo && repo.editWatch, '저장소의 data/watchlist.json')}에 붙여 넣고 저장(Commit)합니다.</li>
+          <li><b>수집할 종목</b>: 아래 <b>수집 대상 반영</b> 버튼을 누르면 GitHub 이슈 화면이 열립니다. <b>Submit new issue</b>만 누르면 목록이 갱신되고 수집까지 자동으로 실행됩니다(GitHub 로그인 필요). 직접 하려면 아래 목록을 복사해서 ${link(repo && repo.editWatch, '저장소의 data/watchlist.json')}에 붙여 넣고 저장(Commit)합니다.</li>
           <li>${link(repo && repo.actions, '저장소 Actions 탭 › “자료 수집”')} › <b>Run workflow</b>로 한 번 실행합니다. 몇 분 뒤 이 화면을 새로고침하면 상태가 나타나고, 종목 화면의 <b>공시·뉴스·재무</b> 카드에 자료가 보입니다. 이후에는 평일마다 자동으로 실행됩니다.</li></ol></details>
       <div class="box"><b>수집 기간</b> <small class="muted">(일봉 시세와 외국인·기관·개인 수급에 같이 적용)</small>
         <div class="grid2"><label>최근 몇 년 <small class="muted">(1~15)</small><input class="inp" data-setting="collectYears" value="${esc(years)}" inputmode="numeric"></label></div>
@@ -99,10 +106,21 @@
         <p class="hint">처음 수집할 때 이 기간을 채웁니다(10년이면 시세와 수급 합쳐 1분 안팎). 이후에는 마지막 날짜 근처부터 이어 받으니 수집을 며칠 쉬어도 사이가 비지 않습니다. 기간을 <b>늘리면</b> 더 과거가 채워지고 <b>줄여도</b> 받은 데이터는 지우지 않습니다. 종료일이 과거 날짜면 그 구간이 이미 있을 때 다시 받지 않습니다. <b>값을 바꾸면 아래 목록이 바뀌니, 다시 복사해서 data/watchlist.json 에 붙여 넣고 수집을 실행해야 적용됩니다.</b> 종목마다 다르게 하려면 목록에서 그 종목 줄에 <code>"years": 5</code> 또는 <code>"from": "2020-01-01", "to": "2020-12-31"</code> 을 직접 추가하세요.</p></div>
       <h4>수집 대상 목록 <small class="muted">(내 국내 종목 ${kr}개 · 종목코드 6자리가 입력된 종목만)</small></h4>
       <textarea id="watchJson" rows="${Math.min(10, json.split('\n').length + 1)}" readonly>${esc(json)}</textarea>
-      <div class="btns"><button class="btn" data-act="copyWatch">${ic('note')}목록 복사</button>${repo ? `<a class="btn" href="${esc(repo.editWatch)}" target="_blank" rel="noopener noreferrer">${ic('edit')}GitHub에서 편집${ic('ext')}</a><a class="btn" href="${esc(repo.actions)}" target="_blank" rel="noopener noreferrer">${ic('stocks')}수집 실행하기${ic('ext')}</a>` : ''}</div>
+      <div id="watchDiff" class="autostat-box"><span class="muted">저장소 목록과 비교하는 중…</span></div>
+      <div class="btns">${issueBtn(json)}<button class="btn" data-act="copyWatch">${ic('note')}목록 복사</button>${repo ? `<a class="btn" href="${esc(repo.editWatch)}" target="_blank" rel="noopener noreferrer">${ic('edit')}GitHub에서 편집${ic('ext')}</a><a class="btn" href="${esc(repo.actions)}" target="_blank" rel="noopener noreferrer">${ic('stocks')}수집 실행하기${ic('ext')}</a>` : ''}</div>
       <p class="hint">실행 시각은 몇십 분 늦어질 수 있고, 저장소에 60일 넘게 활동이 없으면 GitHub가 예약 실행을 멈출 수 있습니다. 그때는 Actions 탭에서 다시 켜세요. 시세는 공공데이터 제공 시점 때문에 당일분이 늦게 올라올 수 있습니다.</p></section>`;
   };
+  async function fillWatchDiff() {
+    const box = document.getElementById('watchDiff'), ta = document.getElementById('watchJson');
+    if (!box || !ta) return;
+    const raw = await D.watchRaw(true);
+    if (!document.getElementById('watchDiff')) return;
+    const d = D.watchDiff(raw, ta.value);
+    if (!d.none && d.same) box.innerHTML = `<span class="as ok">${ic('check')}저장소의 수집 대상 목록과 같습니다.</span> <small class="muted">새 종목을 추가하면 여기에 다름 표시가 나타납니다.</small>`;
+    else box.innerHTML = `<span class="as bad">${ic('alert')}${d.none ? '저장소에 수집 대상 목록이 아직 없습니다.' : '저장소 목록과 다릅니다.'}${d.added.length ? ` 추가 ${d.added.length}개(${esc(d.added.slice(0, 5).join(', '))}${d.added.length > 5 ? ' 외' : ''})` : ''}${d.removed.length ? ` · 제외 ${d.removed.length}개(${esc(d.removed.slice(0, 5).join(', '))})` : ''}${d.optsChanged ? ' · 수집 기간 변경' : ''}</span> <small class="muted">위 <b>수집 대상 반영</b> 버튼을 누르고 GitHub 화면에서 Submit만 누르세요. 1~2분 뒤 반영되고 바로 수집됩니다.</small>`;
+  }
   async function fillAutoCard() {
+    fillWatchDiff();
     const el = document.getElementById('autoStatus');
     if (!el) return;
     const wl = await D.watchlist(true);

@@ -437,6 +437,28 @@ t('자동 수집 기간 설정: 기본 3년, 1~15년로 보정, 날짜 지정, �
   assert.deepEqual(JSON.parse(SM.data.watchJson(stocks, { years: 3, from: '', to: '' })), { years: 3, stocks: [{ code: '003490', name: '대한항공' }] });
   assert.deepEqual(Object.keys(JSON.parse(SM.data.watchJson(stocks))), ['stocks']);
 });
+t('수집 대상 반영: 이슈 주소 생성·저장소 목록과의 차이·이슈 처리기와 호환', () => {
+  const W = require('../tools/watchlist-issue.js'), D = SM.data;
+  const stocks = [SM.newStock({ name: '대한항공', code: '003490', market: 'KR' }), SM.newStock({ name: '한국전력', code: '015760', market: 'KR' })];
+  const cur = D.watchJson(stocks, { years: 10 });
+  const real = D.repo; D.repo = () => ({ base: 'https://github.com/me/stock-manager' });
+  try {
+    const u = D.issueUrl(cur); const q = new URL(u);
+    assert.equal(q.origin + q.pathname, 'https://github.com/me/stock-manager/issues/new'); assert.equal(q.searchParams.get('title'), '수집 대상 반영');
+    const body = q.searchParams.get('body'); assert(body.includes(D.MARKER)); assert.equal(D.MARKER, W.MARKER);
+    const r = W.applyWatchlist(body, { stocks: [{ code: '003490', name: '대한항공' }] }); // 앱이 만든 본문을 처리기가 그대로 받아들임
+    assert.equal(r.ok, true); assert.deepEqual(r.added, ['한국전력']); assert.equal(JSON.parse(r.json).years, 10);
+    const many = D.watchJson(Array.from({ length: 150 }, (_, i) => SM.newStock({ name: '종목' + i, code: String(100000 + i), market: 'KR' })), { years: 3 });
+    assert.equal(D.issueUrl(many).tooLong, true);
+  } finally { D.repo = real; }
+  D.repo = () => null; assert.equal(D.issueUrl(cur), null); D.repo = real;
+  const diff = (raw) => D.watchDiff(raw, cur);
+  assert.equal(diff({ years: 10, stocks: [{ code: '003490' }, { code: '015760' }] }).same, true);
+  let d = diff({ years: 10, stocks: [{ code: '003490', name: '대한항공' }, { code: '005930', name: '삼성전자' }] });
+  assert.equal(d.same, false); assert.deepEqual(d.added, ['한국전력']); assert.deepEqual(d.removed, ['삼성전자']);
+  assert.equal(diff({ years: 3, stocks: [{ code: '003490' }, { code: '015760' }] }).optsChanged, true);
+  assert.equal(diff(null).none, true); assert.equal(diff([{ code: '003490' }, { code: '015760' }]).optsChanged, true); // 예전 배열 형식 + 기간 없음
+});
 t('버전 비교', () => {
   assert.equal(SM.compareVersions('1.10.0', '1.9.9'), 1);
   assert.equal(SM.compareVersions('1.2.0', '1.2.0'), 0);
