@@ -958,9 +958,9 @@ service cloud.firestore {
       const path = el.dataset.setting.split('.'); let o = state.settings;
       for (let i = 0; i < path.length - 1; i++) o = o[path[i]];
       const k = path[path.length - 1];
-      o[k] = ['upColor', 'linkMode'].includes(k) ? el.value : num(el.value, o[k]);
+      o[k] = ['upColor', 'linkMode'].includes(k) ? el.value : k === 'collectYears' ? Math.min(15, Math.max(1, Math.round(num(el.value, o[k])))) : num(el.value, o[k]);
       save();
-      if (k === 'upColor') render(); else toast('저장했습니다');
+      if (k === 'upColor' || k === 'collectYears') render(); else toast('저장했습니다');
     }
     if (el.closest && el.closest('.sellrow') && el.classList.contains('schk')) {
       const tr = el.closest('.sellrow'), st = curStock();

@@ -16,6 +16,11 @@ function makeZip(name, content) {
 }
 const CORP_XML = '<?xml version="1.0" encoding="UTF-8"?><result><list><corp_code>00159193</corp_code><corp_name>한국전력공사</corp_name><stock_code>015760</stock_code><modify_date>20240101</modify_date></list><list><corp_code>00126380</corp_code><corp_name>삼성전자</corp_name><stock_code>005930</stock_code><modify_date>20240101</modify_date></list><list><corp_code>99999999</corp_code><corp_name>비상장</corp_name><stock_code> </stock_code><modify_date>20240101</modify_date></list></result>';
 
+function weekdaysBack(from, n) { // from 포함, 평일만 n개, 최신 → 과거
+  const out = []; let t = Date.parse(from + 'T00:00:00Z');
+  while (out.length < n) { const dow = new Date(t).getUTCDay(); if (dow !== 0 && dow !== 6) out.push(new Date(t).toISOString().slice(0, 10)); t -= 86400000; }
+  return out;
+}
 function mockFetch(state) {
   const calls = [];
   const f = async (url, init) => {
@@ -32,6 +37,14 @@ function mockFetch(state) {
     if (url.includes('openapi.naver.com')) {
       assert.equal(init.headers['X-Naver-Client-Id'], 'nid');
       return resp(JSON.stringify({ items: [{ title: '<b>한국전력</b> 3분기 &quot;영업이익&quot; 급증', originallink: 'https://news.example.com/a1', link: 'https://n.news.naver.com/a1', description: '요약 <b>본문</b> &amp; 더', pubDate: 'Thu, 26 Nov 2026 10:00:00 +0900' }, { title: '두번째', originallink: 'https://news.example.com/a2', link: 'x', description: '', pubDate: 'Wed, 25 Nov 2026 09:00:00 +0900' }, { title: '링크 없음', originallink: '', link: '' }] }));
+    }
+    if (url.includes('m.stock.naver.com/api/stock/') && url.includes('/price?')) {
+      if (state.pxFail) return resp('<html>점검중</html>');
+      const page = +(url.match(/page=(\d+)/) || [])[1];
+      state.pxPages = (state.pxPages || []).concat(page);
+      const days = state.pxDays || weekdaysBack('2026-11-27', 1000); // 최신 → 과거
+      const rows = days.slice((page - 1) * 60, page * 60).map((d, i) => ({ localTradedAt: d, closePrice: (30000 - i * 10).toLocaleString('en-US'), openPrice: '29,900', highPrice: '30,500', lowPrice: '29,500', accumulatedTradingVolume: 1000000 + i }));
+      return resp(JSON.stringify(rows));
     }
     if (url.includes('m.stock.naver.com/api/stock/')) {
       if (state.flowFail) return resp('<html>점검중</html>');
@@ -109,7 +122,7 @@ const KEYS = { DATA_GO_KR_KEY: 'pub+key/with=chars', DART_API_KEY: 'dartSecret12
   await t('키가 없으면 건너뜀, 일부 실패해도 계속, 오류 메시지에 키 미노출', async () => {
     const dir = tmp();
     fs.writeFileSync(path.join(dir, 'watchlist.json'), JSON.stringify([{ code: '015760', name: '한국전력' }]));
-    let r = await C.run({ env: { COLLECT_FLOW: '0' }, dataDir: dir, fetch: async () => { throw new Error('호출되면 안 됨'); }, log: () => {} });
+    let r = await C.run({ env: { COLLECT_FLOW: '0', COLLECT_PRICE_NAVER: '0' }, dataDir: dir, fetch: async () => { throw new Error('호출되면 안 됨'); }, log: () => {} });
     assert.equal(r.attempts, 0); assert(r.status.stocks['015760'].prices.skipped);
     const failing = async (url) => { if (url.includes('apis.data.go.kr')) throw new Error('boom ' + url); return mockFetch({})(url, { headers: { 'X-Naver-Client-Id': 'nid' } }); };
     r = await C.run({ env: KEYS, dataDir: dir, fetch: failing, today: new Date('2026-11-27T00:00:00Z'), log: () => {} });
@@ -137,6 +150,53 @@ const KEYS = { DATA_GO_KR_KEY: 'pub+key/with=chars', DART_API_KEY: 'dartSecret12
     // 끄기
     const f2 = mockFetch({}); await C.run({ env: Object.assign({}, KEYS, { COLLECT_FLOW: '0' }), dataDir: dir, fetch: f2, today: new Date('2026-11-29T00:00:00Z'), log: () => {} });
     assert(!f2.calls.some((u) => u.includes('m.stock.naver.com')));
+  });
+  await t('네이버 시세: 기간만큼 과거로 페이지를 넘겨 받고, 확정 전 오늘 값은 제외', async () => {
+    const st = {};
+    const rows = await C.fetchNaverPrices('003490', mockFetch(st), { stopDate: '2026-06-01', delayMs: 0, skipDate: '2026-11-27' });
+    assert(!rows.some((r) => r.d === '2026-11-27')); assert.equal(rows[0].d, '2026-11-26'); assert(rows[rows.length - 1].d <= '2026-06-01');
+    assert.deepEqual(st.pxPages, [1, 2, 3]); // 2026-06-01까지 약 126거래일 → 60개씩 3묶음
+    assert.deepEqual(Object.keys(rows[0]), ['d', 'o', 'h', 'l', 'c', 'v']); assert.equal(rows[0].c, 30000 - 10); assert.equal(rows[0].h, 30500);
+    await assert.rejects(() => C.fetchNaverPrices('003490', mockFetch({ pxFail: true }), { delayMs: 0 }), /읽지 못했습니다/);
+    assert.equal(C.clampYears(0), 1); assert.equal(C.clampYears(99), 15); assert.equal(C.clampYears('abc', 3), 3); assert.equal(C.clampYears(2.4), 2);
+  });
+  await t('네이버 시세 수집: 기간 설정·이어받기·기간 늘리기·종목별 기간·키가 있으면 공공데이터 우선', async () => {
+    const dir = tmp(), env = { COLLECT_FLOW: '0' }, today = new Date('2026-11-27T19:00:00Z'); // 앱은 today 를 한국시간으로 취급: 19시 → 오늘 값 포함
+    fs.writeFileSync(path.join(dir, 'watchlist.json'), JSON.stringify({ years: 1, stocks: [{ code: '003490', name: '대한항공' }, { code: '005930', name: '삼성전자', years: 2 }] }));
+    const st1 = {}; let r = await C.run({ env, dataDir: dir, fetch: mockFetch(st1), today, log: () => {}, pageDelayMs: 0 });
+    assert.equal(r.failures, 0, JSON.stringify(r.status));
+    const rd = (c) => fs.readFileSync(path.join(dir, 'prices', c + '.csv'), 'utf8').trim().split('\n').slice(1).map((l) => l.split(','));
+    let a = rd('003490'), b = rd('005930');
+    assert.equal(a[a.length - 1][0], '2026-11-27'); assert(a[0][0] >= '2025-11-27' && a[0][0] <= '2025-12-05', a[0][0]); // 1년
+    assert(b[0][0] >= '2024-11-27' && b[0][0] <= '2024-12-05', b[0][0]); assert(b.length > a.length * 1.8); // 종목별 2년
+    assert.equal(r.status.stocks['003490'].prices.source, 'naver'); assert.equal(r.status.stocks['003490'].prices.years, 1); assert.equal(r.status.stocks['005930'].prices.years, 2);
+    assert.deepEqual(a[a.length - 1].slice(1), ['29900', '30500', '29500', '30000', '1000000']); // 시가, 고가, 저가, 종가, 거래량
+    // 이어받기: 기간이 이미 채워져 있으면 최근 1주일만(첫 묶음 1번)
+    const st2 = {}; await C.run({ env, dataDir: dir, fetch: mockFetch(st2), today: new Date('2026-11-28T19:00:00Z'), log: () => {}, pageDelayMs: 0 });
+    assert.deepEqual(st2.pxPages, [1, 1]); // 두 종목 각각 1묶음
+    // 기간 늘리기: 1년 → 3년이면 더 과거를 채움
+    fs.writeFileSync(path.join(dir, 'watchlist.json'), JSON.stringify({ years: 3, stocks: [{ code: '003490', name: '대한항공' }] }));
+    await C.run({ env, dataDir: dir, fetch: mockFetch({}), today, log: () => {}, pageDelayMs: 0 });
+    a = rd('003490'); assert(a[0][0] >= '2023-11-27' && a[0][0] <= '2023-12-05', a[0][0]); assert(a.length > 700);
+    // 기간 줄이기: 이미 받은 데이터는 지우지 않음
+    fs.writeFileSync(path.join(dir, 'watchlist.json'), JSON.stringify({ years: 1, stocks: [{ code: '003490', name: '대한항공' }] }));
+    const before = a.length; await C.run({ env, dataDir: dir, fetch: mockFetch({}), today, log: () => {}, pageDelayMs: 0 });
+    assert(rd('003490').length >= before);
+    // 장 마감 전(한국시간 15시)이면 오늘 값 제외
+    const dir2 = tmp(); fs.writeFileSync(path.join(dir2, 'watchlist.json'), JSON.stringify([{ code: '003490', name: '대한항공' }]));
+    await C.run({ env, dataDir: dir2, fetch: mockFetch({}), today: new Date('2026-11-27T06:00:00Z'), log: () => {}, pageDelayMs: 0 });
+    const c = fs.readFileSync(path.join(dir2, 'prices', '003490.csv'), 'utf8').trim().split('\n'); assert.equal(c[c.length - 1].slice(0, 10), '2026-11-26');
+    // 공공데이터 키가 있으면 네이버 시세는 쓰지 않음
+    const f3 = mockFetch({}); await C.run({ env: Object.assign({}, KEYS, { COLLECT_FLOW: '0' }), dataDir: dir2, fetch: f3, today, log: () => {}, pageDelayMs: 0 });
+    assert(!f3.calls.some((u) => u.includes('/price?')), '키가 있는데 네이버 시세 사용'); assert(f3.calls.some((u) => u.includes('apis.data.go.kr')));
+    // 형식이 바뀌어 읽지 못하면 시세만 실패, 기존 파일 유지
+    const keep = fs.readFileSync(path.join(dir2, 'prices', '003490.csv'), 'utf8');
+    const r4 = await C.run({ env, dataDir: dir2, fetch: mockFetch({ pxFail: true }), today, log: () => {}, pageDelayMs: 0 });
+    assert.equal(r4.status.stocks['003490'].prices.ok, false); assert.equal(fs.readFileSync(path.join(dir2, 'prices', '003490.csv'), 'utf8'), keep);
+    // 환경 변수로 기본 기간 지정, 목록에 기간이 없을 때
+    const dir3 = tmp(); fs.writeFileSync(path.join(dir3, 'watchlist.json'), JSON.stringify([{ code: '003490', name: 'x' }]));
+    const r5 = await C.run({ env: { COLLECT_FLOW: '0', COLLECT_YEARS: '2' }, dataDir: dir3, fetch: mockFetch({}), today, log: () => {}, pageDelayMs: 0 });
+    assert.equal(r5.status.stocks['003490'].prices.years, 2);
   });
   console.log(`${ok} passed${bad ? ', ' + bad + ' failed' : ''}`);
 })();

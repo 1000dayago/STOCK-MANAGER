@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* 자료 수집: 공공데이터포털(일봉 시세) · DART(공시·재무) · 네이버 검색 API(뉴스) · 네이버 모바일 증권(외국인·기관·개인 순매수, 키 불필요)
+/* 자료 수집: 공공데이터포털(일봉 시세) · DART(공시·재무) · 네이버 검색 API(뉴스) · 네이버 모바일 증권(일봉 시세 — 공공데이터 키가 없을 때, 외국인·기관·개인 순매수 — 키 불필요)
    GitHub Actions 에서 평일 저녁에 실행되어 data/ 폴더에 결과를 저장합니다. (Node 20+, 외부 패키지 없음)
    필요한 키(저장소 Settings > Secrets and variables > Actions):
      DATA_GO_KR_KEY, DART_API_KEY, NAVER_CLIENT_ID, NAVER_CLIENT_SECRET
@@ -12,7 +12,8 @@ const zlib = require('zlib');
 const PRICE_URL = 'https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo';
 const NEWS_URL = 'https://openapi.naver.com/v1/search/news.json';
 const DART = 'https://opendart.fss.or.kr/api';
-const FLOW_URL = 'https://m.stock.naver.com/api/stock'; // 비공식(네이버 모바일 증권이 쓰는 주소). 키 불필요, 한 번에 최대 60거래일
+const NAVER_STOCK = 'https://m.stock.naver.com/api/stock';
+const FLOW_URL = NAVER_STOCK; // 비공식(네이버 모바일 증권이 쓰는 주소). 키 불필요, 한 번에 최대 60거래일
 
 /* ---------- 공통 ---------- */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -104,6 +105,36 @@ function mergePrices(existingText, newRows) {
   for (const r of newRows) map.set(r.d, r);
   const rows = [...map.values()].sort((a, b) => (a.d < b.d ? -1 : 1));
   return { rows, text: CSV_HEAD + '\n' + rows.map((r) => `${r.d},${r.o},${r.h},${r.l},${r.c},${r.v}`).join('\n') + '\n' };
+}
+
+/* ---------- 일봉 시세 (네이버 모바일 증권, 키 불필요) — 공공데이터 키가 없을 때 사용 ---------- */
+const MAX_YEARS = 15;
+const clampYears = (v, def = 3) => { const x = Math.round(Number(v)); return Number.isFinite(x) ? Math.min(MAX_YEARS, Math.max(1, x)) : def; };
+// 최신 → 과거 순으로 60거래일씩 페이지를 넘기며 stopDate(포함)까지 받습니다.
+async function fetchNaverPrices(code, fetchFn, opt = {}) {
+  const stopDate = opt.stopDate || '0000-00-00', maxPages = opt.maxPages || 80, delay = opt.delayMs == null ? 250 : opt.delayMs;
+  const out = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const { status, text } = await getText(fetchFn, `${NAVER_STOCK}/${code}/price?pageSize=60&page=${page}`, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' } });
+    if (status !== 200) throw new Error(`시세 응답 HTTP ${status}${page > 1 ? ` (${page}번째 묶음)` : ''}`);
+    let list;
+    try { list = JSON.parse(text); } catch (e) { throw new Error('시세 응답을 읽지 못했습니다 (주소나 형식이 바뀌었을 수 있습니다)'); }
+    if (!Array.isArray(list)) throw new Error('시세 응답 형식이 예상과 다릅니다');
+    let oldest = null;
+    for (const x of list) {
+      const d = String((x && x.localTradedAt) || '');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+      const c = num(x.closePrice), o = num(x.openPrice), h = num(x.highPrice), l = num(x.lowPrice), v = num(x.accumulatedTradingVolume);
+      if (c == null) continue;
+      oldest = d;
+      if (opt.skipDate && d === opt.skipDate) continue; // 장이 끝나기 전의 오늘 값은 확정이 아니라서 제외
+      out.push({ d, o: o == null ? c : o, h: h == null ? c : h, l: l == null ? c : l, c, v: v == null ? 0 : v });
+    }
+    if (list.length < 60 || !oldest || oldest <= stopDate) break;
+    if (page < maxPages && delay) await sleep(delay);
+  }
+  if (!out.length) throw new Error('받은 시세가 없습니다 (종목코드를 확인하세요)');
+  return out;
 }
 
 /* ---------- 투자자별 순매수 (외국인·기관·개인, 단위: 주) ---------- */
@@ -252,15 +283,16 @@ async function fetchFinancials(corpCode, years, key, fetchFn) {
 function readWatchlist(dir) {
   const w = readJSON(path.join(dir, 'watchlist.json'), { stocks: [] });
   const list = Array.isArray(w) ? w : w.stocks || [];
+  const years = !Array.isArray(w) && w.years != null ? clampYears(w.years) : null;
   const seen = new Set(), ok = [], skipped = [];
   for (const s of list) {
     const code = String((s && s.code) || '').trim();
     const name = String((s && s.name) || '').trim();
     if (!/^\d{6}$/.test(code)) { skipped.push(`${name || code}: 국내 종목코드(6자리)가 아닙니다`); continue; }
     if (seen.has(code)) continue;
-    seen.add(code); ok.push({ code, name: name || code });
+    seen.add(code); ok.push({ code, name: name || code, years: s.years != null ? clampYears(s.years) : null });
   }
-  return { stocks: ok, skipped };
+  return { stocks: ok, skipped, years };
 }
 
 async function run(opt = {}) {
@@ -294,8 +326,24 @@ async function run(opt = {}) {
   for (const s of wl.stocks) {
     log(`${s.name} (${s.code})`);
     status.stocks[s.code] = status.stocks[s.code] || {};
-    // 시세
-    await step(s.code, 'prices', !!keys.prices, '공공데이터 키(DATA_GO_KR_KEY) 없음', async () => {
+    // 시세 (공공데이터 키가 없으면 네이버에서 받음. COLLECT_PRICE_NAVER=0 이면 끔)
+    const useNaverPx = !keys.prices && env.COLLECT_PRICE_NAVER !== '0';
+    const years = s.years || wl.years || (env.COLLECT_YEARS ? clampYears(env.COLLECT_YEARS) : 3);
+    if (useNaverPx) await step(s.code, 'prices', true, '', async () => {
+      const f = path.join(dir, 'prices', `${s.code}.csv`);
+      let old = ''; try { old = fs.readFileSync(f, 'utf8'); } catch (e) { /* 없음 */ }
+      const oldRows = parseCsvRows(old);
+      const startDate = ymd(new Date(today.getTime() - years * 365.25 * 86400000));
+      const covered = oldRows.length && oldRows[0].d <= ymd(new Date(Date.parse(startDate) + 10 * 86400000)); // 이미 기간 앞쪽까지 있음
+      const stopDate = covered ? ymd(new Date(Date.parse(oldRows[oldRows.length - 1].d) - 7 * 86400000)) : startDate; // 이어받기는 최근 1주일만 다시 받아 보정
+      const skipDate = today.getUTCHours() < 16 ? ymd(today) : null;
+      const rows = (await fetchNaverPrices(s.code, fetchFn, { stopDate, skipDate, delayMs: opt.pageDelayMs })).filter((r) => r.d >= startDate);
+      const m = mergePrices(old, rows);
+      if (!m.rows.length) throw new Error('받은 시세가 없습니다');
+      if (writeIfChanged(f, m.text)) changed++;
+      return { source: 'naver', years, from: m.rows[0].d, last: m.rows[m.rows.length - 1].d, count: m.rows.length, msg: `(네이버, ${m.rows.length}일, ${m.rows[0].d} ~ ${m.rows[m.rows.length - 1].d})` };
+    });
+    else await step(s.code, 'prices', !!keys.prices, env.COLLECT_PRICE_NAVER === '0' ? '시세 수집을 껐습니다(COLLECT_PRICE_NAVER=0)' : '', async () => {
       const f = path.join(dir, 'prices', `${s.code}.csv`);
       let old = ''; try { old = fs.readFileSync(f, 'utf8'); } catch (e) { /* 없음 */ }
       const oldRows = parseCsvRows(old);
@@ -304,7 +352,7 @@ async function run(opt = {}) {
       const m = mergePrices(old, rows);
       if (!m.rows.length) throw new Error('받은 시세가 없습니다 (종목코드·활용신청 승인을 확인하세요)');
       if (writeIfChanged(f, m.text)) changed++;
-      return { last: m.rows[m.rows.length - 1].d, count: m.rows.length, msg: `(${m.rows.length}일, 마지막 ${m.rows[m.rows.length - 1].d})` };
+      return { source: 'data.go.kr', from: m.rows[0].d, last: m.rows[m.rows.length - 1].d, count: m.rows.length, msg: `(${m.rows.length}일, 마지막 ${m.rows[m.rows.length - 1].d})` };
     });
     // 수급 (키 없음, COLLECT_FLOW=0 이면 끔)
     await step(s.code, 'flow', env.COLLECT_FLOW !== '0', '수급 수집을 껐습니다(COLLECT_FLOW=0)', async () => {
@@ -352,4 +400,4 @@ async function run(opt = {}) {
 if (require.main === module) {
   run().then((r) => { if (r.attempts > 0 && r.failures === r.attempts) process.exitCode = 2; }).catch((e) => { console.error('수집 중 예기치 않은 오류:', e.message); process.exitCode = 1; });
 }
-module.exports = { run, fetchFlow, mergeFlowRows, parseFlowCsv, fetchPrices, mergePrices, parseCsvRows, fetchNews, cleanText, unzipFirst, parseCorpXml, fetchDisclosures, fetchFinancials, parseFinancials, readWatchlist, encKey, makeMask, mergeList, apiErrorFromText };
+module.exports = { run, fetchNaverPrices, clampYears, fetchFlow, mergeFlowRows, parseFlowCsv, fetchPrices, mergePrices, parseCsvRows, fetchNews, cleanText, unzipFirst, parseCorpXml, fetchDisclosures, fetchFinancials, parseFinancials, readWatchlist, encKey, makeMask, mergeList, apiErrorFromText };
