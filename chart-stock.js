@@ -263,8 +263,9 @@
       // 매수 순번 표시(보유 중인 순번의 매수일)
       for (const lt of S.cfg.lots || []) {
         let i = b.d.findIndex((d) => d >= lt.date); if (i < 0 || i < from || i > to) continue;
-        const x = X(i), y = Y(b.l[i]) + 7; ctx.fillStyle = '#2563eb'; ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x - 5, y + 4); ctx.lineTo(x + 5, y + 4); ctx.closePath(); ctx.fill();
-        ctx.fillStyle = T.fg; ctx.textAlign = 'center'; ctx.fillText(String(lt.no), x, y + 13); ctx.textAlign = 'left';
+        const x = X(i), y = Y(b.l[i]) + 11; ctx.fillStyle = '#2563eb'; ctx.beginPath(); ctx.arc(x, y, 7.5, 0, Math.PI * 2); ctx.fill(); // 매수: 파란 원 안에 B, 아래에 순번
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 10px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'center'; ctx.fillText('B', x, y + 0.5);
+        ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif'; ctx.fillStyle = T.fg; ctx.fillText(String(lt.no), x, y + 17); ctx.textAlign = 'left';
       }
       // 시뮬레이션 사이클: 사이클 구간 띠 · 평단·목표가 계단선 · 매수 ▲(사이클-순번) · 전량 매도 ▼
       for (const cy of (S.reveal ? SM.cyclesAsOf(S.cfg.cycles || [], S.reveal) : S.cfg.cycles) || []) {
