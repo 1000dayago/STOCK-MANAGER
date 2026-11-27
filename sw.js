@@ -2,7 +2,7 @@
 importScripts('version.js');
 const V = (self.SM_APP && self.SM_APP.version) || '0';
 const CACHE = 'stockmgr-v' + V;
-const FILES = ['./', 'index.html', 'style.css', 'version.js', 'icons.js', 'core.js', 'backtest.js', 'charts.js', 'media.js', 'editor.js', 'sync.js', 'ui.js', 'ui-bt.js', 'update.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
+const FILES = ['./', 'index.html', 'style.css', 'version.js', 'icons.js', 'core.js', 'backtest.js', 'charts.js', 'media.js', 'editor.js', 'data.js', 'sync.js', 'ui.js', 'ui-bt.js', 'ui-data.js', 'update.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
 const withV = (f) => (/\.(js|css)$/.test(f) ? f + '?v=' + V : f);
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => Promise.all(FILES.map((f) => c.add(new Request(withV(f), { cache: 'reload' })).catch(() => {})))).then(() => self.skipWaiting()));

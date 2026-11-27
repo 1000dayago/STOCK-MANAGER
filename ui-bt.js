@@ -80,7 +80,7 @@
     const imp = bt.imp;
     return `<section class="card"><h2>1. 데이터 불러오기 <small class="muted">(가격 · 수급)</small></h2>
       <p class="hint">증권사·거래소·포털에서 받은 <b>일봉 파일(CSV)</b>이나 화면의 <b>표를 복사해서 붙여 넣은 것</b>을 읽습니다. 제목 줄 위치와 열 이름(한글·영문)을 자동으로 찾고, 틀리면 아래에서 열을 직접 고를 수 있습니다. 가격·수급이 한 파일에 같이 있어도, 수급만 따로 있어도 됩니다. 엑셀 파일(.xlsx)은 CSV로 저장하거나 표를 복사해서 붙여 넣으세요. 데이터는 용량 때문에 이 기기에만 저장됩니다.</p>
-      <div class="row gap wrap"><label class="btn file">파일 선택 (여러 개 가능)<input type="file" multiple accept=".csv,.txt,.tsv,text/csv,text/plain" data-change="btFiles" hidden></label>
+      <div class="row gap wrap"><label class="btn file">${ic('download')}파일 선택 (여러 개 가능)<input type="file" multiple accept=".csv,.txt,.tsv,text/csv,text/plain" data-change="btFiles" hidden></label><button class="btn" type="button" data-act="btRepo">${ic('stocks')}자동 수집 시세 불러오기</button>
         <label class="mini">제목 줄 번호<input class="inp" data-btimp="headerLine" value="${esc(imp.headerLine)}" inputmode="numeric" placeholder="자동" style="width:90px"></label></div>
       <label>또는 여기에 붙여 넣기<textarea data-btimp="text" rows="4" placeholder="날짜,시가,고가,저가,종가,거래량&#10;2025-01-02,...">${esc(imp.text)}</textarea></label>
       <div class="btns"><button class="btn primary" data-act="btAnalyze">읽기</button>${imp.an ? '<button class="btn" data-act="btImpCancel">취소</button>' : ''}</div>
@@ -227,6 +227,15 @@
   };
 
   /* ---------- 데이터 저장 ---------- */
+  A.btLoadRepo = async (code) => {
+    const csv = await SM.data.pricesCsv(code, true);
+    if (!csv) return toast('저장소에서 시세 파일을 읽지 못했습니다.', true);
+    const wl = await SM.data.watchlist();
+    const t = SM.splitTable(csv);
+    if (t.error) return toast(t.error, true);
+    bt.imp.text = ''; bt.imp.name = ((wl.find((w) => w.code === code) || {}).name || code);
+    startImport(t, [`저장소 ${code}.csv`]);
+  };
   function decode(buf) {
     try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
     catch (e) { try { return new TextDecoder('euc-kr').decode(buf); } catch (e2) { return new TextDecoder('utf-8').decode(buf); } }
@@ -243,6 +252,12 @@
   Object.assign(H, {
     btDSDel: () => { if (!confirm('이 가격 데이터를 삭제할까요?')) return; const ds = loadDS(); delete ds[bt.datasetId]; saveDS(ds); bt.datasetId = null; bt.result = null; bt.val = null; bt.cmp = null; A.render(); },
     btDel: (el) => { bt.cfg[el.dataset.g].conds.splice(+el.dataset.i, 1); A.render(); },
+    btRepo: async () => {
+      const [wl, st] = await Promise.all([SM.data.watchlist(true), SM.data.status(true)]);
+      const have = wl.filter((w) => st && st.stocks && st.stocks[w.code] && st.stocks[w.code].prices && st.stocks[w.code].prices.ok);
+      if (!have.length) return toast(st ? '수집된 시세가 있는 종목이 없습니다. 설정 > 자동 수집을 확인하세요.' : '아직 자동 수집이 설정되지 않았습니다. 설정 > 자동 수집을 확인하세요.', true);
+      A.openModal(`<h3>자동 수집 시세 불러오기</h3><label>종목<select name="code">${have.map((w) => { const p = st.stocks[w.code].prices; return `<option value="${w.code}">${esc(w.name)} (${w.code}) · ${p.count}일 · 마지막 ${p.last}</option>`; }).join('')}</select></label><p class="hint">공공데이터포털 일봉이며 수정주가가 아닙니다. 읽은 뒤 미리보기에서 확인하고 저장하세요.</p><div class="btns"><button class="btn primary" type="submit">불러오기</button><button class="btn" type="button" data-act="closeModal">취소</button></div>`, (fd) => { A.closeModal(); A.btLoadRepo(fd.get('code')); });
+    },
     btAnalyze: () => {
       const imp = bt.imp;
       if (!imp.text.trim()) return toast('붙여 넣을 내용이 없거나 파일을 먼저 선택하세요', true);

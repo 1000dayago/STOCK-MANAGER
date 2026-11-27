@@ -9,7 +9,7 @@
 
   let state = SM.newState();
   const ui = (A.ui = {
-    view: 'home', stockId: null, showSold: false, journalOnly: false, lotSort: 'no', openLots: new Set(), sec: { sales: true, events: false, memo: true, journal: true }, selected: new Set(),
+    view: 'home', stockId: null, showSold: false, journalOnly: false, lotSort: 'no', openLots: new Set(), sideRail: (() => { try { return localStorage.getItem('stockmgr.sideRail') === '1'; } catch (e) { return false; } })(), sec: { sales: true, auto: true, events: false, memo: true, journal: true }, selected: new Set(),
     pnl: { group: 'month', stockId: 'all', from: '', to: '' },
     calc: { market: 'KR', baseQty: '', baseAvg: '', feeOn: true, buys: [{ qty: '', price: '' }, { qty: '', price: '' }], target: '', tprice: '', beAvg: '' },
   });
@@ -66,11 +66,23 @@
     const [t, c] = map[s.status] || map.off;
     return `<button class="badge ${c}" data-act="goSettings" title="${esc(s.msg)}">${t}</button>`;
   }
+  const APPV = () => ((root.SM_APP || {}).version || '');
+  A.sideVerHtml = () => `v${esc(APPV())}${SM.update && SM.update.available ? '<i class="udot" title="새 버전이 있습니다"></i>' : ''}`;
   function renderChrome(body) {
     const banner = A.banner ? A.banner() : '';
     const vtag = A.versionTag ? A.versionTag() : '';
-    return `<header class="top"><div class="brand"><span class="logo">${ic('logo')}</span>주식 관리</div><nav class="nav-top">${VIEWS.map(([k, l]) => `<button class="${ui.view === k ? 'on' : ''}" data-act="nav" data-v="${k}">${l}</button>`).join('')}</nav><span id="syncBadgeBox">${syncBadge()}</span></header>
-    ${banner}<main>${body}${ui.view === 'home' || ui.view === 'settings' ? vtag : ''}</main>
+    const cur = VIEWS.find((v) => v[0] === ui.view) || VIEWS[0];
+    const navBtns = VIEWS.map(([k, l, nm]) => `<button class="${ui.view === k ? 'on' : ''}" data-act="nav" data-v="${k}" title="${l}" ${ui.view === k ? 'aria-current="page"' : ''}><i>${ic(nm)}</i><span>${l}</span></button>`).join('');
+    return `<div class="shell ${ui.sideRail ? 'rail' : ''}">
+      <aside class="side"><div class="side-brand"><span class="logo">${ic('logo')}</span><b>주식 관리</b></div>
+        <nav class="side-nav" aria-label="주 메뉴">${navBtns}</nav>
+        <div class="side-foot"><span class="syncbox">${syncBadge()}</span>
+          <button class="side-ver" data-act="goSettings" title="설정 · 업데이트 확인">${A.sideVerHtml()}</button>
+          <button class="side-toggle" data-act="sideToggle" title="${ui.sideRail ? '사이드바 펼치기' : '사이드바 접기'}" aria-label="사이드바 접기/펼치기">${ic(ui.sideRail ? 'chevR' : 'chevL')}<span>접기</span></button></div></aside>
+      <div class="mainwrap">
+        <header class="top"><div class="brand"><span class="logo">${ic('logo')}</span>주식 관리</div><span class="syncbox">${syncBadge()}</span></header>
+        ${banner}<main><h1 class="ptitle">${cur[1]}</h1>${body}${ui.view === 'home' || ui.view === 'settings' ? vtag : ''}</main>
+      </div></div>
     <nav class="nav-bottom">${VIEWS.map(([k, l, nm]) => `<button class="${ui.view === k ? 'on' : ''}" data-act="nav" data-v="${k}"><i>${ic(nm)}</i><span>${l}</span></button>`).join('')}</nav>`;
   }
 
@@ -257,6 +269,9 @@
     h += section('sales', '매도 기록', st.sales.length, st.sales.length
       ? `<div class="slist">${st.sales.slice().reverse().map((s) => saleRow(st, s, cur, us)).join('')}</div><p class="hint">삭제하면 해당 순번의 잔여 수량이 원래대로 돌아옵니다.</p>`
       : '<p class="muted">아직 매도 기록이 없습니다.</p>');
+
+    /* 자동 수집 자료 (공시·뉴스·재무·시세) */
+    h += section('auto', '공시 · 뉴스 · 재무 <small class="muted">자동 수집</small>', null, A.autoBody ? A.autoBody(st) : '');
 
     /* 일정 */
     const evs = (st.events || []).slice();
@@ -559,6 +574,7 @@ service cloud.firestore {
       <section class="card"><h2>종목 바로가기 링크</h2><p class="hint">종목 화면에 보이는 링크입니다. 주소에 <code>{code}</code>(종목코드/티커)와 <code>{name}</code>(종목명)을 넣으면 종목마다 자동으로 바뀝니다. 사이트 주소 형식이 바뀌면 여기서 직접 고치세요.</p>
       ${s.links.map((l, i) => `<div class="linkrow"><input class="inp" data-link="${i}.label" value="${esc(l.label)}" placeholder="이름"><input class="inp wide" data-link="${i}.url" value="${esc(l.url)}" placeholder="https://..."><select class="inp" data-link="${i}.market">${opts([['ALL', '전체'], ['KR', '국내'], ['US', '해외']], l.market || 'ALL')}</select><button class="btn sm danger" data-act="linkDel" data-i="${i}" aria-label="삭제">${ic('x')}</button></div>`).join('')}
       <div class="btns"><button class="btn" data-act="linkAdd">${ic('plus')}링크 추가</button><button class="btn sm" data-act="linkReset">기본값으로</button></div></section>
+      ${A.autoCard ? A.autoCard() : ''}
       <section class="card" id="syncCard">${syncCard()}</section>
       <section class="card"><h2>백업 / 복원</h2><p class="hint">동기화를 쓰더라도 정기적으로 백업 파일을 받아두세요. (브라우저 데이터 삭제, 로그인 문제에 대비)</p>
       <label class="chk"><input type="checkbox" id="expImg" checked> 매매 사유의 사진도 백업에 포함 (파일이 커질 수 있습니다)</label>
@@ -580,6 +596,7 @@ service cloud.firestore {
   const H = A.handlers;
   Object.assign(H, {
     nav: (el) => { ui.view = el.dataset.v; render(); window.scrollTo(0, 0); },
+    sideToggle: () => { ui.sideRail = !ui.sideRail; try { localStorage.setItem('stockmgr.sideRail', ui.sideRail ? '1' : '0'); } catch (e) { /* ignore */ } render(); },
     goSettings: () => { ui.view = 'settings'; render(); },
     tab: (el) => { ui.stockId = el.dataset.id; ui.selected.clear(); render(); },
     addStock: () => stockForm(null),
@@ -851,8 +868,7 @@ service cloud.firestore {
       if (!A.sell && !modalSubmit) render();
     },
     onChange: () => {
-      const b = document.getElementById('syncBadgeBox');
-      if (b) b.innerHTML = syncBadge();
+      document.querySelectorAll('.syncbox').forEach((b) => { b.innerHTML = syncBadge(); });
       const c = document.getElementById('syncCard');
       if (c && !document.activeElement.closest('#syncCard')) c.innerHTML = syncCard();
       else if (c && SM.sync.S.status !== 'connecting') c.innerHTML = syncCard();

@@ -48,6 +48,7 @@
     if (b) b.outerHTML = A.banner();
     const c = document.getElementById('updCard');
     if (c) c.innerHTML = cardInner();
+    document.querySelectorAll('.side-ver').forEach((el) => { el.innerHTML = A.sideVerHtml(); });
   }
 
   /* ---------- 화면 ---------- */

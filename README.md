@@ -14,6 +14,16 @@
 - 백테스트: CSV 불러오기, 조건 자유 조합(거래량·이동평균·볼린저·RSI·MACD·신고가·등락률·렌코·분할매수·트레일링·외국인/기관 수급), 전략 저장·비교, 기간 분할 검증, 단순 보유와 비교
 - Firebase 동기화(Google/이메일 로그인) + JSON 백업
 
+## 화면 구성
+- 휴대폰: 하단 메뉴 / 태블릿: 좁은 사이드바 / PC(1000px 이상): 펼친 사이드바(접기 버튼, 선택은 기억)
+
+## 자동 수집 (공시 · 뉴스 · 재무 · 일봉 시세, 국내 종목)
+GitHub Actions(`.github/workflows/collect.yml`)가 평일 저녁 7시(한국시간)에 `tools/collect.js`를 실행해 `data/`에 저장하고, 앱이 그 파일을 읽습니다.
+- 필요한 키(저장소 Settings › Secrets and variables › Actions): `DATA_GO_KR_KEY`(공공데이터포털 일반 인증키, “금융위원회_주식시세정보” 활용신청), `DART_API_KEY`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`. 일부만 있어도 됩니다.
+- 수집 대상은 `data/watchlist.json` (앱 설정 › 자동 수집에서 목록을 복사할 수 있습니다). **저장소가 공개이면 이 목록과 수집 결과는 누구에게나 보입니다.**
+- 직접 실행: Actions 탭 › 자료 수집 › Run workflow. 결과는 `data/status.json`에 성공/오류로 기록됩니다.
+- 테스트: `node tests/collect.test.js` (가짜 API 응답 사용)
+
 ## 배포 (GitHub Pages)
 1. 이 폴더의 파일을 공개 저장소에 올립니다.
 2. 저장소 Settings → Pages → Source: `main` 브랜치, `/ (root)`.
