@@ -410,6 +410,21 @@ t('수급: 금액(원)→수량(주) 환산 저장', () => {
   const r = SM.buildDataset(t2, SM.analyzeTable(t2).cols, { unit: 'krwToShares' });
   assert.equal(r.data.flowUnit, 'shares'); assert.equal(r.data.frgn[1], 5000); // 1e7 / 2000
 });
+t('데이터 정보: 가격만/수급 일부 구간/기간 안 수급 일수/최근 표', () => {
+  const px = 'date,open,high,low,close,volume\n' + [1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => `2026-01-0${d},100,110,90,${100 + d},1000`).join('\n');
+  const data = SM.parseOHLCV(px).data;
+  let inf = SM.dataInfo(data);
+  assert.equal(inf.days, 9); assert.equal(inf.anyFlow, false); assert.equal(inf.flow.frgn, null); assert.equal(inf.recent.length, 8); assert.equal(inf.recent[7].d, '2026-01-09');
+  const tb = SM.splitTable('날짜,외국인,기관,개인\n2026-01-04,10,1,1\n2026-01-05,20,,1\n2026-01-07,30,3,1');
+  const an = SM.analyzeTable(tb); const m = SM.mergeFlow(data, tb, an.cols);
+  ['frgn', 'inst', 'indiv'].forEach((k) => { data[k] = m.arrs[k]; }); data.flowUnit = m.unit;
+  inf = SM.dataInfo(data, { from: '2026-01-01', to: '2026-01-09' });
+  assert.deepEqual(inf.flow.frgn, { count: 3, from: '2026-01-04', to: '2026-01-07' }); assert.equal(inf.flow.inst.count, 2);
+  assert.equal(inf.flowFrom, '2026-01-04'); assert.equal(inf.flowTo, '2026-01-07');
+  assert.equal(inf.insideDays, 4); assert.equal(inf.gapDays, 1); assert.equal(inf.outsideDays, 5); // 1/06은 구간 안이지만 빈 날
+  assert.equal(inf.range.days, 9); assert.equal(inf.range.flowDays, 3);
+  assert.equal(SM.dataInfo(data, { from: '2026-01-04', to: '2026-01-05' }).range.flowDays, 2);
+});
 t('버전 비교', () => {
   assert.equal(SM.compareVersions('1.10.0', '1.9.9'), 1);
   assert.equal(SM.compareVersions('1.2.0', '1.2.0'), 0);

@@ -294,6 +294,35 @@
   const parseTable = (text, headerLine) => splitTable(text, headerLine);
   const guessFlowCols = (header) => { const c = guessCols(header); return { date: c.date, frgn: c.frgn, inst: c.inst, indiv: c.indiv }; };
 
+  /* ---------- 저장된 데이터 요약(화면의 데이터 정보 카드용) ---------- */
+  function dataInfo(data, range) {
+    const n = data.d.length;
+    const info = { days: n, from: data.d[0], to: data.d[n - 1], hasVol: !!data.hasVol, hasHL: !!data.hasHL, hasOpen: !!data.hasOpen, unit: data.flowUnit || 'shares', flow: {}, anyFlow: false };
+    let ff = null, fl = null;
+    for (const k of ['frgn', 'inst', 'indiv']) {
+      const arr = data[k];
+      if (!arr) { info.flow[k] = null; continue; }
+      let cnt = 0, from = null, to = null;
+      for (let i = 0; i < n; i++) if (arr[i] != null) { cnt++; if (!from) from = data.d[i]; to = data.d[i]; }
+      info.flow[k] = cnt ? { count: cnt, from, to } : null;
+      if (cnt) { info.anyFlow = true; if (!ff || from < ff) ff = from; if (!fl || to > fl) fl = to; }
+    }
+    info.flowFrom = ff; info.flowTo = fl;
+    if (ff) { // 수급 구간 안인데 값이 빈 거래일, 수급 구간 밖의 거래일
+      let inside = 0, empty = 0;
+      for (let i = 0; i < n; i++) if (data.d[i] >= ff && data.d[i] <= fl) { inside++; if (!['frgn', 'inst', 'indiv'].some((k) => data[k] && data[k][i] != null)) empty++; }
+      info.gapDays = empty; info.insideDays = inside; info.outsideDays = n - inside;
+    }
+    // 시뮬레이션 기간 안에서 수급이 있는 거래일
+    const rf = (range && range.from) || data.d[0], rt = (range && range.to) || data.d[n - 1];
+    let inR = 0, inRFlow = 0;
+    for (let i = 0; i < n; i++) if (data.d[i] >= rf && data.d[i] <= rt) { inR++; if (['frgn', 'inst', 'indiv'].some((k) => data[k] && data[k][i] != null)) inRFlow++; }
+    info.range = { from: rf, to: rt, days: inR, flowDays: inRFlow };
+    info.recent = [];
+    for (let i = Math.max(0, n - 8); i < n; i++) info.recent.push({ d: data.d[i], c: data.c[i], v: data.hasVol ? data.v[i] : null, frgn: data.frgn ? data.frgn[i] : null, inst: data.inst ? data.inst[i] : null, indiv: data.indiv ? data.indiv[i] : null });
+    return info;
+  }
+
   /* ---------- 지표 ---------- */
   function sma(arr, n) {
     const out = new Array(arr.length).fill(null);
@@ -752,6 +781,6 @@
     return { market: 'KR', qty: 10, qtyMode: 'shares', growth: 1, maxInvest: 0, maxLots: 0, fill: 'nextOpen', from: '', to: '', renko: { mode: 'pct', value: 2, period: 14 }, entries: { mode: 'AND', conds: [] }, exits: { mode: 'OR', conds: [] } };
   }
 
-  Object.assign(SM, { detectFlowUnit, parseOHLCV, parseTable, guessFlowCols, mergeFlow, parseDate, splitTable, guessCols, kindOf, analyzeTable, buildDataset, mergeDatasets, sameStockScore, sma, ema, rsi, macd, bollinger, buildRenko, COND_DEFS, runBacktest, runSplitValidation, overlayLines, blankCfg, closeOn, buyHoldFrom, needsFlow });
+  Object.assign(SM, { dataInfo, detectFlowUnit, parseOHLCV, parseTable, guessFlowCols, mergeFlow, parseDate, splitTable, guessCols, kindOf, analyzeTable, buildDataset, mergeDatasets, sameStockScore, sma, ema, rsi, macd, bollinger, buildRenko, COND_DEFS, runBacktest, runSplitValidation, overlayLines, blankCfg, closeOn, buyHoldFrom, needsFlow });
   if (typeof module !== 'undefined' && module.exports) module.exports = SM;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

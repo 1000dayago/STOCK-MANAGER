@@ -67,11 +67,38 @@
   }
   const adder = (g) => `<div class="row gap wrap"><select class="inp" data-change="btAdd" data-g="${g}">${typeOptions(g, '')}</select></div>`;
 
+  const WHO3 = [['frgn', '외국인'], ['inst', '기관'], ['indiv', '개인']];
   function flowStatus(ds) {
     if (!ds) return '';
-    const d = ds.data, f = (k) => (d[k] ? `<span class="okm">${ic('check')}</span>` : `<span class="nom">${ic('xmark')}</span>`);
-    const n = d.frgn ? d.frgn.filter((v) => v != null).length : d.inst ? d.inst.filter((v) => v != null).length : 0;
-    return `수급 데이터: 외국인 ${f('frgn')} · 기관 ${f('inst')} · 개인 ${f('indiv')}${n ? ` (${n}일 매칭)` : ''}`;
+    const inf = SM.dataInfo(ds.data, { from: bt.cfg.from, to: bt.cfg.to });
+    const chips = WHO3.map(([k, l]) => { const f = inf.flow[k]; return f ? `<span class="okm">${ic('check')}</span> ${l} <b>${f.count}일</b>` : `<span class="nom">${ic('xmark')}</span> ${l} 없음`; }).join(' · ');
+    return `수급: ${chips}${inf.anyFlow ? ` · ${inf.flowFrom} ~ ${inf.flowTo} · ${inf.unit === 'krw' ? '금액(원)' : '수량(주)'}` : ''}`;
+  }
+  const fmtFlow = (v, unit) => (v == null ? '<span class="muted">-</span>' : (v > 0 ? '+' : '') + fmtNum(unit === 'krw' ? Math.round(v / 1e6) : v, 0) + (unit === 'krw' ? '<small class="muted">백만</small>' : ''));
+  function dataInfoCard(ds) {
+    if (!ds) return '';
+    const inf = SM.dataInfo(ds.data, { from: bt.cfg.from, to: bt.cfg.to });
+    const usesFlow = [].concat(bt.cfg.entries.conds, bt.cfg.exits.conds).some((c) => c.type === 'flow');
+    const warn = [];
+    if (!inf.anyFlow) warn.push(usesFlow ? '이 데이터에는 수급이 없는데 전략에 수급 조건이 있습니다. 시뮬레이션을 실행하면 오류가 납니다. 위 “자동 수집 시세·수급 불러오기”나 수급 파일로 먼저 합치세요.' : '수급이 없습니다. 외국인·기관 조건을 쓰려면 수급을 합쳐야 합니다.');
+    else {
+      const head = ds.data.d.filter((d) => d < inf.flowFrom).length, tail = ds.data.d.filter((d) => d > inf.flowTo).length;
+      if (head) warn.push(`수급은 ${inf.flowFrom}부터 있습니다. 그 전 ${head}거래일에는 수급이 없어 수급 조건이 거짓으로 처리됩니다.`);
+      if (tail) warn.push(`수급은 ${inf.flowTo}까지만 있습니다. 그 뒤 ${tail}거래일은 수급 조건이 거짓으로 처리됩니다.${tail <= 2 ? ' (당일 수급은 장 마감 후 반영되므로 마지막 날이 비는 것은 흔합니다)' : ''}`);
+      if (inf.gapDays) warn.push(`수급 구간 안에서도 ${inf.gapDays}거래일은 수급 값이 비어 있습니다(수집을 쉬었거나 파일에 없는 날).`);
+      if (usesFlow && inf.range.flowDays < inf.range.days && (head || tail)) warn.push(`시뮬레이션 기간 ${inf.range.days}거래일 중 수급이 있는 날은 ${inf.range.flowDays}일입니다. 기간을 ${inf.range.from > inf.flowFrom ? inf.range.from : inf.flowFrom} ~ ${inf.range.to < inf.flowTo ? inf.range.to : inf.flowTo}로 맞추면 모든 날에 수급 조건이 적용됩니다.`);
+      if (inf.unit === 'krw') warn.push('수급 단위가 금액(원)입니다. 수급 조건의 기준값도 원으로 입력하세요. (주 단위로 바꾸려면 파일을 다시 불러올 때 “수량(주)으로 환산”을 고르세요)');
+    }
+    const flowRows = WHO3.map(([k, l]) => { const f = inf.flow[k]; return `<tr><td>${l}</td><td>${f ? f.count + '일' : '<span class="muted">없음</span>'}</td><td>${f ? f.from + ' ~ ' + f.to : '-'}</td></tr>`; }).join('');
+    const rec = inf.recent.slice().reverse();
+    const sh = (inf.anyFlow ? `<th>외국인</th><th>기관</th><th>개인</th>` : '');
+    return `<details class="box datainfo" ${warn.length ? 'open' : ''}><summary><b>데이터 정보</b> <small class="muted">· 가격 ${inf.days}일${inf.anyFlow ? ` · 수급 ${inf.flowFrom} ~ ${inf.flowTo}` : ' · 수급 없음'}${warn.length ? ` · 확인할 점 ${warn.length}건` : ''}</small></summary>
+      ${warn.map((w) => `<p class="hint warn">${ic('alert')} ${esc(w)}</p>`).join('')}
+      <div class="stats-line"><b>가격</b> ${inf.from} ~ ${inf.to} (${inf.days}일) · 시가 ${inf.hasOpen ? '✓' : '✕(종가로 대체)'} · 고가/저가 ${inf.hasHL ? '✓' : '✕(종가로 대체)'} · 거래량 ${inf.hasVol ? '✓' : '✕'}</div>
+      <div class="tablewrap"><table class="mini"><thead><tr><th>수급</th><th>값이 있는 날</th><th>구간</th></tr></thead><tbody>${flowRows}</tbody></table></div>
+      ${inf.anyFlow ? `<div class="stats-line"><b>단위</b> ${inf.unit === 'krw' ? '금액(원) — 표는 백만 원 단위로 줄여 표시' : '수량(주)'}</div>` : ''}
+      <div class="stats-line"><b>최근 ${rec.length}일</b> <small class="muted">(순매수: + 매수, − 매도)</small></div>
+      <div class="tablewrap"><table class="mini"><thead><tr><th>날짜</th><th>종가</th><th>거래량</th>${sh}</tr></thead><tbody>${rec.map((r) => `<tr><td>${r.d}</td><td>${fmtNum(r.c, r.c < 100 ? 2 : 0)}</td><td>${r.v == null ? '<span class="muted">-</span>' : fmtNum(r.v, 0)}</td>${inf.anyFlow ? `<td>${fmtFlow(r.frgn, inf.unit)}</td><td>${fmtFlow(r.inst, inf.unit)}</td><td>${fmtFlow(r.indiv, inf.unit)}</td>` : ''}</tr>`).join('')}</tbody></table></div></details>`;
   }
 
   A.renderers.btMain = function () {
@@ -87,7 +114,7 @@
       <div class="btns"><button class="btn primary" data-act="btAnalyze">읽기</button>${imp.an ? '<button class="btn" data-act="btImpCancel">취소</button>' : ''}</div>
       ${imp.an ? impPanel() : ''}
       <div id="dsWarn">${bt.warn.map((w) => `<p class="hint warn">${ic('alert')} ${esc(w)}</p>`).join('')}</div>
-      ${keys.length ? `<h4>저장된 데이터</h4><div class="row gap wrap"><select class="inp" data-change="btDS" style="max-width:260px">${opts(keys.map((k) => [k, dsLabel(k, ds[k])]), bt.datasetId)}</select><span class="muted">${rangeTxt}</span><button class="btn sm danger" data-act="btDSDel">삭제</button></div><p class="hint">${flowStatus(cur)}</p>` : '<p class="muted">저장된 데이터가 없습니다.</p>'}
+      ${keys.length ? `<h4>저장된 데이터</h4><div class="row gap wrap"><select class="inp" data-change="btDS" style="max-width:260px">${opts(keys.map((k) => [k, dsLabel(k, ds[k])]), bt.datasetId)}</select><span class="muted">${rangeTxt}</span><button class="btn sm danger" data-act="btDSDel">삭제</button></div><p class="hint">${flowStatus(cur)}</p>${dataInfoCard(cur)}` : '<p class="muted">저장된 데이터가 없습니다.</p>'}
     </section>
     <section class="card"><h2>2. 전략 설정</h2>
       <p class="hint">조건을 자유롭게 조합하세요. 만든 전략은 이름을 붙여 저장해 두고 나중에 불러오거나 서로 비교할 수 있습니다. (전략은 계정에 저장되어 동기화됩니다)</p>

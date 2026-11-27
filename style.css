@@ -674,3 +674,5 @@ h4 { display: flex; align-items: center; gap: 6px; }
 .pinhost button .ic { width: 12px; height: 12px; }
 @media (max-width: 520px) { .vw-lbl { display: none; } }
 .linkrow select.inp { flex: 0 1 100px; }
+
+.datainfo { margin-top: 10px; } .datainfo > summary { cursor: pointer; padding: 2px 0; } .datainfo .stats-line { font-size: 13px; }
