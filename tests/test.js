@@ -547,6 +547,36 @@ t('차트 계산: 주·월봉 묶기, 이동평균·볼린저, 구간, 누적, �
   assert.equal(wk.v.reduce((a, b) => a + b, 0), big.v.reduce((a, b) => a + b, 0)); assert.equal(mo.v.reduce((a, b) => a + b, 0), big.v.reduce((a, b) => a + b, 0)); // 거래량 합 보존
   assert.equal(Math.max(...wk.h), Math.max(...big.h)); assert.equal(Math.min(...mo.l), Math.min(...big.l)); assert(wk.d.length < big.d.length / 4 && mo.d.length <= 11);
 });
+t('배당 기록: 세금 자동 제안, 검증, 환율 환산, 기간·종목 합계, 정규화, 손익 보고서 연동', () => {
+  const kr = SM.newStock({ name: '대한항공', code: '003490', market: 'KR' }), us = SM.newStock({ name: '애플', code: 'AAPL', market: 'US' });
+  const st = SM.DEFAULT_SETTINGS(); st.fxNow = 1400;
+  const d1 = SM.addDividend(kr, { date: '2026-04-20', gross: 10000 }, st); // 세금 비우면 국내 15.4% 자동
+  assert.equal(d1.tax, 1540); assert.equal(d1.fx, 1);
+  const d2 = SM.addDividend(kr, { date: '2025-12-20', gross: '20,000', tax: 0, note: '  결산배당  ' }, st); // 세금 직접 0
+  assert.equal(d2.tax, 0); assert.equal(d2.note, '결산배당'); assert.deepEqual(kr.dividends.map((x) => x.date), ['2025-12-20', '2026-04-20']); // 날짜순
+  const d3 = SM.addDividend(us, { date: '2026-05-15', gross: 10, fx: 1300 }, st); // 해외 15%, 입력 환율
+  assert.equal(d3.tax, 1.5); assert.equal(d3.fx, 1300);
+  assert.equal(SM.addDividend(us, { date: '2026-06-01', gross: 4 }, st).fx, 1400); // 환율 비우면 현재 환율
+  // 검증
+  assert.throws(() => SM.addDividend(kr, { date: '', gross: 1 }, st), /날짜/); assert.throws(() => SM.addDividend(kr, { date: '2026-01-01', gross: 0 }, st), /배당금/);
+  assert.throws(() => SM.addDividend(kr, { date: '2026-01-01', gross: 100, tax: 101 }, st), /세금/); assert.throws(() => SM.addDividend(kr, { date: '2026-01-01', gross: 100, tax: -1 }, st), /세금/);
+  assert.equal(kr.dividends.length, 2); // 잘못된 입력은 저장되지 않음
+  // 합계(원화)
+  const all = SM.dividendTotals([kr, us]);
+  assert.equal(all.count, 4); assert.equal(Math.round(all.grossKRW), 10000 + 20000 + 10 * 1300 + 4 * 1400); assert.equal(Math.round(all.taxKRW), 1540 + 0 + 1.5 * 1300 + 0.6 * 1400);
+  assert.equal(Math.round(all.netKRW), Math.round(all.grossKRW - all.taxKRW)); assert.equal(Math.round(all.byYear['2025']), 20000); assert.equal(Math.round(all.byYear['2026'] + all.byYear['2025']), Math.round(all.netKRW));
+  assert.equal(SM.dividendTotals([kr, us], { from: '2026-01-01', to: '2026-04-30' }).count, 1); assert.equal(SM.dividendTotals([kr], { from: '2027-01-01' }).count, 0); assert.equal(SM.dividendTotals([]).netKRW, 0);
+  // 삭제
+  SM.removeDividend(kr, d1.id); assert.deepEqual(kr.dividends.map((x) => x.id), [d2.id]);
+  // 정규화: 잘못된 항목 제거, 값 보정, 예전 데이터(배당 없음)는 빈 배열
+  const ns = SM.normalizeState({ stocks: [{ id: 'a', name: 'n', dividends: [{ date: '2026-01-01', gross: 100, tax: 500 }, { date: 'x', gross: 5 }, { date: '2026-01-02', gross: -1 }, null, { date: '2025-01-01', gross: 50, tax: 5, fx: 0 }] }, { id: 'b', name: 'm' }] });
+  assert.deepEqual(ns.stocks[0].dividends.map((d) => [d.date, d.gross, d.tax, d.fx]), [['2025-01-01', 50, 5, 1], ['2026-01-01', 100, 100, 1]]); assert.deepEqual(ns.stocks[1].dividends, []);
+  // 손익 보고서: 종목·기간 필터를 따라감
+  const state = SM.newState(); state.stocks.push(kr, us); SM.addDividend(kr, { date: '2026-04-20', gross: 10000 }, st);
+  assert.equal(Math.round(SM.pnlReport(state, { group: 'all', stockId: 'all' }).div.netKRW), Math.round(SM.dividendTotals([kr, us]).netKRW));
+  assert.equal(SM.pnlReport(state, { group: 'all', stockId: kr.id, from: '2026-01-01', to: '2026-12-31' }).div.count, 1);
+  assert.equal(SM.pnlReport(state, { group: 'all', stockId: us.id, from: '2027-01-01' }).div.count, 0);
+});
 t('버전 비교', () => {
   assert.equal(SM.compareVersions('1.10.0', '1.9.9'), 1);
   assert.equal(SM.compareVersions('1.2.0', '1.2.0'), 0);

@@ -750,3 +750,10 @@ label > .segsel { margin-top: 2px; }
 .chartcard.chart-full { position: fixed; inset: 0; z-index: 60; margin: 0; border-radius: 0; overflow-y: auto; background: var(--card); padding-bottom: 24px; }
 .chartcard.chart-full > summary { position: sticky; top: 0; z-index: 2; background: var(--card); }
 body.chart-fullbody { overflow: hidden; }
+
+/* 배당 기록 */
+.divlist { margin-top: 8px; border-top: 1px solid var(--line); }
+.divrow { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.divrow .dd { flex: none; width: 82px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.divrow .da { flex: 1; min-width: 0; font-size: 14px; line-height: 1.5; } .divrow .da small { display: block; }
+.divrow .dnote { color: var(--fg); opacity: .75; }

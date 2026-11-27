@@ -27,7 +27,7 @@
 
   function content(st, d) {
     const code = st.code;
-    const btns = `<div class="btns"><button class="btn sm" data-act="goSettings">${ic('sliders')}설정 열기</button><button class="btn sm ghost" data-act="autoRefresh">${ic('download')}다시 확인</button></div>`;
+    const btns = `<div class="btns"><button class="btn sm" data-act="goSettings" data-tab="auto">${ic('sliders')}설정 열기</button><button class="btn sm ghost" data-act="autoRefresh">${ic('download')}다시 확인</button></div>`;
     if (!d.watch.length) return `<div class="empty-note"><p>아직 자동 수집이 설정되지 않았습니다. 설정 화면의 <b>자동 수집</b>에서 키를 등록하고 수집 대상을 올리면, 이곳에 최근 공시·뉴스·재무가 표시됩니다.</p>${btns}</div>`;
     if (!d.watch.some((w) => w.code === code)) return `<div class="empty-note"><p><b>${esc(st.name)}</b>은(는) 자동 수집 대상에 없습니다. 설정 › 자동 수집에서 대상 목록에 추가하세요.</p>${btns}</div>`;
     if (!d.status) return `<div class="empty-note"><p><b>${esc(st.name)}</b>은(는) 수집 대상으로 등록되어 있지만 아직 수집 기록이 없습니다. 저장소 Actions 탭에서 <b>자료 수집</b>을 한 번 실행해 보세요.</p>${btns}</div>`;
@@ -253,7 +253,7 @@
         const name = (stocks.find((s) => String(s.code || '').trim() === code) || {}).name || code;
         for (const [k, label] of [['prices', '시세'], ['flow', '수급']]) if (v[k] && v[k].ok === false) bad.push(`${esc(name)} ${label}`);
       }
-      if (bad.length) out.push(`자동 수집 실패: ${bad.slice(0, 4).join(', ')}${bad.length > 4 ? ' 외' : ''}. <a href="#" data-act="goSettings">설정 › 자동 수집</a>에서 이유를 확인하세요. (네이버 주소가 바뀌었을 수 있습니다)`);
+      if (bad.length) out.push(`자동 수집 실패: ${bad.slice(0, 4).join(', ')}${bad.length > 4 ? ' 외' : ''}. <a href="#" data-act="goSettings" data-tab="auto">설정 › 자동 수집</a>에서 이유를 확인하세요. (네이버 주소가 바뀌었을 수 있습니다)`);
       const age = st.updatedAt ? Math.floor((Date.now() - Date.parse(st.updatedAt)) / 86400000) : null;
       if (age != null && age > 5) out.push(`마지막 자동 수집이 ${age}일 전입니다. 저장소 Actions에서 “자료 수집”이 멈췄는지 확인하세요.`);
     }
@@ -261,7 +261,7 @@
       const cs = A.getState().settings, cur = D.watchJson(stocks, { years: cs.collectYears, from: cs.collectFrom, to: cs.collectTo });
       const eligible = JSON.parse(cur).stocks.length;
       const d = D.watchDiff(c.raw, cur);
-      if (eligible && c.raw && !d.same) out.push(`수집 대상 목록이 저장소와 다릅니다${d.added.length ? ` (추가 ${d.added.length}개: ${esc(d.added.slice(0, 3).join(', '))}${d.added.length > 3 ? ' 외' : ''})` : ''}. <a href="#" data-act="goSettings">설정 › 자동 수집</a>의 <b>수집 대상 반영</b>을 누르세요.`);
+      if (eligible && c.raw && !d.same) out.push(`수집 대상 목록이 저장소와 다릅니다${d.added.length ? ` (추가 ${d.added.length}개: ${esc(d.added.slice(0, 3).join(', '))}${d.added.length > 3 ? ' 외' : ''})` : ''}. <a href="#" data-act="goSettings" data-tab="auto">설정 › 자동 수집</a>의 <b>수집 대상 반영</b>을 누르세요.`);
     }
     return out;
   };

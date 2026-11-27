@@ -64,7 +64,7 @@
     const s = SM.sync.S;
     const map = { off: ['이 기기에만 저장', 'off'], connecting: ['연결 중', 'warn'], signedout: ['로그인 필요', 'warn'], syncing: ['동기화 중', 'warn'], synced: ['동기화됨', 'ok'], error: ['동기화 오류', 'err'] };
     const [t, c] = map[s.status] || map.off;
-    return `<button class="badge ${c}" data-act="goSettings" title="${esc(s.msg)}">${t}</button>`;
+    return `<button class="badge ${c}" data-act="goSettings" data-tab="sync" title="${esc(s.msg)}">${t}</button>`;
   }
   const APPV = () => ((root.SM_APP || {}).version || '');
   A.sideVerHtml = () => `v${esc(APPV())}${SM.update && SM.update.available ? '<i class="udot" title="새 버전이 있습니다"></i>' : ''}`;
@@ -77,7 +77,7 @@
       <aside class="side"><div class="side-brand"><span class="logo">${ic('logo')}</span><b>주식 관리</b></div>
         <nav class="side-nav" aria-label="주 메뉴">${navBtns}</nav>
         <div class="side-foot"><span class="syncbox">${syncBadge()}</span>
-          <button class="side-ver" data-act="goSettings" title="설정 · 업데이트 확인">${A.sideVerHtml()}</button>
+          <button class="side-ver" data-act="goSettings" data-tab="about" title="설정 · 업데이트 확인">${A.sideVerHtml()}</button>
           <button class="side-toggle" data-act="sideToggle" title="${ui.sideRail ? '사이드바 펼치기' : '사이드바 접기'}" aria-label="사이드바 접기/펼치기">${ic(ui.sideRail ? 'chevR' : 'chevL')}<span>접기</span></button></div></aside>
       <div class="mainwrap">
         <header class="top"><div class="brand"><span class="logo">${ic('logo')}</span>주식 관리</div><span class="syncbox">${syncBadge()}</span></header>
@@ -194,7 +194,7 @@
   /* ---------- 홈 ---------- */
   const PALETTE = ['#0f766e', '#2563eb', '#d97706', '#9333ea', '#be185d', '#65a30d', '#0891b2', '#dc2626'];
   A.renderers.home = function () {
-    if (!state.stocks.length) return `<section class="card empty"><h2>시작하기</h2><p>종목을 추가하면 종목마다 탭이 만들어지고, 매수할 때마다 <b>순번(1번, 2번…)</b>이 따로 기록됩니다. 매수·매도할 때마다 <b>사유와 사진</b>을 남길 수 있어 나중에 복기하기 좋습니다.</p><p><button class="btn primary" data-act="addStock">첫 종목 추가</button></p><p class="muted">여러 기기에서 쓰려면 <a href="#" data-act="goSettings">설정</a>에서 Firebase 동기화를 연결하세요. 연결 전에는 이 기기에만 저장됩니다.</p></section>`;
+    if (!state.stocks.length) return `<section class="card empty"><h2>시작하기</h2><p>종목을 추가하면 종목마다 탭이 만들어지고, 매수할 때마다 <b>순번(1번, 2번…)</b>이 따로 기록됩니다. 매수·매도할 때마다 <b>사유와 사진</b>을 남길 수 있어 나중에 복기하기 좋습니다.</p><p><button class="btn primary" data-act="addStock">첫 종목 추가</button></p><p class="muted">여러 기기에서 쓰려면 <a href="#" data-act="goSettings" data-tab="sync">설정</a>에서 Firebase 동기화를 연결하세요. 연결 전에는 이 기기에만 저장됩니다.</p></section>`;
     const pf = SM.portfolio(state);
     const today = todayStr();
     let h = `<section class="card"><div class="row between wrap"><h2>내 자산 요약 <small class="muted">(원화 기준)</small></h2><button class="btn sm primary" data-act="priceAll">현재가 한 번에 입력</button></div>
@@ -207,7 +207,7 @@
     if (pf.missing.length) warn.push(`현재가가 없는 종목: ${pf.missing.map((s) => esc(s.name)).join(', ')} (평가금액에서 빠져 있습니다)`);
     if (pf.stale.length) warn.push(`현재가가 3일 넘게 갱신되지 않은 종목: ${pf.stale.map((s) => esc(s.name) + '(' + (SM.priceAge(s) > 365 ? '입력일 불명' : SM.priceAge(s) + '일 전') + ')').join(', ')}`);
     const bk = state.lastBackupAt ? SM.daysBetween(new Date(state.lastBackupAt).toISOString().slice(0, 10), today) : null;
-    if (bk === null) warn.push('아직 백업한 적이 없습니다. <a href="#" data-act="goSettings">설정</a>에서 백업을 내려받아 두세요.');
+    if (bk === null) warn.push('아직 백업한 적이 없습니다. <a href="#" data-act="goSettings" data-tab="sync">설정 › 동기화·백업</a>에서 백업을 내려받아 두세요.');
     else if (bk > 30) warn.push(`마지막 백업이 ${bk}일 전입니다.`);
     if (A.collectWarnings) warn.push(...A.collectWarnings());
     if (warn.length) h += `<div class="warnbox">${warn.map((w) => `<div>${ic('alert')}<span>${w}</span></div>`).join('')}</div>`;
@@ -255,6 +255,21 @@
   const SORTS = [['no', '번호순'], ['retDesc', '수익률 높은순'], ['retAsc', '수익률 낮은순'], ['priceAsc', '단가 낮은순'], ['priceDesc', '단가 높은순'], ['dateDesc', '최근 매수순']];
   const abtn = (act, icon, label, extra = '', attrs = '') => `<button type="button" class="ab ${extra}" data-act="${act}" ${attrs} title="${label}"><i>${ic(icon)}</i><span>${label}</span></button>`;
   const section = (id, title, count, body, defOpen) => `<details class="card sec" data-sec="${id}" ${(ui.sec[id] !== undefined ? ui.sec[id] : defOpen !== false) ? 'open' : ''}><summary><span class="st">${title}</span>${count != null ? `<span class="count">${count}</span>` : ''}<span class="chev"></span></summary><div class="sec-b">${body}</div></details>`;
+
+  // 배당 섹션 본문: 누적 요약 + 목록 + 기록 버튼
+  function divBody(st, cur, us) {
+    const list = st.dividends || [], tot = SM.dividendTotals([st]);
+    const rows = list.slice().reverse().map((d) => {
+      const net = d.gross - d.tax;
+      const main = us ? `${fmtMoney(net, 'USD')} <small class="muted">(≈ ${fmtMoney(net * d.fx, 'KRW')})</small>` : `<b>${fmtMoney(net, 'KRW')}</b>`;
+      const sub = `세전 ${fmtMoney(d.gross, cur)} · 세금 ${fmtMoney(d.tax, cur)}${us ? ' · 환율 ' + fmtNum(d.fx, 0) : ''}`;
+      return `<div class="divrow"><span class="dd">${d.date}</span><span class="da">${us ? main : main} <small class="muted">${sub}</small>${d.note ? `<small class="dnote">${esc(d.note)}</small>` : ''}</span><button class="btn sm ghost" type="button" data-act="divDel" data-id="${d.id}" aria-label="배당 기록 삭제">${ic('x')}</button></div>`;
+    }).join('');
+    const years = Object.keys(tot.byYear).sort().reverse().map((y) => `<span class="chip">${y} ${fmtMoney(tot.byYear[y], 'KRW')}</span>`).join(' ');
+    return `<div class="row between wrap"><div>${list.length ? `누적 수령(세후) <b>${fmtMoney(tot.netKRW, 'KRW')}</b> <small class="muted">· 세전 ${fmtMoney(tot.grossKRW, 'KRW')} · 세금 ${fmtMoney(tot.taxKRW, 'KRW')}</small>` : '<span class="muted">아직 배당 기록이 없습니다.</span>'}</div><button class="btn primary sm" type="button" data-act="divAdd">${ic('plus')}배당 기록</button></div>
+      ${years ? `<div class="toolbar">${years}</div>` : ''}${rows ? `<div class="divlist">${rows}</div>` : ''}
+      <p class="hint">배당금은 실현손익(매도 손익)에 섞지 않고 따로 집계합니다. 손익 화면에서 “실현손익 + 배당”으로 함께 볼 수 있습니다. 세금은 비워 두면 ${us ? '해외 15%' : '국내 15.4%'}로 계산하며 실제와 다르면 직접 입력하세요.</p>`;
+  }
 
   A.renderers.stocks = function () {
     const group = ui.stockTab === 'watch' ? 'watch' : 'held';
@@ -334,6 +349,9 @@
     }
 
     /* 가상 매매 / 분할 매수 계획 */
+    /* 배당 */
+    h += section('div', '배당 <small class="muted">수령 기록</small>', (st.dividends || []).length, divBody(st, cur, us), false);
+
     h += section('paper', '가상 매매 <small class="muted">실제 계좌와 무관한 시험</small>', st.paper.lots.length + st.paper.sales.length, A.paperBody ? A.paperBody(st) : '', !!st.watch);
     h += section('plan', '분할 매수 계획 <small class="muted">가격별 단계</small>', (st.plan || []).filter((p) => !p.done).length, A.planBody ? A.planBody(st) : '', !!st.watch);
 
@@ -661,7 +679,9 @@
       <div class="cards small"><div class="stat"><span>실현손익 (수수료·세금 반영, 원화)</span><b>${money(rep.total.pnlKRW, 'KRW')}</b></div>
       <div class="stat"><span>수익률 (매입 원가 대비)</span><b>${pct(rep.total.ret)}</b></div>
       <div class="stat"><span>매도 건수 / 이익 건수</span><b>${rep.total.count} / ${rep.total.wins}</b></div>
-      <div class="stat"><span>수수료·세금 합계</span><b>${fmtMoney(rep.total.feesKRW, 'KRW')}</b></div></div>
+      <div class="stat"><span>수수료·세금 합계</span><b>${fmtMoney(rep.total.feesKRW, 'KRW')}</b></div>
+      <div class="stat"><span>배당 수령 (세후, ${rep.div.count}건)</span><b>${money(rep.div.netKRW, 'KRW')}</b></div>
+      <div class="stat"><span>실현손익 + 배당</span><b>${money(rep.total.pnlKRW + rep.div.netKRW, 'KRW')}</b></div></div>
       ${rep.groups.length ? `<canvas id="pnlChart" class="chart"></canvas>
       <div class="tablewrap"><table><thead><tr><th>${gl}</th><th>매도 건수</th><th>매도 금액(순)</th><th>매입 원가</th><th>수수료·세금</th><th>실현손익</th><th>수익률</th></tr></thead><tbody>
       ${rep.groups.map((g) => `<tr><td data-label="${gl}"><span class="v">${esc(g.key)}</span></td><td data-label="건수"><span class="v">${g.count}</span></td><td data-label="매도 금액"><span class="v">${fmtMoney(g.proceedsKRW, 'KRW')}</span></td><td data-label="매입 원가"><span class="v">${fmtMoney(g.costKRW, 'KRW')}</span></td><td data-label="수수료·세금"><span class="v">${fmtMoney(g.feesKRW, 'KRW')}</span></td><td data-label="실현손익"><span class="v">${money(g.pnlKRW, 'KRW')}</span></td><td data-label="수익률"><span class="v">${pct(g.ret)}</span></td></tr>`).join('')}
@@ -742,7 +762,8 @@ service cloud.firestore {
   A.renderers.settings = function () {
     const s = state.settings;
     const f = (path, label, step) => `<label>${label}<input class="inp" data-setting="${path}" value="${path.split('.').reduce((o, k) => o[k], s)}" inputmode="decimal"></label>`;
-    return `<section class="card"><h2>수수료 · 세금 (%)</h2><p class="hint warn">아래 기본값은 예시입니다. 실제 요율은 증권사·시기에 따라 다르므로 직접 확인해서 고쳐 주세요. 이미 기록된 매도 건은 <b>매도 당시의 금액이 그대로 보존</b>되고, 바꾼 요율은 이후 계산에만 적용됩니다.</p>
+    const T = {};
+    T.basic = `<section class="card"><h2>수수료 · 세금 (%)</h2><p class="hint warn">아래 기본값은 예시입니다. 실제 요율은 증권사·시기에 따라 다르므로 직접 확인해서 고쳐 주세요. 이미 기록된 매도 건은 <b>매도 당시의 금액이 그대로 보존</b>되고, 바꾼 요율은 이후 계산에만 적용됩니다.</p>
       <div class="cols"><div><h4>국내</h4><div class="grid2">${f('kr.buyFee', '매수 수수료')}${f('kr.sellFee', '매도 수수료')}${f('kr.sellTax', '매도 거래세 등')}</div></div>
       <div><h4>해외</h4><div class="grid2">${f('us.buyFee', '매수 수수료')}${f('us.sellFee', '매도 수수료')}${f('us.sellTax', '매도 시 기타 세금')}${f('us.taxRate', '양도세율')}${f('us.deduction', '연 기본공제(원)')}</div></div></div>
       <div class="grid2">${f('fxNow', '현재 환율 (원/$)')}<label>수익 색상<select data-setting="upColor" data-seg>${opts([['red', '빨강 수익 (한국식)'], ['green', '초록 수익 (해외식)']], s.upColor)}</select><small class="muted">한국식: 수익 빨강·손실 파랑 / 해외식: 수익 초록·손실 빨강</small></label></div></section>
@@ -753,9 +774,9 @@ service cloud.firestore {
       ${(s.linkTabHosts || []).length ? `<div class="pinhosts"><small class="muted">새 창으로 고정한 사이트:</small> ${s.linkTabHosts.map((h) => `<span class="pinhost">${esc(h)}<button type="button" data-act="hostUnpin" data-host="${esc(h)}" aria-label="${esc(h)} 고정 해제">${ic('x')}</button></span>`).join('')}</div>` : ''}
       <p class="hint">종목 화면에 보이는 링크입니다. 주소에 <code>{code}</code>(종목코드/티커)와 <code>{name}</code>(종목명)을 넣으면 종목마다 자동으로 바뀝니다. 사이트 주소 형식이 바뀌면 여기서 직접 고치세요.</p>
       ${s.links.map((l, i) => `<div class="linkrow"><input class="inp" data-link="${i}.label" value="${esc(l.label)}" placeholder="이름"><input class="inp wide" data-link="${i}.url" value="${esc(l.url)}" placeholder="https://..."><select class="inp" data-link="${i}.market" aria-label="시장">${opts([['ALL', '전체'], ['KR', '국내'], ['US', '해외']], l.market || 'ALL')}</select><select class="inp" data-link="${i}.open" aria-label="열기 방식">${opts([['default', '기본 방식'], ['tab', '새 창'], ['browser', '브라우저로'], ['app', '앱 안에서']], l.open || 'default')}</select><button class="btn sm danger" data-act="linkDel" data-i="${i}" aria-label="삭제">${ic('x')}</button></div>`).join('')}
-      <div class="btns"><button class="btn" data-act="linkAdd">${ic('plus')}링크 추가</button><button class="btn sm" data-act="linkReset">기본값으로</button></div></section>
-      ${A.autoCard ? A.autoCard() : ''}
-      <section class="card" id="syncCard">${syncCard()}</section>
+      <div class="btns"><button class="btn" data-act="linkAdd">${ic('plus')}링크 추가</button><button class="btn sm" data-act="linkReset">기본값으로</button></div></section>`;
+    T.auto = A.autoCard ? A.autoCard() : '';
+    T.sync = `<section class="card" id="syncCard">${syncCard()}</section>
       <section class="card"><h2>백업 / 복원</h2><p class="hint">동기화를 쓰더라도 정기적으로 백업 파일을 받아두세요. (브라우저 데이터 삭제, 로그인 문제에 대비)</p>
       <label class="chk"><input type="checkbox" id="expImg" checked> 매매 사유의 사진도 백업에 포함 (파일이 커질 수 있습니다)</label>
       <div class="btns"><button class="btn primary" data-act="export">백업 내려받기 (JSON)</button><label class="btn file">백업 불러오기<input type="file" accept=".json,application/json" data-change="import" hidden></label></div>
@@ -767,9 +788,12 @@ service cloud.firestore {
       <li>Authentication → <b>Settings → Authorized domains</b>에 이 앱 주소의 도메인(예: <code>${esc(location.hostname || '아이디.github.io')}</code>)을 추가합니다.</li>
       <li><b>Firestore Database → 데이터베이스 만들기</b> (프로덕션 모드, 지역은 가까운 곳).</li>
       <li>Firestore <b>규칙(Rules)</b> 탭에 아래 내용을 붙여 넣고 <b>게시</b>합니다. 이 규칙이 “내 계정만 내 데이터 접근”을 보장하는 유일한 장치입니다.<pre id="rulesTxt">${esc(RULES)}</pre><button class="btn sm" data-act="copyRules">규칙 복사</button></li>
-      <li>프로젝트 설정(톱니바퀴) → <b>일반 → 내 앱 → 웹 앱(&lt;/&gt;) 추가</b> 후 나오는 <code>firebaseConfig</code> 블록을 위 칸에 붙여 넣습니다.</li></ol></details></section>
-      ${A.updateCard ? A.updateCard() : ''}
+      <li>프로젝트 설정(톱니바퀴) → <b>일반 → 내 앱 → 웹 앱(&lt;/&gt;) 추가</b> 후 나오는 <code>firebaseConfig</code> 블록을 위 칸에 붙여 넣습니다.</li></ol></details></section>`;
+    T.about = `${A.updateCard ? A.updateCard() : ''}
       <section class="card"><h2>이 앱에 대하여</h2><p class="hint">휴대폰에서는 브라우저 메뉴의 “홈 화면에 추가”로 앱처럼 설치할 수 있습니다. 백테스트용 가격 데이터는 용량 때문에 동기화되지 않고 기기별로 저장됩니다. 이 앱의 계산 결과는 참고용이며 투자 판단과 세금 신고의 책임은 사용자에게 있습니다.</p></section>`;
+    const tabs = [['basic', '기본 설정'], ['auto', '자동 수집'], ['sync', '동기화 · 백업'], ['about', '앱 정보']];
+    const cur = T[ui.setTab] !== undefined ? ui.setTab : 'basic';
+    return `<div class="grpseg-wrap"><div class="seg2 grpseg" role="tablist">${tabs.map(([k, l]) => `<button role="tab" aria-selected="${cur === k}" class="${cur === k ? 'on' : ''}" data-act="setTab" data-v="${k}">${l}</button>`).join('')}</div></div>${T[cur]}`;
   };
 
   /* ---------- 이벤트 ---------- */
@@ -777,7 +801,8 @@ service cloud.firestore {
   Object.assign(H, {
     nav: (el) => { ui.view = el.dataset.v; render(); window.scrollTo(0, 0); },
     sideToggle: () => { ui.sideRail = !ui.sideRail; try { localStorage.setItem('stockmgr.sideRail', ui.sideRail ? '1' : '0'); } catch (e) { /* ignore */ } render(); },
-    goSettings: () => { ui.view = 'settings'; render(); },
+    goSettings: (el) => { ui.view = 'settings'; if (el && el.dataset && el.dataset.tab) ui.setTab = el.dataset.tab; render(); window.scrollTo(0, 0); },
+    setTab: (el) => { ui.setTab = el.dataset.v; render(); window.scrollTo(0, 0); },
     tab: (el) => { ui.stockId = el.dataset.id; ui.selected.clear(); render(); },
     addStock: () => stockForm(null),
     editStock: () => stockForm(curStock()),
@@ -854,6 +879,23 @@ service cloud.firestore {
     simForStock: () => { const st = curStock(); if (A.ui.bt) { A.ui.bt.stockId = st.id; A.ui.bt.simTab = 'bt'; if (A.btPickStock) A.btPickStock(st.id); } ui.view = 'backtest'; render(); window.scrollTo(0, 0); },
     note: (el) => openNote(el.dataset.key),
     noteEdit: (el) => editNote(el.dataset.key),
+    divAdd: () => {
+      const st = curStock(); if (!st) return;
+      const us = st.market === 'US', cur = SM.curOf(st);
+      openModal(`<h3>배당 기록 · ${esc(st.name)}</h3>
+        <label>수령일<input type="date" name="date" value="${todayStr()}" required></label>
+        <label>배당금 (세전, ${us ? '달러' : '원'}) <small class="muted">총액 기준</small><input name="gross" inputmode="decimal" data-divcalc placeholder="${us ? '예: 12.5' : '예: 85000'}" required></label>
+        <label>세금 <small class="muted">(비우면 ${us ? '해외 15%' : '국내 15.4%'} 자동)</small><input name="tax" inputmode="decimal" data-divcalc placeholder="자동 계산"></label>
+        ${us ? `<label>환율 (원/$) <small class="muted">비우면 현재 환율 ${fmtNum(state.settings.fxNow, 0)}</small><input name="fx" inputmode="decimal" data-divcalc placeholder="${state.settings.fxNow}"></label>` : ''}
+        <label>메모 (선택)<input name="note" maxlength="100" placeholder="예: 2025 결산배당"></label>
+        <div class="box" id="divPrev"><span class="muted">배당금을 입력하면 세후 수령액이 계산됩니다.</span></div>
+        <div class="btns"><button class="btn primary" type="submit">저장</button><button class="btn" type="button" data-act="closeModal">취소</button></div>`, (fd) => {
+        try { SM.addDividend(st, { date: fd.get('date'), gross: fd.get('gross'), tax: fd.get('tax'), fx: fd.get('fx'), note: fd.get('note') }, state.settings); }
+        catch (e) { return toast(e.message, true); }
+        ui.sec.div = true; save(); closeModal(); render(); toast('배당을 기록했습니다');
+      });
+    },
+    divDel: (el) => { const st = curStock(); if (!st || !confirm('이 배당 기록을 삭제할까요?')) return; SM.removeDividend(st, el.dataset.id); save(); render(); },
     addEvent: () => {
       const st = curStock();
       try { SM.addEvent(st, { date: document.getElementById('evDate').value, kind: document.getElementById('evKind').value, title: document.getElementById('evTitle').value }); }
@@ -990,6 +1032,19 @@ service cloud.firestore {
     },
   });
 
+  // 배당 입력 창: 세후 수령액 미리보기
+  document.addEventListener('input', (e) => {
+    const el = e.target;
+    if (!el || !el.dataset || el.dataset.divcalc === undefined) return;
+    const m = el.closest('.modal'), prev = m && m.querySelector('#divPrev'), st = curStock();
+    if (!prev || !st) return;
+    const us = st.market === 'US', g = num(m.querySelector('[name=gross]').value), tv = m.querySelector('[name=tax]').value, fxEl = m.querySelector('[name=fx]');
+    if (!(g > 0)) { prev.innerHTML = '<span class="muted">배당금을 입력하면 세후 수령액이 계산됩니다.</span>'; return; }
+    const auto = String(tv).trim() === '', tax = auto ? Math.round(g * SM.DIV_TAX[us ? 'US' : 'KR']) / 100 : num(tv);
+    if (!(tax >= 0) || tax > g) { prev.innerHTML = '<span class="warn">세금은 0 이상, 배당금 이하여야 합니다.</span>'; return; }
+    const fx = us ? (num(fxEl && fxEl.value) > 0 ? num(fxEl.value) : state.settings.fxNow) : 1, cur = SM.curOf(st);
+    prev.innerHTML = `세후 수령 <b>${fmtMoney(g - tax, cur)}</b>${us ? ` <small class="muted">(≈ ${fmtMoney((g - tax) * fx, 'KRW')})</small>` : ''}<br><small class="muted">세금 ${fmtMoney(tax, cur)}${auto ? ' (자동 ' + SM.DIV_TAX[us ? 'US' : 'KR'] + '%)' : ''}</small>`;
+  });
   document.addEventListener('toggle', (e) => {
     const d = e.target;
     if (d && d.matches && d.matches('details.sec[data-sec]')) ui.sec[d.dataset.sec] = d.open;

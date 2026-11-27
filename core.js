@@ -80,7 +80,7 @@
     s.noteIdx = obj.noteIdx && typeof obj.noteIdx === 'object' ? obj.noteIdx : {};
     s.lastBackupAt = obj.lastBackupAt || 0;
     s.stocks = (obj.stocks || []).map((st) =>
-      Object.assign({ id: uid(), name: '', code: '', market: 'KR', price: null, priceAt: null, priceSrc: '', lots: [], sales: [], nextNo: 1, events: [], splits: [], watch: false, target: null, watchAt: 0, collect: false, paper: null, plan: [] }, st)
+      Object.assign({ id: uid(), name: '', code: '', market: 'KR', price: null, priceAt: null, priceSrc: '', lots: [], sales: [], nextNo: 1, events: [], splits: [], dividends: [], watch: false, target: null, watchAt: 0, collect: false, paper: null, plan: [] }, st)
     );
     s.stocks.forEach((st) => {
       const maxNo = st.lots.reduce((m, l) => Math.max(m, l.no || 0), 0);
@@ -89,11 +89,14 @@
       const pmax = st.paper.lots.reduce((m, l) => Math.max(m, l.no || 0), 0);
       if (st.paper.nextNo <= pmax) st.paper.nextNo = pmax + 1;
       if (!Array.isArray(st.plan)) st.plan = [];
+      st.dividends = (Array.isArray(st.dividends) ? st.dividends : []).filter((d) => d && /^\d{4}-\d{2}-\d{2}$/.test(String(d.date || '')) && Number(d.gross) > 0)
+        .map((d) => ({ id: d.id || uid(), date: d.date, gross: Number(d.gross), tax: Math.min(Number(d.gross), Math.max(0, Number(d.tax) || 0)), fx: Number(d.fx) > 0 ? Number(d.fx) : 1, note: String(d.note || '').slice(0, 100) }))
+        .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     });
     return s;
   }
   function newStock({ name, code, market, watch }) {
-    return { id: uid(), name: name || '', code: code || '', market: market === 'US' ? 'US' : 'KR', price: null, priceAt: null, priceSrc: '', lots: [], sales: [], nextNo: 1, events: [], splits: [], watch: !!watch, target: null, watchAt: watch ? Date.now() : 0, collect: false, paper: { lots: [], sales: [], nextNo: 1, fee: true }, plan: [] };
+    return { id: uid(), name: name || '', code: code || '', market: market === 'US' ? 'US' : 'KR', price: null, priceAt: null, priceSrc: '', lots: [], sales: [], nextNo: 1, events: [], splits: [], dividends: [], watch: !!watch, target: null, watchAt: watch ? Date.now() : 0, collect: false, paper: { lots: [], sales: [], nextNo: 1, fee: true }, plan: [] };
   }
 
   /* ---------- 순번(lot) ---------- */
@@ -383,7 +386,40 @@
       const taxable = Math.max(0, usYear[y] - us.deduction);
       return { year: y, pnlKRW: usYear[y], taxable, tax: taxable * (us.taxRate / 100), remainDeduction: Math.max(0, us.deduction - Math.max(0, usYear[y])) };
     });
-    return { groups, total, rows, usTax };
+    const div = dividendTotals(state.stocks.filter((st) => !stockId || stockId === 'all' || st.id === stockId), { from, to });
+    return { groups, total, rows, usTax, div };
+  }
+
+  /* ---------- 배당 ---------- */
+  // 기본 원천징수율(%): 국내 배당소득세 15.4%, 해외(미국) 15%. 실제와 다르면 직접 입력합니다.
+  const DIV_TAX = { KR: 15.4, US: 15 };
+  const round2 = (x) => Math.round(x * 100) / 100;
+  function addDividend(stock, { date, gross, tax, fx, note }, settings) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) throw new Error('날짜를 입력하세요.');
+    const g = num(gross);
+    if (!(g > 0)) throw new Error('배당금(세전)을 입력하세요.');
+    const us = stock.market === 'US';
+    const t = tax === '' || tax == null ? round2((g * DIV_TAX[us ? 'US' : 'KR']) / 100) : num(tax);
+    if (!(t >= 0) || t > g) throw new Error('세금은 0 이상, 배당금 이하로 입력하세요.');
+    const rate = us ? (num(fx) > 0 ? num(fx) : (settings && settings.fxNow) || 1) : 1;
+    const d = { id: uid(), date, gross: g, tax: t, fx: rate, note: String(note || '').trim().slice(0, 100) };
+    stock.dividends = (stock.dividends || []).concat([d]).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    return d;
+  }
+  function removeDividend(stock, id) { stock.dividends = (stock.dividends || []).filter((d) => d.id !== id); }
+  // 여러 종목의 배당 합계(원화). from/to 는 수령일 기준. 해외는 입력한 환율로 환산
+  function dividendTotals(stocks, opt = {}) {
+    const out = { grossKRW: 0, taxKRW: 0, netKRW: 0, count: 0, byYear: {} };
+    for (const st of stocks) {
+      for (const d of st.dividends || []) {
+        if (opt.from && d.date < opt.from) continue;
+        if (opt.to && d.date > opt.to) continue;
+        const fx = d.fx || 1, gk = d.gross * fx, tk = d.tax * fx;
+        out.grossKRW += gk; out.taxKRW += tk; out.netKRW += gk - tk; out.count += 1;
+        const y = d.date.slice(0, 4); out.byYear[y] = (out.byYear[y] || 0) + gk - tk;
+      }
+    }
+    return out;
   }
 
 
@@ -683,7 +719,7 @@
 
   Object.assign(SM, {
     paperStock, paperSettings, paperStats, tagPaper, isPre, watchGap, addPlan, removePlan, planPreview,
-    qtyForAmount, lotPreview, compareVersions, setPrice, applyAutoPrice, priceNote, priceAge, splitAdjust, addEvent, removeEvent, upcomingEvents, fillLink, linksFor, portfolio, noteKey, noteKeysOfStock,
+    qtyForAmount, lotPreview, compareVersions, setPrice, applyAutoPrice, priceNote, addDividend, removeDividend, dividendTotals, DIV_TAX, priceAge, splitAdjust, addEvent, removeEvent, upcomingEvents, fillLink, linksFor, portfolio, noteKey, noteKeysOfStock,
     DEFAULT_SETTINGS, uid, todayStr, num, isBlank, daysBetween, fmtNum, fmtMoney, fmtPct, curOf, ratesOf,
     newState, normalizeState, newStock, lotSold, lotRem, lotFeePerShare, addLot, updateLot, deleteLot,
     mergeLots, unmergeLot, splitLot, stockSummary, lotView, computeSale, allocate, remainingAfter,
