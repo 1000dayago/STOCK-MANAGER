@@ -306,6 +306,7 @@
 
     if (st.watch) {
       h += `<section class="card promo"><div class="row between wrap"><div><b>관심 종목입니다</b><div class="hint">아직 실제 매수 기록이 없습니다. 실제로 매수를 기록하면 이 종목은 <b>보유 종목으로 이동</b>합니다.</div></div><button class="btn primary sm" data-act="addLot">${ic('plus')}실제 매수 기록</button></div></section>`;
+      h += A.chartSection ? A.chartSection(st) : ''; // 관심 종목에도 차트(실제 매수 안내 바로 아래)
     } else {
     /* 매수 순번 목록 (작은 리스트) */
     const all = st.lots.slice();
