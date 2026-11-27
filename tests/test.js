@@ -266,6 +266,89 @@ t('금액으로 수량 계산', () => {
   assert.equal(SM.qtyForAmount(kr, '', 100, S, '').qty, 0);
 });
 
+
+const Z = SM.paperSettings(S, false);
+t('관심/가상 장부 기본값, 기존 데이터 호환', () => {
+  const st = SM.normalizeState({ stocks: [{ name: 'old', market: 'KR', lots: [], sales: [] }] }).stocks[0];
+  assert.equal(st.watch, false); assert.deepEqual(st.paper.lots, []); assert.equal(st.paper.nextNo, 1); assert.equal(st.paper.fee, true); assert.deepEqual(st.plan, []);
+  const w = SM.newStock({ name: 'W', market: 'KR', watch: true }); assert(w.watch && w.watchAt > 0 && w.paper.lots.length === 0);
+});
+t('가상 장부: 실제 함수 재사용(순번/매도/삭제/병합), 실제 장부와 분리', () => {
+  const st = SM.newStock({ name: 'W', market: 'KR', watch: true }); st.price = 100000;
+  const pv = SM.paperStock(st);
+  const a = SM.addLot(pv, { date: '2026-10-01', qty: 10, price: 60000, fee: 0 }, Z), b = SM.addLot(pv, { date: '2026-10-20', qty: 20, price: 40000, fee: 0 }, Z);
+  assert.equal(a.no, 1); assert.equal(b.no, 2); assert.equal(st.paper.nextNo, 3); assert.equal(st.lots.length, 0); assert.equal(st.paper.lots.length, 2);
+  SM.tagPaper(a, '2026-11-27'); SM.tagPaper(b, '2026-10-01'); assert.equal(a.pre, false); assert.equal(b.pre, true);
+  const c = SM.computeSale(pv, [{ lotId: b.id, qty: 10 }], { price: 100000, date: '2026-11-01', sellFee: 0, tax: 0 }, Z);
+  approx(c.pnlLocal, 600000); const sale = SM.recordSale(pv, c); SM.tagPaper(sale, '2026-11-27');
+  assert.equal(st.paper.sales.length, 1); assert.equal(st.sales.length, 0); assert.equal(SM.lotRem(pv, b), 10);
+  const c1 = SM.addLot(pv, { date: '2026-11-02', qty: 5, price: 50000, fee: 0 }, Z), d1 = SM.addLot(pv, { date: '2026-11-03', qty: 5, price: 70000, fee: 0 }, Z);
+  const mg = SM.mergeLots(pv, [c1.id, d1.id]); assert.equal(mg.qty, 10); approx(mg.price, 60000); assert.equal(st.paper.lots.length, 3); assert.equal(st.lots.length, 0);
+  SM.unmergeLot(pv, mg.id); assert.equal(st.paper.lots.length, 4);
+  SM.deleteLot(pv, c1.id); assert.equal(st.paper.lots.length, 3);
+  assert.throws(() => SM.deleteLot(pv, b.id));              // 매도 기록이 있는 순번은 삭제 불가
+});
+t('가상 손익 통계: 실현/평가/투입 최대/승률/사전·사후', () => {
+  const st = SM.newStock({ name: 'W', market: 'KR', watch: true }); st.price = 100000;
+  const pv = SM.paperStock(st);
+  const a = SM.addLot(pv, { date: '2026-10-01', qty: 10, price: 60000, fee: 0 }, Z), b = SM.addLot(pv, { date: '2026-10-20', qty: 20, price: 40000, fee: 0 }, Z);
+  SM.tagPaper(a, '2026-12-01'); SM.tagPaper(b, '2026-10-01');   // a: 사후 입력, b: 사전 기록
+  const sale = SM.recordSale(pv, SM.computeSale(pv, [{ lotId: b.id, qty: 10 }], { price: 100000, date: '2026-11-01', sellFee: 0, tax: 0 }, Z)); SM.tagPaper(sale, '2026-12-01');
+  st.paper.fee = false;
+  const p = SM.paperStats(st, S);
+  approx(p.realized, 600000);                                 // 10주 × (100000−40000)
+  approx(p.unrealized, 10 * (100000 - 60000) + 10 * (100000 - 40000)); // 남은 a 10주 + b 10주
+  approx(p.total, 600000 + 400000 + 600000);
+  approx(p.peak, 10 * 60000 + 20 * 40000);                     // 매도 전 최대 투입 1,400,000
+  approx(p.ret, 1600000 / 1400000, 1e-9); assert.equal(p.closed, 1); assert.equal(p.winRate, 1);
+  assert.equal(p.pre.lots, 1); assert.equal(p.post.lots, 1); assert.equal(p.post.sales, 1); approx(p.post.realized, 600000);
+  // 수수료·세금은 입력하는 시점의 금액이 저장됩니다(실제 매매와 동일). 켠 상태로 새로 입력하면 수수료가 붙음
+  const withFee = SM.addLot(SM.paperStock(st), { date: '2026-11-05', qty: 10, price: 50000 }, SM.paperSettings(S, true)); assert(withFee.fee > 0);
+  const noFee = SM.addLot(SM.paperStock(st), { date: '2026-11-05', qty: 10, price: 50000 }, SM.paperSettings(S, false)); assert.equal(noFee.fee, 0);
+});
+t('관심 종목 목표가 거리', () => {
+  const st = SM.newStock({ name: 'W', market: 'KR', watch: true });
+  assert.equal(SM.watchGap(st), null);
+  st.target = 20000; assert.equal(SM.watchGap(st).gap, null);
+  st.price = 22000; approx(SM.watchGap(st).gap, 0.1); assert(!SM.watchGap(st).reached);
+  st.price = 19000; assert(SM.watchGap(st).reached);
+});
+t('분할 매수 계획: 누적 평단/실제 보유 합산/완료 제외', () => {
+  const st = SM.newStock({ name: 'W', market: 'KR', watch: true }); st.price = 21000;
+  SM.addPlan(st, { price: 18000, qty: 20 }); const first = SM.addPlan(st, { price: 20000, qty: 10 });
+  assert.throws(() => SM.addPlan(st, { price: 0, qty: 1 }));
+  const zero = Object.assign({}, S, { kr: { buyFee: 0, sellFee: 0, sellTax: 0 } });
+  let p = SM.planPreview(st, zero);
+  assert.deepEqual(p.steps.map((x) => x.price), [20000, 18000]);                // 가격 높은 순
+  approx(p.steps[0].cumAvg, 20000); approx(p.steps[1].cumAvg, (200000 + 360000) / 30); approx(p.final.avg, 560000 / 30);
+  approx(p.planned, 560000); assert.equal(p.final.qty, 30); approx(p.riseNeeded, 560000 / 30 / 21000 - 1, 1e-9);
+  first.done = true; p = SM.planPreview(st, zero); assert.equal(p.steps.length, 1); approx(p.final.avg, 18000);
+  SM.addLot(st, { date: '2026-10-01', qty: 10, price: 25000, fee: 0 }, zero);     // 실제 보유가 생기면 함께 계산
+  p = SM.planPreview(st, zero); approx(p.base.avg, 25000); approx(p.final.avg, (250000 + 360000) / 30); assert(p.avgChange < 0);
+  SM.removePlan(st, st.plan[0].id); assert.equal(st.plan.length, 1);
+});
+t('액면분할이 가상 장부·계획·목표가에도 적용', () => {
+  const st = SM.newStock({ name: 'W', market: 'KR', watch: true }); st.price = 100000; st.target = 90000;
+  const pv = SM.paperStock(st); SM.addLot(pv, { date: '2026-10-01', qty: 10, price: 60000, fee: 0 }, Z); SM.addPlan(st, { price: 50000, qty: 4 });
+  const before = SM.paperStats(st, S);
+  SM.splitAdjust(st, 5);
+  assert.equal(st.paper.lots[0].qty, 50); approx(st.paper.lots[0].price, 12000); assert.equal(st.plan[0].qty, 20); approx(st.plan[0].price, 10000); approx(st.target, 18000); approx(st.price, 20000);
+  approx(SM.paperStats(st, S).total, before.total);
+});
+t('가격 데이터: 날짜의 종가 찾기, 같은 투입금 단순 보유', () => {
+  const data = { d: ['2026-01-02', '2026-01-05', '2026-01-06'], o: [10, 11, 12], h: [10, 11, 12], l: [10, 11, 12], c: [10, 11, 12], v: [1, 1, 1] };
+  assert.deepEqual([SM.closeOn(data, '2026-01-05').price, SM.closeOn(data, '2026-01-05').exact], [11, true]);
+  const g = SM.closeOn(data, '2026-01-04'); assert.equal(g.price, 10); assert.equal(g.exact, false);   // 휴장 → 직전 거래일
+  assert.equal(SM.closeOn(data, '2025-12-31'), null); assert.equal(SM.closeOn(data, '2026-02-20'), null);
+  const bh = SM.buyHoldFrom(data, '2026-01-02', 1000, Zs(), 'KR'); approx(bh.ret, 12 / 10 - 1, 1e-9); assert.equal(bh.startDate, '2026-01-02');
+  function Zs() { return Object.assign({}, S, { kr: { buyFee: 0, sellFee: 0, sellTax: 0 } }); }
+});
+t('자동 수집 대상 목록: 관심 종목은 켠 것만', () => {
+  require('../data.js');
+  const list = [{ market: 'KR', code: '015760', name: 'A', watch: false }, { market: 'KR', code: '005930', name: 'B', watch: true, collect: false }, { market: 'KR', code: '000660', name: 'C', watch: true, collect: true }, { market: 'US', code: 'AAPL', name: 'D' }, { market: 'KR', code: '12', name: 'E' }];
+  assert.deepEqual(JSON.parse(SM.data.watchJson(list)).stocks.map((x) => x.code), ['015760', '000660']);
+});
+
 console.log(ok + ' passed');
 t('버전 비교', () => {
   assert.equal(SM.compareVersions('1.10.0', '1.9.9'), 1);

@@ -70,16 +70,20 @@
     s.noteIdx = obj.noteIdx && typeof obj.noteIdx === 'object' ? obj.noteIdx : {};
     s.lastBackupAt = obj.lastBackupAt || 0;
     s.stocks = (obj.stocks || []).map((st) =>
-      Object.assign({ id: uid(), name: '', code: '', market: 'KR', price: null, priceAt: null, lots: [], sales: [], nextNo: 1, events: [], splits: [] }, st)
+      Object.assign({ id: uid(), name: '', code: '', market: 'KR', price: null, priceAt: null, lots: [], sales: [], nextNo: 1, events: [], splits: [], watch: false, target: null, watchAt: 0, collect: false, paper: null, plan: [] }, st)
     );
     s.stocks.forEach((st) => {
       const maxNo = st.lots.reduce((m, l) => Math.max(m, l.no || 0), 0);
       if (st.nextNo <= maxNo) st.nextNo = maxNo + 1;
+      st.paper = Object.assign({ lots: [], sales: [], nextNo: 1, fee: true }, st.paper && typeof st.paper === 'object' ? st.paper : {});
+      const pmax = st.paper.lots.reduce((m, l) => Math.max(m, l.no || 0), 0);
+      if (st.paper.nextNo <= pmax) st.paper.nextNo = pmax + 1;
+      if (!Array.isArray(st.plan)) st.plan = [];
     });
     return s;
   }
-  function newStock({ name, code, market }) {
-    return { id: uid(), name: name || '', code: code || '', market: market === 'US' ? 'US' : 'KR', price: null, priceAt: null, lots: [], sales: [], nextNo: 1, events: [], splits: [] };
+  function newStock({ name, code, market, watch }) {
+    return { id: uid(), name: name || '', code: code || '', market: market === 'US' ? 'US' : 'KR', price: null, priceAt: null, lots: [], sales: [], nextNo: 1, events: [], splits: [], watch: !!watch, target: null, watchAt: watch ? Date.now() : 0, collect: false, paper: { lots: [], sales: [], nextNo: 1, fee: true }, plan: [] };
   }
 
   /* ---------- 순번(lot) ---------- */
@@ -447,6 +451,91 @@
     return out;
   }
 
+
+  /* ---------- 관심 종목 / 가상 매매 / 분할 매수 계획 ---------- */
+  // 가상 매매 장부를 실제 장부처럼 다루기 위한 뷰 (addLot/computeSale/stockSummary 등을 그대로 재사용)
+  function paperStock(stock) {
+    const p = stock.paper;
+    const v = {};
+    const def = (k, get, set) => Object.defineProperty(v, k, { get, set: set || (() => {}), enumerable: true });
+    def('lots', () => p.lots, (x) => { p.lots = x; });
+    def('sales', () => p.sales, (x) => { p.sales = x; });
+    def('nextNo', () => p.nextNo, (x) => { p.nextNo = x; });
+    def('price', () => stock.price); def('market', () => stock.market);
+    def('id', () => stock.id); def('name', () => stock.name); def('code', () => stock.code);
+    Object.defineProperty(v, '_real', { value: stock, enumerable: false });
+    return v;
+  }
+  function paperSettings(settings, feeOn) {
+    if (feeOn !== false) return settings;
+    const z = { buyFee: 0, sellFee: 0, sellTax: 0 };
+    return Object.assign({}, settings, { kr: Object.assign({}, settings.kr, z), us: Object.assign({}, settings.us, z) });
+  }
+  // 사전 기록: 거래일이 입력한 날(오늘)과 같거나 이후. 사후 입력: 과거 날짜로 입력(결과를 알고 하는 매매)
+  const isPre = (date, today) => String(date) >= (today || todayStr());
+  function tagPaper(rec, today) { rec.at = Date.now(); rec.pre = isPre(rec.date, today); return rec; }
+  function paperStats(stock, settings) {
+    const pv = paperStock(stock), ps = paperSettings(settings, stock.paper.fee);
+    const sm = stockSummary(pv, ps);
+    const sales = pv.sales, lots = pv.lots;
+    const realized = sales.reduce((a, x) => a + x.pnlLocal, 0), realizedKRW = sales.reduce((a, x) => a + x.pnlKRW, 0);
+    const priced = sm.value != null;
+    const unrealized = priced ? sm.unrl : 0, unrealizedKRW = priced ? sm.unrlKRW : 0;
+    const ev = [];
+    lots.forEach((l) => ev.push({ d: l.date, k: 0, amt: l.qty * l.price + l.fee }));
+    sales.forEach((x) => x.lines.forEach((ln) => ev.push({ d: x.date, k: 1, amt: ln.costLocal })));
+    ev.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : a.k - b.k));
+    let run = 0, peak = 0;
+    for (const e of ev) { run += e.k === 0 ? e.amt : -e.amt; peak = Math.max(peak, run); }
+    const lines = sales.flatMap((x) => x.lines);
+    const wins = lines.filter((l) => l.pnlLocal > 0).length;
+    const grp = (flag) => ({ lots: lots.filter((l) => !!l.pre === flag).length, sales: sales.filter((x) => !!x.pre === flag).length, realized: sales.filter((x) => !!x.pre === flag).reduce((a, x) => a + x.pnlLocal, 0) });
+    const total = realized + unrealized;
+    return {
+      qty: sm.qty, realized, realizedKRW, unrealized, unrealizedKRW, total, totalKRW: realizedKRW + unrealizedKRW,
+      peak, ret: peak > 0 ? total / peak : null, buys: lots.length, sells: sales.length, closed: lines.length, wins,
+      winRate: lines.length ? wins / lines.length : null, priced, empty: !lots.length && !sales.length,
+      pre: grp(true), post: grp(false), firstDate: ev.length ? ev[0].d : null, avg: sm.avg, avgInclFee: sm.avgInclFee,
+    };
+  }
+  function watchGap(stock) {
+    const t = num(stock.target), p = num(stock.price);
+    if (!(t > 0)) return null;
+    if (!(p > 0)) return { target: t, price: null, gap: null, reached: false };
+    return { target: t, price: p, gap: p / t - 1, reached: p <= t };
+  }
+  function addPlan(stock, { price, qty, note }) {
+    const p = num(price), q = num(qty);
+    if (!(p > 0) || !(q > 0)) throw new Error('계획 가격과 수량은 0보다 커야 합니다.');
+    const step = { id: uid(), price: p, qty: q, note: String(note || '').trim(), done: false, paperLot: null };
+    stock.plan = (stock.plan || []).concat([step]);
+    return step;
+  }
+  function removePlan(stock, id) { stock.plan = (stock.plan || []).filter((p) => p.id !== id); }
+  // 아직 실행하지 않은 계획을 가격이 높은 순으로 샀을 때의 누적 평단 (실제 보유 순번이 있으면 함께 계산)
+  function planPreview(stock, settings) {
+    const us = stock.market === 'US', rates = ratesOf(settings, stock.market), fxNow = us ? settings.fxNow : 1;
+    const pend = (stock.plan || []).filter((p) => !p.done).slice().sort((a, b) => b.price - a.price);
+    let qty = 0, noFee = 0, cost = 0;
+    for (const lot of stock.lots) {
+      const rem = lotRem(stock, lot);
+      if (rem <= 0) continue;
+      qty += rem; noFee += rem * lot.price; cost += rem * (lot.price + lotFeePerShare(lot));
+    }
+    const base = { qty, avg: qty > 0 ? noFee / qty : null, avgInclFee: qty > 0 ? cost / qty : null, cost };
+    let planned = 0, plannedQty = 0;
+    const steps = pend.map((p) => {
+      const fee = autoBuyFee(settings, stock.market, p.qty, p.price);
+      qty += p.qty; noFee += p.qty * p.price; cost += p.qty * p.price + fee; planned += p.qty * p.price + fee; plannedQty += p.qty;
+      return { id: p.id, price: p.price, qty: p.qty, note: p.note, paperLot: p.paperLot, fee, total: p.qty * p.price + fee, cumQty: qty, cumAvg: noFee / qty, cumAvgIncl: cost / qty, cumCost: cost };
+    });
+    const final = { qty, avg: qty > 0 ? noFee / qty : null, avgInclFee: qty > 0 ? cost / qty : null, cost };
+    const d = 1 - (rates.sellFee + rates.sellTax) / 100;
+    const breakEven = final.avgInclFee && d > 0 ? final.avgInclFee / d : null;
+    const cur = num(stock.price) > 0 ? num(stock.price) : null;
+    return { base, steps, final, planned, plannedQty, breakEven, riseNeeded: cur && breakEven ? breakEven / cur - 1 : null, avgChange: base.avg && final.avg ? final.avg / base.avg - 1 : null, fxNow };
+  }
+
   /* ---------- 평단가 계산기 ---------- */
   function avgCalc({ baseQty, baseAvg, buys, feeRate }) {
     let qty = num(baseQty), cost = num(baseQty) * num(baseAvg);
@@ -499,6 +588,13 @@
       s.qty = r6(s.qty * r); s.price = s.price / r;
       s.lines.forEach((ln) => { ln.qty = r6(ln.qty * r); ln.lotPrice = ln.lotPrice / r; });
     });
+    const pp = stock.paper;
+    if (pp) {
+      pp.lots.forEach(fix);
+      pp.sales.forEach((x) => { x.qty = r6(x.qty * r); x.price = x.price / r; x.lines.forEach((ln) => { ln.qty = r6(ln.qty * r); ln.lotPrice = ln.lotPrice / r; }); });
+    }
+    (stock.plan || []).forEach((p) => { p.qty = r6(p.qty * r); p.price = p.price / r; });
+    if (stock.target) stock.target = stock.target / r;
     if (stock.price) stock.price = stock.price / r;
     stock.splits = (stock.splits || []).concat([{ date: date || todayStr(), ratio: r }]);
   }
@@ -559,6 +655,7 @@
   }
 
   Object.assign(SM, {
+    paperStock, paperSettings, paperStats, tagPaper, isPre, watchGap, addPlan, removePlan, planPreview,
     qtyForAmount, lotPreview, compareVersions, setPrice, priceAge, splitAdjust, addEvent, removeEvent, upcomingEvents, fillLink, linksFor, portfolio, noteKey, noteKeysOfStock,
     DEFAULT_SETTINGS, uid, todayStr, num, isBlank, daysBetween, fmtNum, fmtMoney, fmtPct, curOf, ratesOf,
     newState, normalizeState, newStock, lotSold, lotRem, lotFeePerShare, addLot, updateLot, deleteLot,

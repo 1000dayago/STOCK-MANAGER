@@ -616,3 +616,39 @@ a.btn .ic:last-child:not(:first-child) { opacity: .6; }
 .prev-bar .pb-s { margin-left: auto; color: var(--muted); font-size: 12px; }
 .prev-bar .ic { vertical-align: -2px; }
 @media (min-width: 700px) { .prev-bar { display: none; } }
+
+/* =====================================================================
+   v1.8 관심 종목 · 가상 매매 · 분할 매수 계획 · 시뮬레이션
+   ===================================================================== */
+.grpseg-wrap { margin: 0 0 10px; }
+.grpseg button { padding: 6px 20px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+.grpseg .count { margin: 0; background: color-mix(in srgb, currentColor 14%, transparent); color: inherit; }
+.wlist { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
+.wrow { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "wn wg" "wp wv"; gap: 2px 10px; padding: 8px 12px; border-top: 1px solid var(--line); cursor: pointer; align-items: center; }
+.wrow:first-child { border-top: 0; }
+.wrow:hover, .wrow.on { background: var(--accent-soft); }
+.wrow:focus-visible { outline-offset: -2px; }
+.wn { grid-area: wn; min-width: 0; } .wg { grid-area: wg; text-align: right; } .wp { grid-area: wp; font-size: 13px; } .wv { grid-area: wv; text-align: right; font-size: 12px; }
+.wt { display: none; font-size: 13px; } .wtm { color: var(--muted); }
+@media (min-width: 760px) {
+  .wrow { grid-template-columns: minmax(150px, 1.4fr) 130px 110px 200px minmax(140px, 1fr); grid-template-areas: "wn wp wt wg wv"; }
+  .wt { display: block; grid-area: wt; } .wtm { display: none; }
+  .wg { text-align: left; } .wv { text-align: right; }
+}
+.chip.hit { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.tag.paper { background: color-mix(in srgb, #8b5cf6 15%, transparent); color: #7c3aed; }
+.tag.pre { background: var(--accent-soft); color: var(--accent); }
+.tag.post { background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
+.tag.real { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+@media (prefers-color-scheme: dark) { .tag.paper { color: #c4b5fd; } }
+.promo { border-style: dashed; }
+.stat .tgt { width: 100px; max-width: 100%; text-align: right; padding: 4px 8px; font-weight: 700; font-size: 14px; }
+.paper-cards, .plan-cards { margin-bottom: 8px; }
+.plantbl td, .plantbl th { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.plantbl td.acts { white-space: normal; text-align: right; }
+.plantbl tr.pn td { border: 0; padding-top: 0; font-size: 12px; white-space: normal; }
+.planform .inp { flex: 1 1 90px; }
+.closerow { margin: 4px 0 2px; align-items: center; }
+.cmpx th, .cmpx td { text-align: right; white-space: normal; } .cmpx th:first-child, .cmpx td:first-child { text-align: left; color: var(--muted); }
+label.chk.inl { margin: 0; font-size: 12px; }
+h4 { display: flex; align-items: center; gap: 6px; }

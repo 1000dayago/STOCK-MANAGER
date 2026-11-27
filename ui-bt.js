@@ -13,8 +13,8 @@
     try { localStorage.setItem(DS_KEY, JSON.stringify(ds)); return true; }
     catch (e) { toast('가격 데이터를 저장할 공간이 부족합니다. 안 쓰는 데이터를 삭제하세요.', true); return false; }
   }
-  const newImp = () => ({ autoNote: '', text: '', headerLine: '', an: null, fileNames: [], dest: 'new', destId: '', name: '', market: 'KR', useAdj: true });
-  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', imp: newImp() });
+  const newImp = () => ({ stockId: '', autoNote: '', text: '', headerLine: '', an: null, fileNames: [], dest: 'new', destId: '', name: '', market: 'KR', useAdj: true });
+  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', stockId: '', imp: newImp() });
   const MAP_KEY = 'stockmgr.colmaps';
   const loadMaps = () => { try { return JSON.parse(localStorage.getItem(MAP_KEY) || '{}'); } catch (e) { return {}; } };
   function rememberCols(an) { try { const m = loadMaps(); m[an.signature] = an.cols; localStorage.setItem(MAP_KEY, JSON.stringify(m)); } catch (e) { /* ignore */ } }
@@ -40,6 +40,7 @@
         }
       }
     }
+    if (!imp.stockId) imp.stockId = bt.stockId || '';
     bt.warn = [];
     A.render();
     toast(kind === 'unknown' ? '열을 자동으로 찾지 못했습니다. 열을 직접 지정하세요.' : '읽었습니다. 아래 내용을 확인하고 저장하세요.', kind === 'unknown');
@@ -73,12 +74,12 @@
     return `수급 데이터: 외국인 ${f('frgn')} · 기관 ${f('inst')} · 개인 ${f('indiv')}${n ? ` (${n}일 매칭)` : ''}`;
   }
 
-  A.renderers.backtest = function () {
+  A.renderers.btMain = function () {
     const ds = loadDS(), keys = Object.keys(ds), cur = curDS(), c = bt.cfg;
     const rangeTxt = cur ? `${cur.data.d[0]} ~ ${cur.data.d[cur.data.d.length - 1]} (${cur.data.d.length}일)` : '';
     const st = strategies();
     const imp = bt.imp;
-    return `<section class="card"><h2>1. 데이터 불러오기 <small class="muted">(가격 · 수급)</small></h2>
+    return `${stockPickHtml()}<section class="card"><h2>1. 데이터 불러오기 <small class="muted">(가격 · 수급)</small></h2>
       <p class="hint">증권사·거래소·포털에서 받은 <b>일봉 파일(CSV)</b>이나 화면의 <b>표를 복사해서 붙여 넣은 것</b>을 읽습니다. 제목 줄 위치와 열 이름(한글·영문)을 자동으로 찾고, 틀리면 아래에서 열을 직접 고를 수 있습니다. 가격·수급이 한 파일에 같이 있어도, 수급만 따로 있어도 됩니다. 엑셀 파일(.xlsx)은 CSV로 저장하거나 표를 복사해서 붙여 넣으세요. 데이터는 용량 때문에 이 기기에만 저장됩니다.</p>
       <div class="row gap wrap"><label class="btn file">${ic('download')}파일 선택 (여러 개 가능)<input type="file" multiple accept=".csv,.txt,.tsv,text/csv,text/plain" data-change="btFiles" hidden></label><button class="btn" type="button" data-act="btRepo">${ic('stocks')}자동 수집 시세 불러오기</button>
         <label class="mini">제목 줄 번호<input class="inp" data-btimp="headerLine" value="${esc(imp.headerLine)}" inputmode="numeric" placeholder="자동" style="width:90px"></label></div>
@@ -86,7 +87,7 @@
       <div class="btns"><button class="btn primary" data-act="btAnalyze">읽기</button>${imp.an ? '<button class="btn" data-act="btImpCancel">취소</button>' : ''}</div>
       ${imp.an ? impPanel() : ''}
       <div id="dsWarn">${bt.warn.map((w) => `<p class="hint warn">${ic('alert')} ${esc(w)}</p>`).join('')}</div>
-      ${keys.length ? `<h4>저장된 데이터</h4><div class="row gap wrap"><select class="inp" data-change="btDS" style="max-width:260px">${opts(keys.map((k) => [k, ds[k].name]), bt.datasetId)}</select><span class="muted">${rangeTxt}</span><button class="btn sm danger" data-act="btDSDel">삭제</button></div><p class="hint">${flowStatus(cur)}</p>` : '<p class="muted">저장된 데이터가 없습니다.</p>'}
+      ${keys.length ? `<h4>저장된 데이터</h4><div class="row gap wrap"><select class="inp" data-change="btDS" style="max-width:260px">${opts(keys.map((k) => [k, dsLabel(k, ds[k])]), bt.datasetId)}</select><span class="muted">${rangeTxt}</span><button class="btn sm danger" data-act="btDSDel">삭제</button></div><p class="hint">${flowStatus(cur)}</p>` : '<p class="muted">저장된 데이터가 없습니다.</p>'}
     </section>
     <section class="card"><h2>2. 전략 설정</h2>
       <p class="hint">조건을 자유롭게 조합하세요. 만든 전략은 이름을 붙여 저장해 두고 나중에 불러오거나 서로 비교할 수 있습니다. (전략은 계정에 저장되어 동기화됩니다)</p>
@@ -149,7 +150,7 @@
     } else if (pv.note) summary = `<p class="hint warn">${ic('alert')} ${esc(pv.note)}</p>`;
     const canNew = kind === 'price' || kind === 'both';
     const dest = canNew ? imp.dest : 'merge';
-    const mergeSel = keys.length ? `<select class="inp" data-change="btImpDest" data-k="destId" style="max-width:260px">${opts(keys.map((k) => [k, ds[k].name]), imp.destId)}</select>` : '<span class="muted">(저장된 데이터 없음)</span>';
+    const mergeSel = keys.length ? `<select class="inp" data-change="btImpDest" data-k="destId" style="max-width:260px">${opts(keys.map((k) => [k, dsLabel(k, ds[k])]), imp.destId)}</select>` : '<span class="muted">(저장된 데이터 없음)</span>';
     return `<div class="box"><b>읽은 결과: ${KIND_TXT[kind]}</b> <small class="muted">· ${an.table.rows.length}행${imp.fileNames.length > 1 ? ` · 파일 ${imp.fileNames.length}개` : ''}${an.fromSaved ? ' · 이전에 지정한 열 설정을 불러왔습니다' : ''}</small>
       <div class="colgrid">${COL_LABELS.map(([k, l]) => sel(k, l)).join('')}</div>
       ${an.cols.adj >= 0 ? `<label class="chk"><input type="checkbox" data-change="btImpAdj" ${imp.useAdj ? 'checked' : ''}> 수정종가 기준으로 시/고/저/종가 보정</label>` : ''}
@@ -157,7 +158,7 @@
       ${kind !== 'unknown' ? `<h4>저장 위치</h4>
         ${imp.autoNote ? `<p class="hint">${ic('bulb')} ${esc(imp.autoNote)}</p>` : '<p class="hint">같은 종목의 다른 기간 데이터라면 “기존 데이터에 이어붙이기”를 선택하세요.</p>'}
         ${canNew ? `<label class="chk"><input type="radio" name="impDest" value="new" data-change="btImpDest" data-k="dest" ${dest === 'new' ? 'checked' : ''}> 새 데이터로 저장</label>
-        ${dest === 'new' ? `<div class="grid2"><label>데이터 이름<input class="inp" data-btimp="name" value="${esc(imp.name)}" placeholder="예: 한국전력"></label><label>시장 (수수료율 기준)<select class="inp" data-change="btImpDest" data-k="market">${opts([['KR', '국내'], ['US', '해외']], imp.market)}</select></label></div>` : ''}` : ''}
+        ${dest === 'new' ? `<div class="grid2"><label>데이터 이름<input class="inp" data-btimp="name" value="${esc(imp.name)}" placeholder="예: 한국전력"></label><label>시장 (수수료율 기준)<select class="inp" data-change="btImpDest" data-k="market">${opts([['KR', '국내'], ['US', '해외']], imp.market)}</select></label><label>연결할 종목 <small class="muted">(선택)</small><select class="inp" data-change="btImpDest" data-k="stockId">${stockOptions(imp.stockId)}</select></label></div>` : ''}` : ''}
         <label class="chk"><input type="radio" name="impDest" value="merge" data-change="btImpDest" data-k="dest" ${dest === 'merge' ? 'checked' : ''} ${keys.length ? '' : 'disabled'}> 기존 데이터에 ${kind === 'flow' ? '수급 합치기' : '이어붙이기(같은 날짜는 새 값으로 덮어씀)'}</label>
         ${dest === 'merge' ? `<div class="row gap wrap">${mergeSel}</div>` : ''}
         <div class="btns"><button class="btn primary" data-act="btImpSave">저장</button></div>` : ''}</div>`;
@@ -234,6 +235,8 @@
     const t = SM.splitTable(csv);
     if (t.error) return toast(t.error, true);
     bt.imp.text = ''; bt.imp.name = ((wl.find((w) => w.code === code) || {}).name || code);
+    const own = A.getState().stocks.find((x) => String(x.code || '').trim() === code);
+    bt.imp.stockId = own ? own.id : bt.stockId || '';
     startImport(t, [`저장소 ${code}.csv`]);
   };
   function decode(buf) {
@@ -290,6 +293,7 @@
           const tgt = ds[imp.destId];
           const mg = SM.mergeDatasets(tgt.data, r.data);
           tgt.data = mg.data;
+          if (imp.stockId && !tgt.stockId) tgt.stockId = imp.stockId;
           msgs.push(`“${tgt.name}”에 합쳤습니다: 새 날짜 ${mg.added}일 추가, 겹치는 ${mg.overlap}일은 새 값으로 덮어썼습니다. (전체 ${mg.data.d.length}일, ${mg.data.d[0]} ~ ${mg.data.d[mg.data.d.length - 1]})`);
           if (mg.keptOHLC) msgs.push('이 표에는 시가·고가·저가(또는 일부)가 없어, 겹치는 날짜의 기존 시가·고가·저가는 그대로 두고 종가·거래량·수급만 갱신했습니다.');
           if (mg.mismatch) msgs.push(`겹치는 날짜 중 ${mg.mismatch}일은 종가가 1% 넘게 달랐습니다. 한쪽이 수정주가가 아니거나 액면분할이 반영 안 됐을 수 있으니 확인하세요.`);
@@ -297,7 +301,7 @@
         } else {
           const id = SM.uid();
           const name = (imp.name || '').trim() || '데이터 ' + new Date().toLocaleDateString('ko-KR');
-          ds[id] = { name, market: imp.market, added: Date.now(), data: r.data };
+          ds[id] = { name, market: imp.market, added: Date.now(), data: r.data, stockId: imp.stockId || null };
           bt.cfg.market = imp.market; targetId = id;
           msgs.push(`${name}: ${r.count}일치 (${r.data.d[0]} ~ ${r.data.d[r.data.d.length - 1]}) 저장했습니다.`);
         }
@@ -306,6 +310,7 @@
       if (!saveDS(ds)) return;
       rememberCols(an);
       bt.datasetId = targetId; bt.result = null; bt.val = null; bt.cmp = null;
+      if (imp.stockId) bt.stockId = imp.stockId;
       bt.imp = newImp(); bt.warn = msgs;
       A.render(); toast('저장했습니다');
     },
@@ -388,6 +393,107 @@
       A.render(); toast(`“${s.name}” 전략을 불러왔습니다`);
     },
   });
+  /* ---------- 시뮬레이션 메뉴: 종목 선택 · 데이터 연결 · 가상 매매 현황 · 비교 ---------- */
+  const stockName = (id) => { const x = A.getState().stocks.find((q) => q.id === id); return x ? x.name : ''; };
+  const dsLabel = (id, d) => d.name + (d.stockId && stockName(d.stockId) ? ' · ' + stockName(d.stockId) : '');
+  function stockOptions(sel) {
+    const all = A.getState().stocks;
+    const grp = (label, list) => (list.length ? `<optgroup label="${label}">${list.map((x) => `<option value="${x.id}" ${x.id === sel ? 'selected' : ''}>${esc(x.name)}${x.code ? ' (' + esc(x.code) + ')' : ''}</option>`).join('')}</optgroup>` : '');
+    return `<option value="">연결 안 함</option>${grp('보유 종목', all.filter((x) => !x.watch))}${grp('관심 종목', all.filter((x) => x.watch))}`;
+  }
+  function linkedDatasets(stockId) { return Object.entries(loadDS()).filter(([, d]) => d.stockId === stockId).sort((a, b) => (b[1].added || 0) - (a[1].added || 0)); }
+  function stockPickHtml() {
+    const stocks = A.getState().stocks;
+    if (!stocks.length) return '';
+    const st = stocks.find((x) => x.id === bt.stockId);
+    const linked = st ? linkedDatasets(st.id) : [];
+    return `<section class="card"><h2>시험할 종목 <small class="muted">관심·보유 종목에서 고르기</small></h2>
+      <div class="row gap wrap"><select class="inp" data-change="btStock" style="max-width:300px" aria-label="시험할 종목">${stockOptions(bt.stockId).replace('연결 안 함', '종목 선택 (선택 사항)')}</select>
+      ${st ? (linked.length ? `<span class="muted">연결된 가격 데이터: ${esc(linked.map(([, d]) => d.name).join(', '))}</span>` : `<span class="stale">연결된 가격 데이터가 없습니다</span>`) : ''}</div>
+      ${st && !linked.length ? `<div class="btns"><button class="btn sm" data-act="btStockRepo">${ic('stocks')}자동 수집 시세로 불러오기</button><button class="btn sm" data-act="btStockFile">${ic('download')}파일로 불러오기</button></div><p class="hint">불러올 때 “${esc(st.name)}”에 자동으로 연결됩니다. 연결해 두면 이 종목을 고를 때 바로 그 데이터로 시험하고, 가상 매매의 “종가 채우기”와 “백테스트와 비교”에도 쓰입니다.</p>` : ''}
+      ${st && linked.length ? `<p class="hint">아래 “2. 전략 설정”에서 이 종목의 데이터로 시험합니다.</p>` : ''}</section>`;
+  }
+  A.btPickStock = (id) => {
+    bt.stockId = id || '';
+    const l = id ? linkedDatasets(id) : [];
+    if (l.length) bt.datasetId = l[0][0];
+    const stk = A.getState().stocks.find((x) => x.id === id);
+    if (stk && l.length) bt.cfg.market = stk.market;
+    bt.result = null; bt.val = null; bt.cmp = null; bt.imp.stockId = id || '';
+  };
+  // 날짜의 종가: 종목에 연결된 가격 데이터 → 자동 수집 시세 순
+  A.closeOn = async (st, date) => {
+    for (const [, d] of linkedDatasets(st.id)) { const r = SM.closeOn(d.data, date); if (r) return Object.assign(r, { src: `가격 데이터 “${d.name}”` }); }
+    const code = String(st.code || '').trim();
+    if (st.market === 'KR' && /^\d{6}$/.test(code)) {
+      try {
+        const wl = await SM.data.watchlist();
+        if (wl.some((w) => w.code === code)) {
+          const csv = await SM.data.pricesCsv(code);
+          const p = csv ? SM.parseOHLCV(csv) : null;
+          const r = p && p.data ? SM.closeOn(p.data, date) : null;
+          if (r) return Object.assign(r, { src: '자동 수집 시세' });
+        }
+      } catch (e) { /* 없음 */ }
+    }
+    return null;
+  };
+
+  A.renderers.backtest = function () {
+    const tabs = `<div class="grpseg-wrap"><div class="seg2 grpseg"><button class="${bt.simTab !== 'paper' ? 'on' : ''}" data-act="simTab" data-v="bt">전략 백테스트</button><button class="${bt.simTab === 'paper' ? 'on' : ''}" data-act="simTab" data-v="paper">가상 매매 현황</button></div></div>`;
+    return tabs + (bt.simTab === 'paper' ? A.paperOverview() : A.renderers.btMain());
+  };
+  A.afterRender.backtest = ((orig) => function () { if (bt.simTab !== 'paper' && orig) orig(); })(A.afterRender.backtest);
+
+  // 가상 매매 vs 백테스트 비교
+  Object.assign(A.handlers, {
+    simTab: (el) => { bt.simTab = el.dataset.v; A.render(); window.scrollTo(0, 0); },
+    btStockRepo: async () => {
+      const st = A.getState().stocks.find((x) => x.id === bt.stockId);
+      const code = st ? String(st.code || '').trim() : '';
+      const wl = await SM.data.watchlist(true);
+      if (!/^\d{6}$/.test(code) || !wl.some((w) => w.code === code)) return toast('이 종목은 자동 수집 대상이 아닙니다. 설정 > 자동 수집에서 대상에 추가하거나 파일로 불러오세요.', true);
+      A.btLoadRepo(code);
+    },
+    btStockFile: () => { bt.imp.stockId = bt.stockId; const inp = document.querySelector('input[data-change=btFiles]'); if (inp) inp.click(); },
+    paperCompare: (el) => {
+      const st = A.getState().stocks.find((x) => x.id === el.dataset.id);
+      const stt = A.getState();
+      const stats = SM.paperStats(st, stt.settings);
+      if (stats.empty) return toast('가상 매매 기록이 없습니다', true);
+      const ds = loadDS();
+      const cand = Object.entries(ds).sort((a, b) => ((b[1].stockId === st.id) - (a[1].stockId === st.id)) || ((b[1].added || 0) - (a[1].added || 0)));
+      if (!cand.length) return toast('비교하려면 먼저 시뮬레이션에서 이 종목의 가격 데이터를 불러오세요.', true);
+      if (!stt.strategies.length) return toast('비교하려면 먼저 시뮬레이션에서 전략을 만들어 이름을 붙여 저장하세요.', true);
+      A.openModal(`<h3>가상 매매 vs 백테스트 · ${esc(st.name)}</h3>
+        <label>가격 데이터<select name="ds">${cand.map(([id, d]) => `<option value="${id}">${esc(dsLabel(id, d))} (${d.data.d[0]} ~ ${d.data.d[d.data.d.length - 1]})</option>`).join('')}</select></label>
+        <label>전략<select name="strat">${stt.strategies.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label>
+        <p class="hint">비교 기간은 첫 가상 매매일(${stats.firstDate})부터 가격 데이터의 마지막 날까지입니다.</p>
+        <div id="cmpOut"></div>
+        <div class="btns"><button class="btn primary" type="submit">비교 실행</button><button class="btn" type="button" data-act="closeModal">닫기</button></div>`, (fd) => {
+        const d = ds[fd.get('ds')], sObj = stt.strategies.find((x) => x.id === fd.get('strat'));
+        const out = document.getElementById('cmpOut');
+        const last = d.data.d[d.data.d.length - 1], from = stats.firstDate;
+        if (from > last) { out.innerHTML = `<p class="hint warn">${ic('alert')} 가격 데이터가 첫 가상 매매일보다 앞에서 끝납니다.</p>`; return; }
+        const cfg = Object.assign(clone(sObj.cfg), { from, to: last, market: st.market });
+        const res = SM.runBacktest(d.data, cfg, stt.settings);
+        const bh = SM.buyHoldFrom(d.data, from, stats.peak, stt.settings, st.market);
+        const cur = SM.curOf(st), na = '<span class="muted">-</span>';
+        if (res.error) { out.innerHTML = `<p class="hint warn">${ic('alert')} ${esc(res.error)}</p>`; return; }
+        const sm = res.summary;
+        out.innerHTML = `<div class="tablewrap"><table class="cmpx"><thead><tr><th></th><th>가상 매매</th><th>전략 “${esc(sObj.name)}”</th><th>단순 보유</th></tr></thead><tbody>
+          <tr><td>기간</td><td>${from} ~ 현재</td><td>${from} ~ ${last}</td><td>${bh ? bh.startDate + ' ~ ' + bh.endDate : na}</td></tr>
+          <tr><td>최대 투입금</td><td>${fmtMoney(stats.peak, cur)}</td><td>${fmtMoney(sm.peakInvested, cur)}</td><td>${fmtMoney(stats.peak, cur)}</td></tr>
+          <tr><td>총 손익</td><td>${money(stats.total, cur)}</td><td>${money(sm.total, cur)}</td><td>${bh ? money(bh.pnl, cur) : na}</td></tr>
+          <tr><td>수익률</td><td>${stats.ret != null ? pct(stats.ret) : na}</td><td>${sm.retOnPeak != null ? pct(sm.retOnPeak) : na}</td><td>${bh ? pct(bh.ret) : na}</td></tr>
+          <tr><td>매수 / 청산</td><td>${stats.buys} / ${stats.closed}</td><td>${sm.buyCount} / ${sm.closed}</td><td>1 / -</td></tr>
+          <tr><td>최대 낙폭</td><td>${na}</td><td>${fmtMoney(sm.mdd, cur)}</td><td>${na}</td></tr></tbody></table></div>
+          <p class="hint">공정한 비교가 아닐 수 있습니다. 가상 매매는 직접 입력한 가격·날짜(평가는 입력한 현재가 ${stats.priced ? '' : '— 현재가 미입력'} 기준)이고, 전략과 단순 보유는 일봉 데이터(다음 날 시가 체결 가정, 마지막 종가 평가)입니다. 사후 입력한 가상 매매는 결과를 알고 넣은 값이라 특히 조심해서 보세요.</p>`;
+      }, true);
+    },
+  });
+  Object.assign(A.changeHandlers, { btStock: (el) => { A.btPickStock(el.value); A.render(); } });
+
   A.inputHandlers.bt = (el) => {
     if (el.dataset.btp) { const [g, i, k] = el.dataset.btp.split('.'); const c = bt.cfg[g].conds[+i]; if (c) c[k] = el.value; }
     else if (el.dataset.btc) bt.cfg[el.dataset.btc] = el.value;

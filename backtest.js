@@ -684,10 +684,32 @@
     return lines;
   }
 
+  // 날짜의 종가(그 날이 휴장이면 직전 거래일, 7일 넘게 비면 null)
+  function closeOn(data, date, maxGapDays) {
+    let lo = 0, hi = data.d.length - 1, idx = -1;
+    while (lo <= hi) { const mid = (lo + hi) >> 1; if (data.d[mid] <= date) { idx = mid; lo = mid + 1; } else hi = mid - 1; }
+    if (idx < 0) return null;
+    if (SM.daysBetween(data.d[idx], date) > (maxGapDays == null ? 7 : maxGapDays)) return null;
+    return { price: data.c[idx], date: data.d[idx], exact: data.d[idx] === date, idx };
+  }
+  // 같은 투입금을 fromDate 다음 거래일 시가(없으면 종가)에 한 번에 사서 끝까지 보유했을 때
+  function buyHoldFrom(data, fromDate, invest, settings, market, toDate) {
+    const rates = SM.ratesOf(settings, market || 'KR');
+    const i0 = data.d.findIndex((d) => d >= fromDate);
+    if (i0 < 0 || !(invest > 0)) return null;
+    let i1 = data.d.length - 1;
+    if (toDate) { const k = data.d.findIndex((d) => d > toDate); if (k >= 0) i1 = k - 1; }
+    if (i1 < i0) return null;
+    const p0 = data.o[i0] || data.c[i0], last = data.c[i1];
+    const sh = invest / (p0 * (1 + rates.buyFee / 100));
+    const pnl = sh * (last * (1 - (rates.sellFee + rates.sellTax) / 100) - p0 * (1 + rates.buyFee / 100));
+    return { pnl, ret: pnl / invest, startDate: data.d[i0], endDate: data.d[i1], p0, last };
+  }
+
   function blankCfg() {
     return { market: 'KR', qty: 10, qtyMode: 'shares', growth: 1, maxInvest: 0, maxLots: 0, fill: 'nextOpen', from: '', to: '', renko: { mode: 'pct', value: 2, period: 14 }, entries: { mode: 'AND', conds: [] }, exits: { mode: 'OR', conds: [] } };
   }
 
-  Object.assign(SM, { parseOHLCV, parseTable, guessFlowCols, mergeFlow, parseDate, splitTable, guessCols, kindOf, analyzeTable, buildDataset, mergeDatasets, sameStockScore, sma, ema, rsi, macd, bollinger, buildRenko, COND_DEFS, runBacktest, runSplitValidation, overlayLines, blankCfg, needsFlow });
+  Object.assign(SM, { parseOHLCV, parseTable, guessFlowCols, mergeFlow, parseDate, splitTable, guessCols, kindOf, analyzeTable, buildDataset, mergeDatasets, sameStockScore, sma, ema, rsi, macd, bollinger, buildRenko, COND_DEFS, runBacktest, runSplitValidation, overlayLines, blankCfg, closeOn, buyHoldFrom, needsFlow });
   if (typeof module !== 'undefined' && module.exports) module.exports = SM;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -50,5 +50,5 @@
     return { owner: m[1], repo, base, actions: `${base}/actions/workflows/collect.yml`, secrets: `${base}/settings/secrets/actions`, editWatch: `${base}/edit/main/data/watchlist.json`, newSecret: `${base}/settings/secrets/actions/new` };
   };
   // 앱의 종목 목록 → 자동 수집 대상 JSON (국내 6자리 코드만)
-  D.watchJson = (stocks) => JSON.stringify({ stocks: stocks.filter((s) => s.market === 'KR' && /^\d{6}$/.test(String(s.code || '').trim())).map((s) => ({ code: String(s.code).trim(), name: s.name })) }, null, 2);
+  D.watchJson = (stocks) => JSON.stringify({ stocks: stocks.filter((s) => s.market === 'KR' && /^\d{6}$/.test(String(s.code || '').trim()) && (!s.watch || s.collect)).map((s) => ({ code: String(s.code).trim(), name: s.name })) }, null, 2);
 })(typeof globalThis !== 'undefined' ? globalThis : this);
