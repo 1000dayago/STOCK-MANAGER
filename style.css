@@ -714,3 +714,4 @@ label > .segsel { margin-top: 2px; }
   .seg label:has(input:checked) { background: var(--accent); color: var(--accent-fg); font-weight: 700; }
   .seg label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -3px; }
 }
+.sh-right .editbtn { flex: none; white-space: nowrap; }

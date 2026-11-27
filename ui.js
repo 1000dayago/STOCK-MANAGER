@@ -275,6 +275,7 @@
     h += `<section class="card stockhead"><div class="sh-top"><div class="sh-title"><b class="sh-name">${esc(st.name)}</b> <small class="muted">${esc(st.code)} · ${us ? '해외 USD' : '국내 KRW'}</small></div>
       <div class="sh-right"><label class="px">현재가<input class="inp" data-change="price" value="${st.price == null ? '' : st.price}" inputmode="decimal" placeholder="입력"></label>
       ${us ? `<label class="px">환율<input class="inp" data-change="fxNow" value="${state.settings.fxNow}" inputmode="decimal"></label>` : ''}
+      <button class="btn sm editbtn" type="button" data-act="editStock" aria-label="종목 수정 (이름·종목코드·시장)">${ic('edit')}수정</button>
       <details class="menu"><summary aria-label="더보기">${ic('more')}</summary><div class="menu-body">${menuItems}</div></details></div></div>
       <div class="sh-sub"><small class="${age > 3 ? 'stale' : 'muted'}">${st.price ? '현재가 ' + (age > 365 ? '입력일 불명' : age === 0 ? '오늘 입력' : age + '일 전 입력') : '현재가를 입력하면 평가손익이 계산됩니다'}</small>
         ${links.map((l) => A.linkA(SM.fillLink(l.url, st), esc(l.label) + ic('ext'), { cls: 'lnk', lid: l.id, title: `${l.label} · ${st.name}` })).join('')}</div>
