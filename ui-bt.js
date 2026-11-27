@@ -125,7 +125,7 @@
     const def = SM.COND_DEFS[c.type];
     return `<div class="cond"><select class="inp" data-change="btType" data-g="${g}" data-i="${i}">${typeOptions(g, c.type)}</select>
       ${def.params.map((p) => p.opts
-        ? `<label class="mini">${p.label}<select class="inp" data-change="btParam" data-g="${g}" data-i="${i}" data-k="${p.k}">${opts(p.opts, c[p.k] != null ? c[p.k] : p.def)}</select></label>`
+        ? `<label class="mini">${p.label}<select class="inp" data-change="btParam" data-g="${g}" data-i="${i}" data-k="${p.k}" data-seg>${opts(p.opts, c[p.k] != null ? c[p.k] : p.def)}</select></label>`
         : `<label class="mini">${p.label}<input class="inp" data-btp="${g}.${i}.${p.k}" value="${esc(c[p.k] != null ? c[p.k] : p.def)}" inputmode="decimal"></label>`).join('')}
       <button class="btn sm danger" type="button" data-act="btDel" data-g="${g}" data-i="${i}" aria-label="삭제">${ic('x')}</button></div>`;
   }
@@ -197,9 +197,9 @@
         <input id="stratName" class="inp" placeholder="전략 이름" value="${esc((st.find((x) => x.id === bt.strategyId) || {}).name || '')}">
         <button class="btn sm primary" data-act="btStratSave">저장</button>${bt.strategyId ? '<button class="btn sm danger" data-act="btStratDel">삭제</button>' : ''}<button class="btn sm" data-act="btStratNew">새로 만들기</button></div>
       <div class="grid2"><label>시작일<input type="date" data-btc="from" value="${c.from}"></label><label>종료일<input type="date" data-btc="to" value="${c.to}"></label>
-      <label>수수료율 기준<select data-change="btTop" data-k="market">${opts([['KR', '국내'], ['US', '해외']], c.market)}</select></label>
-      <label>체결 방식<select data-change="btTop" data-k="fill">${opts([['nextOpen', '신호 다음 날 시가 (현실적)'], ['close', '신호 당일 종가 (낙관적)']], c.fill)}</select></label>
-      <label>매수 단위<select data-change="btTop" data-k="qtyMode">${opts([['shares', '주 수'], ['amount', '금액']], c.qtyMode)}</select></label>
+      <label>수수료율 기준<select data-change="btTop" data-k="market" data-seg>${opts([['KR', '국내'], ['US', '해외']], c.market)}</select></label>
+      <label>체결 방식<select data-change="btTop" data-k="fill" data-seg>${opts([['nextOpen', '신호 다음 날 시가 (현실적)'], ['close', '신호 당일 종가 (낙관적)']], c.fill)}</select></label>
+      <label>매수 단위<select data-change="btTop" data-k="qtyMode" data-seg>${opts([['shares', '주 수'], ['amount', '금액']], c.qtyMode)}</select></label>
       <label>${c.qtyMode === 'amount' ? '신호당 매수 금액' : '신호당 매수 수량(주)'}<input data-btc="qty" value="${esc(c.qty)}" inputmode="decimal"></label>
       <label>순번이 쌓일 때 수량 배수<input data-btc="growth" value="${esc(c.growth)}" inputmode="decimal" placeholder="1 = 항상 같은 수량"></label>
       <label>최대 투입금 (0=제한 없음)<input data-btc="maxInvest" value="${esc(c.maxInvest)}" inputmode="decimal"></label>
@@ -210,7 +210,7 @@
       <h4>매도 조건 <span class="seg"><label><input type="radio" name="xmode" value="OR" data-change="btMode" data-g="exits" ${c.exits.mode !== 'AND' ? 'checked' : ''}> 하나라도(OR)</label> <label><input type="radio" name="xmode" value="AND" data-change="btMode" data-g="exits" ${c.exits.mode === 'AND' ? 'checked' : ''}> 모두 만족(AND)</label></span></h4>
       <p class="hint">“순번별” 조건은 그 순번만 팔고, 그 외 조건이 참이 되면 보유한 순번을 <b>전량 매도</b>합니다. 매도 조건이 없으면 기간 끝까지 보유하고 평가손익만 계산합니다.</p>
       ${c.exits.conds.map((x, i) => condRow('exits', i, x)).join('') || '<p class="muted">매도 조건이 없습니다.</p>'}${adder('exits')}
-      <details><summary>렌코 차트 설정 (렌코 조건에 사용)</summary><div class="grid2"><label>벽돌 크기 기준<select data-change="btRenko" data-k="mode">${opts([['pct', '첫 종가의 N%'], ['fixed', '고정 금액'], ['atr', 'ATR(평균변동폭) × 배수']], c.renko.mode)}</select></label>
+      <details><summary>렌코 차트 설정 (렌코 조건에 사용)</summary><div class="grid2"><label>벽돌 크기 기준<select data-change="btRenko" data-k="mode" data-seg>${opts([['pct', '첫 종가의 N%'], ['fixed', '고정 금액'], ['atr', 'ATR(평균변동폭) × 배수']], c.renko.mode)}</select></label>
       <label>값 (%, 금액, 배수)<input data-btr="value" value="${esc(c.renko.value)}" inputmode="decimal"></label><label>ATR 기간<input data-btr="period" value="${esc(c.renko.period)}" inputmode="decimal"></label></div><p class="hint">일봉 종가로 만든 렌코라서 증권사 렌코 차트와 모양이 다를 수 있습니다.</p></details>
       <div class="box"><label class="chk"><input type="checkbox" data-change="btValidate" ${bt.validate ? 'checked' : ''}> <b>기간 분할 검증</b> — 앞 구간에서 만든 전략이 뒤 구간에서도 통하는지 확인</label>
         ${bt.validate ? `<div class="row gap wrap"><label class="mini">앞 구간 비율 %<input class="inp" data-btsplit="1" value="${bt.splitPct}" inputmode="numeric" style="width:90px"></label><span class="hint">전체 기간의 앞 ${bt.splitPct}%를 “설정용”, 나머지를 “검증용”으로 나눠 각각 돌립니다.</span></div>` : '<p class="hint">조건과 숫자를 마음껏 바꾸다 보면 과거에만 딱 맞는 설정이 만들어지기 쉽습니다. 이 옵션을 켜면 설정하지 않은 구간에서의 결과를 함께 보여줍니다.</p>'}</div>
@@ -262,7 +262,7 @@
       ${kind !== 'unknown' ? `<h4>저장 위치</h4>
         ${imp.autoNote ? `<p class="hint">${ic('bulb')} ${esc(imp.autoNote)}</p>` : '<p class="hint">같은 종목의 다른 기간 데이터라면 “기존 데이터에 이어붙이기”를 선택하세요.</p>'}
         ${canNew ? `<label class="chk"><input type="radio" name="impDest" value="new" data-change="btImpDest" data-k="dest" ${dest === 'new' ? 'checked' : ''}> 새 데이터로 저장</label>
-        ${dest === 'new' ? `<div class="grid2"><label>데이터 이름<input class="inp" data-btimp="name" value="${esc(imp.name)}" placeholder="예: 한국전력"></label><label>시장 (수수료율 기준)<select class="inp" data-change="btImpDest" data-k="market">${opts([['KR', '국내'], ['US', '해외']], imp.market)}</select></label><label>연결할 종목 <small class="muted">(선택)</small><select class="inp" data-change="btImpDest" data-k="stockId">${stockOptions(imp.stockId)}</select></label></div>` : ''}` : ''}
+        ${dest === 'new' ? `<div class="grid2"><label>데이터 이름<input class="inp" data-btimp="name" value="${esc(imp.name)}" placeholder="예: 한국전력"></label><label>시장 (수수료율 기준)<select class="inp" data-change="btImpDest" data-k="market" data-seg>${opts([['KR', '국내'], ['US', '해외']], imp.market)}</select></label><label>연결할 종목 <small class="muted">(선택)</small><select class="inp" data-change="btImpDest" data-k="stockId">${stockOptions(imp.stockId)}</select></label></div>` : ''}` : ''}
         <label class="chk"><input type="radio" name="impDest" value="merge" data-change="btImpDest" data-k="dest" ${dest === 'merge' ? 'checked' : ''} ${keys.length ? '' : 'disabled'}> 기존 데이터에 ${kind === 'flow' ? '수급 합치기' : '이어붙이기(같은 날짜는 새 값으로 덮어씀)'}</label>
         ${dest === 'merge' ? `<div class="row gap wrap">${mergeSel}</div>` : ''}
         <div class="btns"><button class="btn primary" data-act="btImpSave">저장</button></div>` : ''}</div>`;

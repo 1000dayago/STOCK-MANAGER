@@ -86,11 +86,54 @@
     <nav class="nav-bottom">${VIEWS.map(([k, l, nm]) => `<button class="${ui.view === k ? 'on' : ''}" data-act="nav" data-v="${k}"><i>${ic(nm)}</i><span>${l}</span></button>`).join('')}</nav>`;
   }
 
+  /* ---------- 버튼형 선택: data-seg 가 붙은 <select> 를 터치하기 쉬운 버튼 묶음으로 보여 줍니다 ----------
+     선택지가 2~5개이고 짧을 때만 바꾸며(길면 드롭다운 그대로), 실제 <select>는 숨겨 두고 값을 대신 바꿔 'change' 를 보내므로
+     기존 처리 코드와 폼 전송(FormData)이 그대로 동작합니다. */
+  function segOk(sel) {
+    const o = Array.from(sel.options), n = o.length;
+    if (n < 2 || n > 5 || sel.multiple) return false;
+    const lens = o.map((x) => x.textContent.trim().length), sum = lens.reduce((a, b) => a + b, 0), mx = Math.max.apply(null, lens);
+    return n <= 2 ? mx <= 24 && sum <= 48 : mx <= 18 && sum <= 36;
+  }
+  function enhanceSelects(root) {
+    (root || document).querySelectorAll('select[data-seg]:not(.segsel-src)').forEach((sel) => {
+      if (!segOk(sel)) { sel.removeAttribute('data-seg'); return; }
+      const wrap = document.createElement('div');
+      wrap.className = 'segsel' + (sel.disabled ? ' disabled' : '');
+      wrap.setAttribute('role', 'radiogroup');
+      const lab = sel.getAttribute('aria-label') || (sel.closest('label') ? sel.closest('label').firstChild.textContent.trim() : '');
+      if (lab) wrap.setAttribute('aria-label', lab);
+      Array.from(sel.options).forEach((op) => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.setAttribute('role', 'radio'); b.dataset.sv = op.value; b.textContent = op.textContent;
+        b.setAttribute('aria-checked', String(op.value === sel.value));
+        wrap.appendChild(b);
+      });
+      sel.classList.add('segsel-src');
+      sel.insertAdjacentElement('afterend', wrap);
+    });
+  }
+  A.enhanceSelects = enhanceSelects;
+  document.addEventListener('click', (e) => {
+    const b = e.target && e.target.closest ? e.target.closest('.segsel button') : null;
+    if (!b) return;
+    e.preventDefault(); // 감싸는 <label>이 숨은 select 를 건드리지 않게
+    const wrap = b.parentNode, sel = wrap.previousElementSibling;
+    if (!sel || !sel.classList.contains('segsel-src') || wrap.classList.contains('disabled') || sel.disabled) return;
+    if (sel.value === b.dataset.sv) return;
+    sel.value = b.dataset.sv;
+    wrap.querySelectorAll('button').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  let segTimer = 0;
+  new MutationObserver(() => { if (!segTimer) segTimer = requestAnimationFrame(() => { segTimer = 0; enhanceSelects(document); }); }).observe(document.body, { childList: true, subtree: true });
+
   function render() {
     document.body.classList.toggle('up-green', state.settings.upColor === 'green');
     const fn = A.renderers[ui.view] || A.renderers.home;
     const keepScroll = window.scrollY;
     document.getElementById('app').innerHTML = renderChrome(fn());
+    enhanceSelects(document.getElementById('app'));
     if (A.afterRender[ui.view]) A.afterRender[ui.view]();
     window.scrollTo(0, keepScroll);
   }
@@ -357,7 +400,7 @@
     openModal(`<h3>${st ? (watch ? '관심 종목 수정' : '종목 수정') : (watch ? '관심 종목 추가' : '종목 추가')}</h3>
       <label>종목명<input name="name" value="${esc(st ? st.name : '')}" required placeholder="예: 한국전력"></label>
       <label>종목코드/티커 (선택)<input name="code" value="${esc(st ? st.code : '')}" placeholder="예: 015760 / AAPL"></label>
-      <label>시장<select name="market" ${st && st.lots.length ? 'disabled' : ''}>${opts([['KR', '국내 (원화)'], ['US', '해외 (달러, 환율 기록)']], st ? st.market : 'KR')}</select></label>
+      <label>시장<select name="market" data-seg ${st && st.lots.length ? 'disabled' : ''}>${opts([['KR', '국내 (원화)'], ['US', '해외 (달러, 환율 기록)']], st ? st.market : 'KR')}</select></label>
       ${watch ? `<label>목표 매수가 (선택)<input name="target" value="${st && st.target ? st.target : ''}" inputmode="decimal" placeholder="이 가격 이하면 사고 싶다"></label>` : ''}
       ${st && st.lots.length ? '<p class="hint">매수 기록이 있는 종목은 시장을 바꿀 수 없습니다.</p>' : ''}
       <div class="btns"><button class="btn primary" type="submit">저장</button><button class="btn" type="button" data-act="closeModal">취소</button></div>`, (fd) => {
@@ -600,7 +643,7 @@
     }
     const gl = { month: '월별', year: '연도별', stock: '종목별', all: '기간 합계' }[f.group];
     return `<section class="card"><h2>실현 손익</h2>
-      <div class="filters"><label>보기<select data-change="pnlf" data-k="group">${opts([['month', '월별'], ['year', '연도별'], ['stock', '종목별'], ['all', '기간 합계']], f.group)}</select></label>
+      <div class="filters"><label>보기<select data-change="pnlf" data-k="group" data-seg>${opts([['month', '월별'], ['year', '연도별'], ['stock', '종목별'], ['all', '기간 합계']], f.group)}</select></label>
       <label>종목<select data-change="pnlf" data-k="stockId">${opts(stockOpts, f.stockId)}</select></label>
       <label>시작일<input type="date" data-change="pnlf" data-k="from" value="${f.from}"></label>
       <label>종료일<input type="date" data-change="pnlf" data-k="to" value="${f.to}"></label></div>
@@ -632,7 +675,7 @@
     return `<section class="card"><h2>평단가 계산기</h2>
       <p class="hint">“이 종목을 몇 주 더 사면 평단이 얼마가 되는지” 계산합니다. 저장되는 값이 아니라 계산용입니다.</p>
       <div class="grid2"><label>종목에서 불러오기<select data-change="calcLoad"><option value="">직접 입력</option>${state.stocks.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></label>
-      <label>시장 (수수료율)<select data-calc="market">${opts([['KR', '국내'], ['US', '해외']], c.market)}</select></label>
+      <label>시장 (수수료율)<select data-calc="market" data-seg>${opts([['KR', '국내'], ['US', '해외']], c.market)}</select></label>
       <label>현재 보유 수량<input data-calc="baseQty" value="${esc(c.baseQty)}" inputmode="decimal"></label>
       <label>현재 평단가<input data-calc="baseAvg" value="${esc(c.baseAvg)}" inputmode="decimal"></label></div>
       <h4>추가 매수 계획</h4>
@@ -691,9 +734,9 @@ service cloud.firestore {
     return `<section class="card"><h2>수수료 · 세금 (%)</h2><p class="hint warn">아래 기본값은 예시입니다. 실제 요율은 증권사·시기에 따라 다르므로 직접 확인해서 고쳐 주세요. 이미 기록된 매도 건은 <b>매도 당시의 금액이 그대로 보존</b>되고, 바꾼 요율은 이후 계산에만 적용됩니다.</p>
       <div class="cols"><div><h4>국내</h4><div class="grid2">${f('kr.buyFee', '매수 수수료')}${f('kr.sellFee', '매도 수수료')}${f('kr.sellTax', '매도 거래세 등')}</div></div>
       <div><h4>해외</h4><div class="grid2">${f('us.buyFee', '매수 수수료')}${f('us.sellFee', '매도 수수료')}${f('us.sellTax', '매도 시 기타 세금')}${f('us.taxRate', '양도세율')}${f('us.deduction', '연 기본공제(원)')}</div></div></div>
-      <div class="grid2">${f('fxNow', '현재 환율 (원/$)')}<label>수익 색상<select data-setting="upColor">${opts([['red', '수익=빨강, 손실=파랑 (한국식)'], ['green', '수익=초록, 손실=빨강 (해외식)']], s.upColor)}</select></label></div></section>
+      <div class="grid2">${f('fxNow', '현재 환율 (원/$)')}<label>수익 색상<select data-setting="upColor" data-seg>${opts([['red', '빨강 수익 (한국식)'], ['green', '초록 수익 (해외식)']], s.upColor)}</select><small class="muted">한국식: 수익 빨강·손실 파랑 / 해외식: 수익 초록·손실 빨강</small></label></div></section>
       <section class="card"><h2>종목 바로가기 링크</h2>
-      <div class="grid2"><label>링크 열기 방식 <small class="muted">(공시·뉴스 링크 포함)</small><select data-setting="linkMode">${opts([['tab', '새 창으로 열기'], ['browser', '기본 브라우저로 열기 (안드로이드)'], ['app', '앱 안에서 보기 (이 앱의 보기 창)']], s.linkMode)}</select></label></div>
+      <div class="grid2"><label>링크 열기 방식 <small class="muted">(공시·뉴스 링크 포함)</small><select data-setting="linkMode" data-seg>${opts([['tab', '새 창'], ['browser', '기본 브라우저'], ['app', '앱 안에서 보기']], s.linkMode)}</select><small class="muted">새 창: 브라우저 새 탭 · 기본 브라우저: 안드로이드에서 앱 안 임시 탭을 피함 · 앱 안에서 보기: 이 앱의 보기 창(막는 사이트는 안 열림)</small></label></div>
       <p class="hint"><b>홈 화면에 설치한 앱</b>에서는 ‘새 창’이 앱 안의 인앱 탭(위에 X·제목·⋮가 있는 창)으로 열립니다. 이건 휴대폰(안드로이드)이 정하는 동작이라 앱 설정으로 막을 수 없습니다. 안드로이드에서 브라우저 쪽으로 보내려면 <b>기본 브라우저로 열기</b>를 고르세요. 기기에 따라 브라우저 선택 창이 뜰 수도 있고, 안 되는 기기에서는 원래 주소로 열립니다. (PC나 일반 브라우저에서는 새 창과 같습니다.)</p>
       <p class="hint">앱 안에서 보기는 사이트를 이 앱 화면 위에 띄웁니다. <b>네이버·구글 등 많은 사이트가 이 방식을 막아 두어서</b> 화면이 비거나 “연결을 거부했습니다”로 나올 수 있습니다. 그럴 때는 보기 창의 <b>새 창으로 열기</b>를 쓰거나 “이 사이트는 항상 새 창으로”를 눌러 두세요. 링크마다 따로 정하려면 아래 목록의 열기 방식을 바꾸세요.</p>
       ${(s.linkTabHosts || []).length ? `<div class="pinhosts"><small class="muted">새 창으로 고정한 사이트:</small> ${s.linkTabHosts.map((h) => `<span class="pinhost">${esc(h)}<button type="button" data-act="hostUnpin" data-host="${esc(h)}" aria-label="${esc(h)} 고정 해제">${ic('x')}</button></span>`).join('')}</div>` : ''}

@@ -676,3 +676,41 @@ h4 { display: flex; align-items: center; gap: 6px; }
 .linkrow select.inp { flex: 0 1 100px; }
 
 .datainfo { margin-top: 10px; } .datainfo > summary { cursor: pointer; padding: 2px 0; } .datainfo .stats-line { font-size: 13px; }
+
+/* ===== 화면 단계 구분과 버튼형 선택 (v1.16) =====
+   큰 메뉴(하단/사이드 메뉴) > 소메뉴(탭) > 섹션 카드(큰 제목) > 소제목(얇은 선으로 구분) > 입력 순으로 모양을 다르게 합니다. */
+
+/* 소메뉴 탭: 알약 버튼과 달리, 얇은 선이 깔리고 선택한 탭 아래에만 굵은 선이 표시됩니다 */
+.grpseg-wrap { margin: 0 0 12px; }
+.seg2.grpseg, .seg2.autotabs { display: flex; gap: 2px; border: 0; border-radius: 0; border-bottom: 1px solid var(--line); overflow-x: auto; background: transparent; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.seg2.grpseg::-webkit-scrollbar, .seg2.autotabs::-webkit-scrollbar { display: none; }
+.seg2.grpseg button, .seg2.autotabs button { flex: 0 0 auto; min-height: 44px; padding: 10px 16px; border: 0; border-bottom: 3px solid transparent; margin-bottom: -1px; border-radius: 0; background: transparent; color: var(--muted); font-size: 14px; font-weight: 600; white-space: nowrap; }
+.seg2.grpseg button.on, .seg2.autotabs button.on { background: transparent; color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
+
+/* 섹션 안의 소제목: 위에 얇은 실선을 두어 앞 내용과 분리 (카드 맨 위 소제목은 선 없음) */
+.card h4, .modal h4 { margin: 20px 0 10px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 14px; }
+.card > h2 + h4, .card > h4:first-child, .card > .sec-h + h4, .modal h3 + h4, .modal h4:first-child { margin-top: 10px; padding-top: 0; border-top: 0; }
+.card > h2 { padding-bottom: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+.card > h2:only-child, .card.empty > h2 { padding-bottom: 0; border-bottom: 0; }
+
+/* 버튼형 선택: 선택지가 적을 때 드롭다운 대신 한 번에 누르는 버튼 묶음 */
+select.segsel-src { display: none; }
+.segsel { display: flex; width: 100%; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
+.segsel button { flex: 1 1 0; min-width: 0; min-height: 42px; padding: 8px 6px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--fg); font: inherit; font-size: 14px; line-height: 1.25; text-align: center; white-space: normal; word-break: keep-all; cursor: pointer; }
+.segsel button:first-child { border-left: 0; }
+.segsel button[aria-checked="true"] { background: var(--accent); color: var(--accent-fg); font-weight: 700; }
+.segsel button:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.segsel.disabled { opacity: .5; pointer-events: none; }
+label > .segsel { margin-top: 2px; }
+.cond label.mini:has(.segsel) { flex: 1 1 100%; }
+.cond label.mini .segsel button { min-height: 38px; font-size: 13px; }
+
+/* 라디오 묶음(모두 만족/하나라도 등)도 같은 모양의 버튼으로 */
+@supports selector(:has(*)) {
+  .seg { display: inline-flex; margin-left: 10px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); font-weight: 400; vertical-align: middle; }
+  .seg label { position: relative; margin: 0; padding: 7px 12px; min-height: 36px; align-items: center; border-left: 1px solid var(--line); color: var(--muted); font-size: 13px; cursor: pointer; }
+  .seg label:first-child { border-left: 0; }
+  .seg label input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0; cursor: pointer; }
+  .seg label:has(input:checked) { background: var(--accent); color: var(--accent-fg); font-weight: 700; }
+  .seg label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -3px; }
+}
