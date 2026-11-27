@@ -9,7 +9,7 @@
     us: { buyFee: 0.25, sellFee: 0.25, sellTax: 0, taxRate: 22, deduction: 2500000 },
     fxNow: 1400,
     upColor: 'red',
-    linkMode: 'tab', // 링크 열기: 'tab'(새 창) | 'app'(앱 안에서 보기)
+    linkMode: 'tab', // 링크 열기: 'tab'(새 창) | 'browser'(기본 브라우저, 안드로이드) | 'app'(앱 안에서 보기)
     linkTabHosts: [], // 앱 안에서 열리지 않아 새 창으로 고정한 사이트
     // {code}, {name} 자리표시자는 종목 정보로 바뀝니다. 설정에서 수정/추가할 수 있습니다.
     links: [
@@ -66,7 +66,7 @@
       us: Object.assign(d.us, o.us || {}),
       fxNow: o.fxNow || d.fxNow,
       upColor: o.upColor || d.upColor,
-      linkMode: o.linkMode === 'app' ? 'app' : 'tab',
+      linkMode: ['app', 'browser'].includes(o.linkMode) ? o.linkMode : 'tab',
       linkTabHosts: Array.isArray(o.linkTabHosts) ? o.linkTabHosts.filter((h) => typeof h === 'string') : [],
       links: Array.isArray(o.links) ? o.links : d.links,
     };

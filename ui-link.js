@@ -9,13 +9,24 @@
   const hostOf = (url) => { try { return new URL(url, location.href).hostname.replace(/^www\./, ''); } catch (e) { return ''; } };
   const isHttp = (url) => { try { return /^https?:$/.test(new URL(url, location.href).protocol); } catch (e) { return false; } };
 
-  // 열기 방식 결정: 링크별 지정(새 창/앱 안) > 새 창으로 고정한 사이트 > 전체 설정
+  const MODES = ['tab', 'browser', 'app'];
+  A.isAndroid = () => /Android/i.test(navigator.userAgent || '');
+  // 안드로이드에서 앱(홈 화면 앱) 밖의 기본 브라우저로 보내는 인텐트 주소. 처리할 앱이 없으면 원래 주소로 열립니다.
+  A.intentUrl = (url) => {
+    const u = new URL(url, location.href);
+    return `intent://${u.host}${u.pathname}${u.search}#Intent;scheme=${u.protocol.replace(':', '')};action=android.intent.action.VIEW;S.browser_fallback_url=${encodeURIComponent(u.href)};end`;
+  };
+  A.openExternal = (url) => {
+    if (A.isAndroid()) { location.href = A.intentUrl(url); return; }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+  // 열기 방식 결정: 링크별 지정 > 새 창으로 고정한 사이트 > 전체 설정
   A.linkMode = (url, link) => {
     if (!isHttp(url)) return 'tab';
-    if (link && (link.open === 'tab' || link.open === 'app')) return link.open;
+    if (link && MODES.includes(link.open)) return link.open;
     const st = S().settings;
     if ((st.linkTabHosts || []).includes(hostOf(url))) return 'tab';
-    return st.linkMode === 'app' ? 'app' : 'tab';
+    return MODES.includes(st.linkMode) ? st.linkMode : 'tab';
   };
   // 새 창 링크가 기본 동작(우클릭·길게 누르기·Ctrl+클릭도 정상 동작)이고, 앱 안에서 보기는 클릭 때 가로챕니다.
   A.linkA = (url, label, opt) => {
@@ -42,7 +53,7 @@
     el.innerHTML = `<div class="vw-head"><button type="button" class="btn sm" data-vw="close">${ic('x')}닫기</button>
         <div class="vw-title"><b>${esc(title || host)}</b><small class="muted">${esc(host)}</small></div>
         <button type="button" class="btn sm" data-vw="reload" title="다시 불러오기">${ic('download')}<span class="vw-lbl">새로고침</span></button>
-        <a class="btn sm primary" href="${esc(url)}" target="_blank" rel="noopener noreferrer" data-vw="ext">${ic('ext')}새 창으로 열기</a></div>
+        <a class="btn sm primary" href="${esc(url)}" target="_blank" rel="noopener noreferrer" data-vw="ext">${ic('ext')}${A.isAndroid() ? '브라우저로 열기' : '새 창으로 열기'}</a></div>
       <div class="vw-hint" id="vwHint">${ic('info')}<span>화면이 비어 있거나 “연결을 거부했습니다”로 나오면 이 사이트는 앱 안에서 열 수 없는 사이트입니다.</span>
         <button type="button" class="btn sm" data-vw="pin">이 사이트는 항상 새 창으로</button><button type="button" class="vw-x" data-vw="hint" aria-label="안내 닫기">${ic('x')}</button></div>
       <div class="vw-body"><div class="vw-loading" id="vwLoading">불러오는 중…</div>
@@ -61,6 +72,7 @@
       const b = e.target.closest('[data-vw]');
       if (!b) return;
       const a = b.dataset.vw;
+      if (a === 'ext') { if (A.isAndroid()) { e.preventDefault(); A.openExternal(url); } return; }
       if (a === 'close') closeView(false);
       else if (a === 'reload') { const f = el.querySelector('#vwFrame'); const u = f.src; f.src = 'about:blank'; setTimeout(() => { f.src = u; }, 30); }
       else if (a === 'hint') el.querySelector('#vwHint').remove();
@@ -68,7 +80,7 @@
         const st = S().settings;
         if (host && !(st.linkTabHosts || []).includes(host)) { st.linkTabHosts = (st.linkTabHosts || []).concat([host]); A.save(); }
         A.toast(`${host} 은(는) 앞으로 새 창으로 엽니다`);
-        window.open(url, '_blank', 'noopener,noreferrer');
+        A.openExternal(url);
         closeView(false);
       }
     });
@@ -79,7 +91,9 @@
     const a = e.target.closest && e.target.closest('a[data-vlink]');
     if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     const link = a.dataset.lid ? (S().settings.links || []).find((l) => l.id === a.dataset.lid) : null;
-    if (A.linkMode(a.href, link) !== 'app') return;
+    const mode = A.linkMode(a.href, link);
+    if (mode === 'browser') { if (!A.isAndroid()) return; e.preventDefault(); A.openExternal(a.href); return; } // 안드로이드 외에서는 새 창과 동일
+    if (mode !== 'app') return;
     e.preventDefault();
     A.openViewer(a.href, a.dataset.vtitle || '');
   });

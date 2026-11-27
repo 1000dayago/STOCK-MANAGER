@@ -356,6 +356,7 @@ t('링크 열기 설정 기본값/정규화', () => {
   const e = SM.normalizeState({ settings: { linkMode: 'app', linkTabHosts: ['a.com', 5, 'b.com'] } });
   assert.equal(e.settings.linkMode, 'app'); assert.deepEqual(e.settings.linkTabHosts, ['a.com', 'b.com']);
   assert.equal(SM.normalizeState({ settings: { linkMode: 'weird' } }).settings.linkMode, 'tab');
+  assert.equal(SM.normalizeState({ settings: { linkMode: 'browser' } }).settings.linkMode, 'browser');
 });
 
 console.log(ok + ' passed');
