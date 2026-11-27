@@ -558,7 +558,7 @@
     for (const c of allConds) {
       if (c.type === 'flow') {
         const who = c.who === 'both' ? ['frgn', 'inst'] : [c.who];
-        for (const w of who) if (!data[w]) errors.push(`${{ frgn: '외국인', inst: '기관', indiv: '개인' }[w]} 수급 데이터가 없습니다. 백테스트 화면에서 수급 데이터를 먼저 불러오세요.`);
+        for (const w of who) if (!data[w]) errors.push(`${{ frgn: '외국인', inst: '기관', indiv: '개인' }[w]} 수급 데이터가 없습니다. 선택한 데이터에 수급이 합쳐져 있지 않습니다. 시뮬레이션 › 1. 데이터 불러오기에서 “자동 수집 시세·수급 불러오기” 또는 수급 파일로 먼저 합치세요.`);
       }
     }
     if (!entryConds.length) errors.push('매수 조건을 1개 이상 추가하세요.');
