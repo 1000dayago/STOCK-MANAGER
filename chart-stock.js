@@ -284,12 +284,14 @@
         ctx.restore(); ctx.setLineDash([]);
         for (const bu of bs) {
           const i = firstIdxOnOrAfter(b.d, bu.date); if (i < from || i > to) continue;
-          const x = X(i), y = Y(b.l[i]) + 7; ctx.fillStyle = '#2563eb'; ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x - 5, y + 4); ctx.lineTo(x + 5, y + 4); ctx.closePath(); ctx.fill();
-          ctx.fillStyle = T.fg; ctx.textAlign = 'center'; ctx.fillText(cycleLabel(cy.no, bu.seq), x, y + 13); ctx.textAlign = 'left';
+          const x = X(i), y = Y(b.l[i]) + 11; ctx.fillStyle = '#2563eb'; ctx.beginPath(); ctx.arc(x, y, 7.5, 0, Math.PI * 2); ctx.fill(); // 매수: 파란 원 안에 B
+          ctx.fillStyle = '#fff'; ctx.font = 'bold 10px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'center'; ctx.fillText('B', x, y + 0.5);
+          ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif'; ctx.fillStyle = T.fg; ctx.fillText(cycleLabel(cy.no, bu.seq), x, y + 17); ctx.textAlign = 'left';
         }
         if (!cy.open && iE >= from && iE <= to) { // 전량 매도 ▼ + 수익률
-          const x = X(iE), y = Y(b.h[iE]) - 7, good = (cy.ret || 0) >= 0; ctx.fillStyle = good ? T.up : T.down; ctx.beginPath(); ctx.moveTo(x, y + 5); ctx.lineTo(x - 5, y - 4); ctx.lineTo(x + 5, y - 4); ctx.closePath(); ctx.fill();
-          ctx.textAlign = 'center'; ctx.fillText(`${cy.no}✓${cy.ret != null ? ' ' + (cy.ret >= 0 ? '+' : '') + (cy.ret * 100).toFixed(1) + '%' : ''}`, Math.min(W - PR - 24, Math.max(PL + 24, x)), y - 11); ctx.textAlign = 'left';
+          const x = X(iE), y = Y(b.h[iE]) - 11, good = (cy.ret || 0) >= 0; ctx.fillStyle = good ? T.up : T.down; ctx.beginPath(); ctx.arc(x, y, 7.5, 0, Math.PI * 2); ctx.fill(); // 매도: 원 안에 S(이익이면 상승색, 손실이면 하락색)
+          ctx.fillStyle = '#fff'; ctx.font = 'bold 10px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'center'; ctx.fillText('S', x, y + 0.5); ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif'; ctx.fillStyle = good ? T.up : T.down;
+          ctx.fillText(`${cy.no}✓${cy.ret != null ? ' ' + (cy.ret >= 0 ? '+' : '') + (cy.ret * 100).toFixed(1) + '%' : ''}`, Math.min(W - PR - 24, Math.max(PL + 24, x)), y - 17); ctx.textAlign = 'left';
         }
       }
       // 최고·최저 표시 (현재 종가 대비 %)

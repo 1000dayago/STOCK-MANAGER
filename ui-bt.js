@@ -356,7 +356,7 @@
     <section class="card chartfirst">
       ${rpHtml()}
       ${A.chartSection ? A.chartSection(null, `<div id="rpState" class="rp rp-statebox" ${rp.on ? '' : 'hidden'}>${rp.on ? rpStateHtml() : ''}</div>`) : '<canvas id="btCandle" class="chart"></canvas>'}
-      <p class="hint">파란 ▲ 아래 숫자는 <b>사이클-매수 순서</b>입니다(1 = 1사이클 첫 매수, 1-2 = 1사이클 두 번째 매수). 주황 선은 평단, 초록 점선은 목표가, ▼는 전량 매도입니다.</p>
+      <p class="hint"><b>파란 B 원</b>은 매수, 그 아래 숫자는 <b>사이클-매수 순서</b>입니다(1 = 1사이클 첫 매수, 1-2 = 두 번째 매수). <b>S 원</b>은 전량 매도(이익이면 상승색, 손실이면 하락색)이고 옆에 수익률이 붙습니다. 주황 선은 평단, 초록 점선은 목표가입니다.</p>
     </section>
     <section class="card">
       <div class="cards cards4">
@@ -394,7 +394,7 @@
   function rpStateHtml() {
     const x = rpData(); if (!x) return ''; const { r, data } = x, st = SM.replayState(r, data, rp.cur), cur = r.cfg.market === 'US' ? 'USD' : 'KRW';
     if (!st) return '<p class="muted">이 날짜 이전 데이터가 없습니다.</p>';
-    const ev = st.today.map((e) => (e.t === 'buy' ? `<span class="ev buy">▲ ${e.label} 매수 ${fmtNum(e.price, 2)} × ${fmtNum(e.qty, 0)}주</span>` : `<span class="ev sell">▼ 매도 ${fmtNum(e.price, 2)} × ${fmtNum(e.qty, 0)}주 (${fmtMoney(e.pnl, cur)})</span>`)).join('');
+    const ev = st.today.map((e) => (e.t === 'buy' ? `<span class="ev buy">B ${e.label} 매수 ${fmtNum(e.price, 2)} × ${fmtNum(e.qty, 0)}주</span>` : `<span class="ev sell">S 매도 ${fmtNum(e.price, 2)} × ${fmtNum(e.qty, 0)}주 (${fmtMoney(e.pnl, cur)})</span>`)).join('');
     return `<div class="rp-date"><b>${st.date}</b><span>종가 ${fmtNum(st.close, 2)}</span>${st.cyc ? `<span>${st.cyc}사이클 · ${st.buyCount}번째 매수까지</span>` : '<span class="muted">보유 없음</span>'}</div>
       <div class="rp-grid"><div><small>보유</small><b>${st.qty ? fmtNum(st.qty, 0) + '주' : '-'}</b></div><div><small>평단</small><b>${st.avg ? fmtNum(st.avg, 2) : '-'}</b></div><div><small>투입금</small><b>${st.qty ? fmtMoney(st.cost, cur) : '-'}</b></div>
         <div><small>평가손익</small><b class="${st.unrealized >= 0 ? 'pos' : 'neg'}">${st.qty ? fmtMoney(st.unrealized, cur) + (st.avg ? ` (${(((st.close / st.avg) - 1) * 100).toFixed(1)}%)` : '') : '-'}</b></div><div><small>실현손익</small><b class="${st.realized >= 0 ? 'pos' : 'neg'}">${fmtMoney(st.realized, cur)}</b></div><div><small>완료 사이클</small><b>${st.cyclesDone}번</b></div></div>
