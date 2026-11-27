@@ -113,6 +113,12 @@ t('백테스트: 수급 데이터 없으면 안내 / 거래량 없으면 안내'
   assert(/수급 데이터/.test(SM.runBacktest(data, mk([{ type: 'flow', who: 'frgn', dir: 'buy', mode: 'day', v: 1 }], []), S).error));
   assert(/매수 조건/.test(SM.runBacktest(data, mk([], []), S).error));
 });
+t('재생: cutRaw는 모든 배열을 같은 길이로 자름', () => {
+  const raw = { d: ['2025-01-01', '2025-01-02', '2025-01-03'], o: [1, 2, 3], h: [1, 2, 3], l: [1, 2, 3], c: [1, 2, 3], v: [1, 1, 1], frgn: [5, null, 7], hasVol: true, flowUnit: 'shares' };
+  const a = SM.cutRaw(raw, '2025-01-02'); assert.deepEqual(a.d, ['2025-01-01', '2025-01-02']); assert.deepEqual(a.frgn, [5, null]); assert.equal(a.hasVol, true); assert.equal(a.flowUnit, 'shares');
+  assert.equal(SM.cutRaw(raw, '2025-01-10').d.length, 3); assert.equal(SM.cutRaw(raw, '2024-12-31').d.length, 0); assert.equal(raw.d.length, 3); // 원본은 그대로
+  assert.equal(SM.cutRaw(raw, '2025-01-02').c.length, 2);
+});
 t('배수 분할매수(물타기) 사이클: 10주→20주→40주, 평단 +5% 전량 매도 후 재시작', () => {
   const cl = [100, 100, 89, 79, 85, 90, 90, 90], d = { d: [], o: cl.slice(), h: cl.slice(), l: cl.slice(), c: cl.slice(), v: cl.map(() => 1000), hasVol: true, hasHL: true };
   const dt = new Date('2024-01-01'); cl.forEach(() => { d.d.push(dt.toISOString().slice(0, 10)); dt.setDate(dt.getDate() + 1); });
@@ -136,6 +142,14 @@ t('배수 분할매수(물타기) 사이클: 10주→20주→40주, 평단 +5% �
     const sma5 = SM.sma(px, 5), sma15 = SM.sma(px, 15), crossIdx = []; for (let i = 15; i < px.length; i++) if (sma5[i - 1] >= sma15[i - 1] && sma5[i] < sma15[i]) crossIdx.push(i);
     assert(rr.cycles.every((x) => crossIdx.includes(x.endIdx)), '모든 사이클 종료일은 데드크로스 날짜'); assert(rr.cycles[0].buys.length >= 1);
   }
+  // 사이클 통계(평균·최대·분포)와 재생용 도우미
+  assert.equal(r.cycleStats.avgLots, 3); assert.equal(r.cycleStats.maxLotsDone, 3); assert.equal(r.cycleStats.maxQty, 70); assert.equal(r.cycleStats.avgQty, 70); assert.deepEqual(r.cycleStats.dist, { 3: 1 }); assert(Math.abs(r.cycleStats.maxInvestDone - c.peakInv) < 1e-9);
+  assert.deepEqual(c.buys.map((b) => b.lot), [1, 2, 3]);
+  { const a = SM.cyclesAsOf(r.cycles.concat([r.openCycle]), d.d[3]); // 4번째 날(79에서 3번째 매수) 시점: 1사이클은 아직 진행 중
+    assert.equal(a.length, 1); assert.equal(a[0].open, true); assert.equal(a[0].buys.length, 3); assert.equal(a[0].endDate, d.d[3]); const a2 = SM.cyclesAsOf(r.cycles, d.d[2]); assert.equal(a2[0].buys.length, 2); // 3번째 매수는 d[3] 종가에 체결되므로 d[2] 시점에는 없음
+    const b = SM.cyclesAsOf(r.cycles.concat([r.openCycle]), d.d[7]); assert.equal(b.length, 2); assert.equal(b[0].open, undefined); assert.equal(b[1].open, true); }
+  { const st = SM.replayState(r, d, d.d[3]); assert.equal(st.buyCount, 3); assert.equal(st.qty, 70); assert(Math.abs(st.avg - 5940 / 70) < 1e-9); assert.equal(st.cyc, 1); assert.equal(st.close, 79); assert(st.unrealized < 0); assert.equal(st.realized, 0); assert.deepEqual(st.today.map((x) => x.label), ['1-3']);
+    const sd = SM.replayState(r, d, d.d[5]); assert.equal(sd.qty, 0); assert(sd.realized > 0); assert.equal(sd.buyCount, 0); assert.equal(sd.cyclesDone, 1); assert.equal(sd.today[0].t, 'sell'); assert.equal(SM.replayState(r, d, '2000-01-01'), null); }
   const lim = SM.runBacktest(d, Object.assign({}, cfg, { maxLots: 2 }), S); assert.equal(lim.cycleStats.maxLots, 2); // 최대 순번 제한
 });
 t('분할매수 조건/최대투입금/수량증가', () => {

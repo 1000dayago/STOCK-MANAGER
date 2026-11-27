@@ -101,25 +101,45 @@ function fixtures() {
     ok('데이터 정보: 가격·수급 일수 표시', /가격 360일/.test(await page.textContent('details.datainfo summary')));
     const r = await page.evaluate(() => { const A = SM.app, d = A.ui.bt.repo.cache['003490'].data, cfg = Object.assign(SM.blankCfg(), { qty: 10, entries: { mode: 'AND', conds: [{ type: 'flow', who: 'frgn', dir: 'buy', mode: 'streak', n: 2, v: 0 }] } }); const o = SM.runBacktest(d, cfg, SM.DEFAULT_SETTINGS()); return o.error || o.summary.buyCount; });
     ok('수급(외국인 연속 순매수) 조건 시뮬레이션 실행', typeof r === 'number' && r > 0, r);
-    { // 배수 분할매수(물타기) 프리셋 → 채우기 → 실행 → 사이클 분석
-      await page.evaluate(() => { document.querySelector('.mgbox').open = true; });
+    { // 물타기 전략(간단 입력) → 실행 → 사이클 분석 → 재생
+      if (process.env.SIM_SHOT1) await page.screenshot({ path: process.env.SIM_SHOT1, fullPage: true });
       await page.fill('[data-btmg=qty]', '10'); await page.fill('[data-btmg=growth]', '2'); await page.fill('[data-btmg=drop]', '3'); await page.fill('[data-btmg=target]', '2'); await page.fill('[data-btmg=maxInvest]', '50,000,000');
-      await page.click('[data-act=btMgApply]'); await page.waitForTimeout(200);
-      const cf = await page.evaluate(() => { const c = SM.app.ui.bt.cfg; return { q: c.qty, g: c.growth, mi: c.maxInvest, e: c.entries.conds.map((x) => [x.type, x.pct, x.basis]), x: c.exits.conds.map((x) => [x.type, x.dir, x.pct]) }; });
-      ok('프리셋 채우기: 10주·2배·3% 하락마다 추가·평단 +2% 전량 매도·투입금 한도', cf.q === 10 && cf.g === 2 && cf.mi === 50000000 && JSON.stringify(cf.e) === '[["dropLast",3,"last"]]' && JSON.stringify(cf.x) === '[["avgPct","up",2]]', cf);
-      await page.selectOption('[data-change=btMgExit]', 'cross').catch(async () => { await page.click('.mgbox .segsel button:has-text("데드크로스")'); }); await page.waitForTimeout(150);
-      await page.fill('[data-btmg=s]', '5'); await page.fill('[data-btmg=l]', '15'); await page.click('[data-act=btMgApply]'); await page.waitForTimeout(200);
-      { const xc = await page.evaluate(() => SM.app.ui.bt.cfg.exits.conds.map((x) => [x.type, x.ma, x.s, x.l, x.dir])); ok('프리셋 매도 방식: 5일선이 15일선 데드크로스(단순 이동평균, 아래로 이탈)', JSON.stringify(xc) === '[["maCross","sma",5,15,"down"]]', xc); }
+      await page.click('[data-act=btRun]'); await page.waitForSelector('table.cyc', { timeout: 10000 });
+      const cf = await page.evaluate(() => { const c = SM.app.ui.bt.result.cfg; return { q: c.qty, g: c.growth, mi: c.maxInvest, e: c.entries.conds.map((x) => [x.type, x.pct, x.basis]), x: c.exits.conds.map((x) => [x.type, x.dir, x.pct]) }; });
+      ok('물타기 입력 → 실행: 10주·2배·3% 하락마다 추가·평단 +2% 전량 매도·투입금 한도', cf.q === 10 && cf.g === 2 && cf.mi === 50000000 && JSON.stringify(cf.e) === '[["dropLast",3,"last"]]' && JSON.stringify(cf.x) === '[["avgPct","up",2]]', cf);
+      await page.selectOption('[data-change=btMgExit]', 'cross').catch(async () => { await page.click('.sim .ios-row .segsel button:has-text("데드크로스")'); }); await page.waitForTimeout(150);
+      await page.fill('[data-btmg=s]', '5'); await page.fill('[data-btmg=l]', '15');
       await page.click('[data-act=btRun]'); await page.waitForSelector('table.cyc', { timeout: 10000 });
       const ct = await page.textContent('#view, main, body'); ok('결과에 사이클 분석(소요일·최대 투입금)이 표시됨', /사이클 분석/.test(ct) && /최대 투입금/.test(ct) && (await page.$$eval('table.cyc tr.cycrow', (e) => e.length)) >= 1, ct.slice(ct.indexOf('사이클 분석'), ct.indexOf('사이클 분석') + 200));
       await page.waitForSelector('#chartHost canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(500);
       ok('시뮬레이션 결과에도 종목 차트(이동평균·수급·거래량 설정, 일/주/월 전환)가 있음', (await page.$('#chartCard [data-act=chartTf]')) !== null && (await page.$('#chartCard .chartopts')) !== null && (await page.$$eval('#chartHost canvas', (e) => e.length)) === 1 && (await page.$('#btCandle')) === null);
-      ok('사이클 목록은 간략(사이클·기간·매수·손익 4열)하고 세부는 모두 기본 숨김', (await page.$$eval('table.cyc > thead th', (e) => e.map((x) => x.textContent).join())) === '사이클,기간,매수,손익' && (await page.$$eval('tr.cycdet', (e) => e.length > 0 && e.every((x) => x.hidden))));
+      ok('사이클 목록은 간략(사이클·매수·투입금·손익 4열)하고 세부는 모두 기본 숨김', (await page.$$eval('table.cyc > thead th', (e) => e.map((x) => x.textContent).join())) === '사이클,매수,투입금,손익' && (await page.$$eval('tr.cycdet', (e) => e.length > 0 && e.every((x) => x.hidden))));
       const dn = await page.$eval('tr.cycdet', (e) => e.hidden); await page.click('tr.cycrow'); await page.waitForTimeout(100);
       if (process.env.CYC_SHOT) await (await page.$('table.cyc')).screenshot({ path: process.env.CYC_SHOT });
       const det = await page.$eval('tr.cycdet', (e) => ({ hidden: e.hidden, t: e.textContent.replace(/\s+/g, ' ') })), row = await page.$eval('tr.cycrow', (e) => e.getAttribute('aria-expanded'));
       ok('사이클 줄을 누르면 매수마다의 평단·목표가·수익이 펼쳐짐(1, 1-2…, 매도 ✓)', dn === true && det.hidden === false && row === 'true' && /평단/.test(det.t) && /가격 × 수량/.test(det.t) && /최대 투입금/.test(det.t) && /✓ 매도|진행 중/.test(det.t), det.t.slice(0, 300));
       await page.click('tr.cycrow'); ok('다시 누르면 접힘', (await page.$eval('tr.cycdet', (e) => e.hidden)) === true);
+      { const cfgx = await page.evaluate(() => SM.app.ui.bt.result.cfg.exits.conds.map((x) => [x.type, x.ma, x.s, x.l, x.dir]));
+        ok('매도 방식 데드크로스: 5일선이 15일선 아래로(단순 이동평균)로 실행', JSON.stringify(cfgx) === '[["maCross","sma",5,15,"down"]]', cfgx);
+        ok('결과 순서: 차트가 맨 위, 사이클 분석이 그 아래', await page.evaluate(() => { const c = document.getElementById('chartCard'), y = document.querySelector('table.cyc'); return !!(c.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING); }));
+        const top = await page.evaluate(() => [...document.querySelectorAll('.cards4 .stat span')].map((e) => e.textContent).join('|'));
+        ok('사이클 요약: 매수 횟수·쓴 돈·산 수량·청산까지(평균, 최대)와 횟수 분포', /매수 횟수\(평균\)/.test(top) && /쓴 돈\(평균\)/.test(top) && /산 수량\(평균\)/.test(top) && /청산까지\(평균\)/.test(top) && (await page.$$('.dist-r')).length >= 1, top);
+        ok('청산된 순번 표는 사이클이 있으면 기본으로 접혀 있음', await page.evaluate(() => { const d = [...document.querySelectorAll('details.box')].find((x) => /청산된 순번/.test(x.textContent.slice(0, 40))); return !!d && !d.open; })); }
+      { // 재생(리플레이): 시작일 이전은 모두 보이고 이후는 한 봉씩, 배속·주봉
+        const nBars = () => page.evaluate(() => SM.app._chart().state.bars.d.length), full = await nBars();
+        if (process.env.SIM_SHOT2) { await page.click('[data-act=rpStart]'); await page.waitForSelector('#rpSlider'); for (let i = 0; i < 4; i++) await page.click('[data-act=rpStep][data-v="1"]'); await page.waitForTimeout(200); await page.screenshot({ path: process.env.SIM_SHOT2, fullPage: false }); if (process.env.SIM_SHOT3) { await page.click('[data-act=chartMonths][data-v="3"]'); await page.waitForTimeout(200); await (await page.$('.chartfirst')).screenshot({ path: process.env.SIM_SHOT3 }); } await page.click('[data-act=rpEnd]'); }
+        await page.click('[data-act=rpStart]'); await page.waitForSelector('#rpSlider'); await page.waitForTimeout(150);
+        const n0 = await nBars(), rp0 = await page.evaluate(() => SM.app._rp.cur);
+        ok('재생 시작: 시작일까지의 봉만 보이고 그 뒤는 숨겨짐(미래 봉 없음)', n0 < full && (await page.evaluate(() => { const b = SM.app._chart().state.bars; return b.d[b.d.length - 1] <= SM.app._rp.cur; })), [n0, full]);
+        ok('재생 상태 표시(날짜·종가·보유·평단·평가손익)', /종가/.test(await page.textContent('#rpState')) && /실현손익/.test(await page.textContent('#rpState')));
+        await page.click('[data-act=rpStep][data-v="1"]'); await page.waitForTimeout(100); ok('한 봉 앞으로: 봉이 1개 늘고 날짜가 바뀜', (await nBars()) === n0 + 1 && (await page.evaluate(() => SM.app._rp.cur)) > rp0);
+        await page.click('[data-act=rpStep][data-v="-1"]'); await page.waitForTimeout(100); ok('한 봉 뒤로', (await nBars()) === n0);
+        await page.click('[data-act=rpSpeed][data-v="30"]'); await page.click('[data-act=rpPlay]'); await page.waitForFunction(() => !SM.app._rp.playing, null, { timeout: 15000 });
+        ok('30배속 재생: 끝날짜까지 가서 자동 정지, 슬라이더도 끝', (await page.evaluate(() => SM.app._rp.cur === SM.app._rp.end)) && (await nBars()) === full && (await page.$eval('#rpSlider', (e) => e.value === e.max)));
+        await page.click('[data-act=rpRestart]'); await page.click('[data-act=chartTf][data-v=W]'); await page.waitForTimeout(150);
+        const w0 = await nBars(); await page.click('[data-act=rpUnit][data-v=week]'); await page.click('[data-act=rpStep][data-v="1"]'); await page.waitForTimeout(100);
+        const d1 = await page.evaluate(() => SM.app._rp.cur); ok('주봉으로 재생: 한 주씩 앞으로', (await page.evaluate(() => SM.app._chart().state.bars.d.length)) >= w0 && d1 > rp0);
+        await page.click('[data-act=chartTf][data-v=D]'); await page.click('[data-act=rpEnd]'); await page.waitForTimeout(150); ok('종료: 전체 봉이 다시 보임', (await nBars()) === full && (await page.$('[data-act=rpStart]')) !== null); }
       await page.click('[data-act=chartMonths][data-v="0"]'); await page.waitForTimeout(300); await (await page.$('#chartCard')).screenshot({ path: process.env.BT_SHOT || '/tmp/bt_chart.png' });
     }
     ok('3) 오류 없음', errs.length === 0, errs); await ctx.close(); }

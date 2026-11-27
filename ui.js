@@ -132,6 +132,7 @@
     document.body.classList.toggle('up-green', state.settings.upColor === 'green');
     const fn = A.renderers[ui.view] || A.renderers.home;
     const keepScroll = window.scrollY;
+    document.body.classList.toggle('ios-sim', ui.view === 'backtest'); // 시뮬레이션 화면은 아이폰 느낌의 색·모양
     document.getElementById('app').innerHTML = renderChrome(fn());
     enhanceSelects(document.getElementById('app'));
     if (ui.view === 'stocks' && A.mountChart) A.mountChart();

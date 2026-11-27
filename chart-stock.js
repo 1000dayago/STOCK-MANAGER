@@ -117,6 +117,12 @@
       });
     }).sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
   }
+  // raw(일봉 묶음)에서 date 이하의 날짜만 남김(모든 배열을 같은 길이로 자름)
+  function cutRaw(raw, date) {
+    let t = -1; for (let lo = 0, hi = raw.d.length - 1; lo <= hi;) { const mid = (lo + hi) >> 1; if (raw.d[mid] <= date) { t = mid; lo = mid + 1; } else hi = mid - 1; }
+    const out = {}; for (const k of Object.keys(raw)) out[k] = Array.isArray(raw[k]) && raw[k].length === raw.d.length ? raw[k].slice(0, t + 1) : raw[k];
+    return out;
+  }
   // 사이클 매수 표시 글자: 사이클의 첫 매수는 "1", 두 번째부터 "1-2", "1-3"…
   const cycleLabel = (no, seq) => (seq > 1 ? `${no}-${seq}` : String(no));
   // 증감 패널의 세로 눈금. 두 계열(각각 값 배열)을 한 패널에 그릴 때의 위치 계산.
@@ -145,7 +151,7 @@
   // 날짜 배열(오름차순)에서 date 이후 첫 위치. 마지막 날짜보다 뒤면 -1
   function firstIdxOnOrAfter(dates, date) { let lo = 0, hi = dates.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (dates[mid] < date) lo = mid + 1; else hi = mid; } return lo < dates.length ? lo : -1; }
 
-  Object.assign(SM, { cycleLabel, chgScale, earningsSeries, earningsAsOf, estimateFiled, yoyOf, chartFmtEok: fmtEok, chartYoyText: yoyText, chartFirstIdx: firstIdxOnOrAfter, aggregateBars, chartSma: sma, chartBollinger: bollinger, chartWindow: windowRange, chartCumulative: cumulative, chartBarsForMonths: barsForMonths, chartExtremes: extremes, chartNiceTicks: niceTicks, chartFmtCompact: fmtCompact });
+  Object.assign(SM, { cutRaw, cycleLabel, chgScale, earningsSeries, earningsAsOf, estimateFiled, yoyOf, chartFmtEok: fmtEok, chartYoyText: yoyText, chartFirstIdx: firstIdxOnOrAfter, aggregateBars, chartSma: sma, chartBollinger: bollinger, chartWindow: windowRange, chartCumulative: cumulative, chartBarsForMonths: barsForMonths, chartExtremes: extremes, chartNiceTicks: niceTicks, chartFmtCompact: fmtCompact });
 
   /* ================= 그리기 · 조작 ================= */
   if (typeof document === 'undefined') return;
@@ -163,7 +169,7 @@
     canvas.className = 'stockchart';
     canvas.style.touchAction = 'pan-y'; // 세로 스크롤은 페이지가, 가로 드래그·핀치는 차트가
     host.appendChild(canvas);
-    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, chg: false, chgScale: 'zero', cycles: null, cycleTarget: 0, earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
+    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, reveal: null, rawFull: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, chg: false, chgScale: 'zero', cycles: null, cycleTarget: 0, earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
 
     function rebuild(keepWindow) {
       if (!S.raw) { S.bars = null; return; }
@@ -261,7 +267,7 @@
         ctx.fillStyle = T.fg; ctx.textAlign = 'center'; ctx.fillText(String(lt.no), x, y + 13); ctx.textAlign = 'left';
       }
       // 시뮬레이션 사이클: 사이클 구간 띠 · 평단·목표가 계단선 · 매수 ▲(사이클-순번) · 전량 매도 ▼
-      for (const cy of S.cfg.cycles || []) {
+      for (const cy of (S.reveal ? SM.cyclesAsOf(S.cfg.cycles || [], S.reveal) : S.cfg.cycles) || []) {
         const iS = firstIdxOnOrAfter(b.d, cy.startDate), iE = cy.endDate ? firstIdxOnOrAfter(b.d, cy.endDate) : -1, iEnd = iE < 0 ? n - 1 : iE;
         if (iS < 0 || iEnd < from || iS > to) continue;
         const xs = Math.max(PL, X(Math.max(iS, from)) - bw / 2), xe = Math.min(W - PR, X(Math.min(iEnd, to)) + bw / 2), tint = cy.no % 2 ? '37,99,235' : '217,119,6';
@@ -510,7 +516,9 @@
 
     return {
       state: S,
-      setData(raw) { S.raw = raw; rebuild(false); draw(); },
+      setData(raw) { S.rawFull = raw; S.raw = S.reveal ? cutRaw(raw, S.reveal) : raw; rebuild(false); draw(); },
+      // 재생: date까지의 봉만 보이게(그 뒤는 숨김), null이면 전체. 창은 항상 마지막 봉을 따라감
+      setReveal(date) { S.reveal = date || null; S.cross = null; if (S.rawFull) { S.raw = S.reveal ? cutRaw(S.rawFull, S.reveal) : S.rawFull; rebuild(false); draw(); } },
       setTf(tf) { // 보이는 기간(개월)은 유지한 채 봉 단위만 바꿉니다
         const per = (t) => (t === 'W' ? 4.35 : t === 'M' ? 1 : 21), months = S.count / per(S.tf);
         S.tf = tf; rebuild(false); const n = S.bars.d.length;

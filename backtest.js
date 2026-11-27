@@ -631,7 +631,7 @@
       if (!cyc) cyc = { no: cycles.length + 1, buys: [], startIdx: i, startDate: data.d[i], lots: 0, maxLots: 0, peakInv: 0, qty: 0, realized: 0, worst: 0, firstPrice: price, lowPrice: price };
       cyc.lots++; cyc.qty += qty; cyc.maxLots = Math.max(cyc.maxLots, open.length); cyc.peakInv = Math.max(cyc.peakInv, invested()); cyc.lowPrice = Math.min(cyc.lowPrice, price);
       { const q = open.reduce((a, l) => a + l.qty, 0), cost = open.reduce((a, l) => a + l.qty * l.price, 0); // 이 매수 직후의 보유 수량·평단(수수료 제외)
-        cyc.buys.push({ i, date: data.d[i], seq, price, qty, cumQty: q, cost: invested(), avg: cost / q, close: data.c[i] }); }
+        cyc.buys.push({ lot: lotNo, i, date: data.d[i], seq, price, qty, cumQty: q, cost: invested(), avg: cost / q, close: data.c[i] }); }
     }
     function execSell(lot, i, price, reason) {
       const k = open.indexOf(lot);
@@ -727,8 +727,9 @@
     const wins = trades.filter((t) => t.pnl > 0).length;
     let openCycle = null;
     if (cyc) openCycle = Object.assign({}, cyc, { open: true, endDate: data.d[endIdx], days: SM.daysBetween(cyc.startDate, data.d[endIdx]), unrealized: unrl, lastPrice: lastC, ret: cyc.peakInv > 0 ? (cyc.realized + unrl) / cyc.peakInv : null });
-    const cd = cycles.map((x) => x.days);
-    const cycleStats = { count: cycles.length, avgDays: cd.length ? cd.reduce((a, b) => a + b, 0) / cd.length : null, maxDays: cd.length ? Math.max(...cd) : null, minDays: cd.length ? Math.min(...cd) : null, maxLots: Math.max(0, ...cycles.map((x) => x.maxLots), openCycle ? openCycle.maxLots : 0), maxInvest: Math.max(0, ...cycles.map((x) => x.peakInv), openCycle ? openCycle.peakInv : 0), worst: Math.min(0, ...cycles.map((x) => x.worst), openCycle ? openCycle.worst : 0), wins: cycles.filter((x) => x.realized > 0).length };
+    const cd = cycles.map((x) => x.days), avg = (a) => (a.length ? a.reduce((p, q) => p + q, 0) / a.length : null), mx = (a) => (a.length ? Math.max(...a) : null);
+    const dist = {}; for (const x of cycles) dist[x.lots] = (dist[x.lots] || 0) + 1; // 몇 번 매수하고 청산됐는지의 분포
+    const cycleStats = { count: cycles.length, avgDays: cd.length ? cd.reduce((a, b) => a + b, 0) / cd.length : null, maxDays: cd.length ? Math.max(...cd) : null, minDays: cd.length ? Math.min(...cd) : null, maxLots: Math.max(0, ...cycles.map((x) => x.maxLots), openCycle ? openCycle.maxLots : 0), maxInvest: Math.max(0, ...cycles.map((x) => x.peakInv), openCycle ? openCycle.peakInv : 0), worst: Math.min(0, ...cycles.map((x) => x.worst), openCycle ? openCycle.worst : 0), wins: cycles.filter((x) => x.realized > 0).length, avgLots: avg(cycles.map((x) => x.lots)), avgInvest: avg(cycles.map((x) => x.peakInv)), avgQty: avg(cycles.map((x) => x.qty)), maxQty: mx(cycles.map((x) => x.qty)), maxLotsDone: mx(cycles.map((x) => x.lots)), maxInvestDone: mx(cycles.map((x) => x.peakInv)), dist };
     return {
       cycles, openCycle, cycleStats, cfg, trades, buys, sells, equity, startIdx, endIdx, renko: renkoCache,
       summary: {
@@ -796,6 +797,22 @@
     return { market: 'KR', qty: 10, qtyMode: 'shares', growth: 1, maxInvest: 0, maxLots: 0, fill: 'nextOpen', from: '', to: '', renko: { mode: 'pct', value: 2, period: 14 }, entries: { mode: 'AND', conds: [] }, exits: { mode: 'OR', conds: [] } };
   }
 
+  // 재생용: 기준 날짜(date)까지 일어난 일만 보이도록 사이클을 잘라 줍니다(그 뒤의 매수·매도는 숨김, 아직 안 끝난 사이클은 진행 중으로)
+  function cyclesAsOf(cycles, date) {
+    return (cycles || []).filter((c) => c.startDate <= date).map((c) => (c.endDate && !c.open && c.endDate <= date ? c : Object.assign({}, c, { buys: (c.buys || []).filter((b) => b.date <= date), open: true, endDate: date, ret: null, sellPrice: null })));
+  }
+  // 재생용: 기준 날짜 시점의 보유 상태(보유 수량·평단·투입금·평가손익·실현손익·오늘 일어난 매수/매도)
+  function replayState(r, data, date) {
+    let t = -1; for (let i = 0; i < data.d.length && data.d[i] <= date; i++) t = i;
+    if (t < 0) return null;
+    const lots = r.buys.map((b, k) => ({ no: k + 1, date: data.d[b.i], price: b.price, qty: b.qty, cyc: b.cyc, seq: b.seq })).filter((l) => l.date <= date);
+    const done = new Set(r.trades.filter((x) => x.sellDate <= date).map((x) => x.no)), open = lots.filter((l) => !done.has(l.no));
+    const qty = open.reduce((a, l) => a + l.qty, 0), cost = open.reduce((a, l) => a + l.qty * l.price, 0), close = data.c[t], avg = qty ? cost / qty : null;
+    const realized = r.trades.filter((x) => x.sellDate <= date).reduce((a, x) => a + x.pnl, 0), unrealized = qty ? (close - avg) * qty : 0;
+    const today = [].concat(lots.filter((l) => l.date === data.d[t]).map((l) => ({ t: 'buy', label: SM.cycleLabel ? SM.cycleLabel(l.cyc, l.seq) : `${l.cyc}-${l.seq}`, price: l.price, qty: l.qty })), r.trades.filter((x) => x.sellDate === data.d[t]).map((x) => ({ t: 'sell', no: x.no, price: x.sellPrice, qty: x.qty, pnl: x.pnl })));
+    return { date: data.d[t], idx: t, close, qty, cost, avg, buyCount: open.length, cyc: open.length ? open[open.length - 1].cyc : null, unrealized, realized, total: realized + unrealized, today, cyclesDone: (r.cycles || []).filter((c) => c.endDate <= date).length };
+  }
+  Object.assign(SM, { cyclesAsOf, replayState });
   Object.assign(SM, { dataInfo, detectFlowUnit, parseOHLCV, parseTable, guessFlowCols, mergeFlow, parseDate, splitTable, guessCols, kindOf, analyzeTable, buildDataset, mergeDatasets, sameStockScore, sma, ema, rsi, macd, bollinger, buildRenko, COND_DEFS, runBacktest, runSplitValidation, overlayLines, blankCfg, closeOn, buyHoldFrom, needsFlow });
   if (typeof module !== 'undefined' && module.exports) module.exports = SM;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

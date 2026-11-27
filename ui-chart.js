@@ -30,7 +30,7 @@
 
   let chart = null, mountedFor = null, loadSeq = 0;
 
-  A.chartSection = (st) => {
+  A.chartSection = (st, afterCanvas) => {
     const open = ui.sec.chart !== undefined ? ui.sec.chart : true;
     const seg = (attr, items, cur) => `<div class="seg2 chartseg" role="group">${items.map(([v, l]) => `<button type="button" class="${String(cur) === String(v) ? 'on' : ''}" data-act="${attr}" data-v="${v}">${l}</button>`).join('')}</div>`;
     return `<details class="card sec chartcard" id="chartCard" data-sec="chart" ${open ? 'open' : ''}><summary><span class="st">차트 <small class="muted">가격 · 수급</small></span><span class="chev"></span></summary><div class="sec-b">
@@ -41,6 +41,7 @@
       </div>
       <div class="chartread" id="chartRead" aria-live="polite"><span class="muted">차트를 불러오는 중…</span></div>
       <div class="chartwrap" id="chartHost"></div>
+      ${afterCanvas || ''}
       <div class="chartmsg" id="chartMsg"></div>
       <div class="earnbar" id="earnBar" hidden><span class="muted">영업이익(분기, DART)</span>${seg('chartEarn', [['line', '선그래프'], ['table', '표'], ['off', '끄기']], prefs.earnView)}</div>
       <div class="earnbar" id="chgBar" hidden><span class="muted">전년 동기 대비 증감</span>${seg('chartChg', [['on', '켜기'], ['off', '끄기']], prefs.chg ? 'on' : 'off')}${seg('chartChgScale', [['zero', '0 맞춘 분리'], ['same', '같은 눈금']], prefs.chgScale)}</div>
@@ -175,5 +176,8 @@
     const o = curOpts();
     if (chart && o) chart.setConfig(o);
   });
+  A.chartReveal = (date) => { if (chart) chart.setReveal(date); }; // 시뮬레이션 재생: date까지만 표시(null이면 전체)
+  A.chartSetTf = (tf) => { if (!chart) return; prefs.tf = tf; savePrefs(); chart.setTf(tf); };
+  A._chart = () => chart; // 테스트용
   A._chartPrefs = () => prefs; // 테스트용
 })(typeof globalThis !== 'undefined' ? globalThis : this);
