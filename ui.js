@@ -958,6 +958,13 @@ service cloud.firestore {
       const path = el.dataset.setting.split('.'); let o = state.settings;
       for (let i = 0; i < path.length - 1; i++) o = o[path[i]];
       const k = path[path.length - 1];
+      if (k === 'collectFrom' || k === 'collectTo') {
+        const v = String(el.value || '').trim(), other = k === 'collectFrom' ? o.collectTo : o.collectFrom;
+        const bad = v && (!/^\d{4}-\d{2}-\d{2}$/.test(v) || !Number.isFinite(Date.parse(v)));
+        const order = v && other && (k === 'collectFrom' ? v > other : other > v);
+        if (bad || order) { toast(bad ? '날짜 형식이 올바르지 않습니다' : '시작일이 종료일보다 늦을 수 없습니다', true); render(); return; }
+        o[k] = v; save(); render(); return;
+      }
       o[k] = ['upColor', 'linkMode'].includes(k) ? el.value : k === 'collectYears' ? Math.min(15, Math.max(1, Math.round(num(el.value, o[k])))) : num(el.value, o[k]);
       save();
       if (k === 'upColor' || k === 'collectYears') render(); else toast('저장했습니다');

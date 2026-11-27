@@ -48,6 +48,12 @@ function mockFetch(state) {
     }
     if (url.includes('m.stock.naver.com/api/stock/')) {
       if (state.flowFail) return resp('<html>점검중</html>');
+      if (state.flowAll) { // bizdate(그 날짜 이전) 커서를 지키는 모의 서버. 최신 → 과거
+        state.flowReq = (state.flowReq || []).concat(url);
+        const bd = (url.match(/bizdate=(\d+)/) || [])[1];
+        const all = state.flowAll.filter((d) => !bd || d < bd).slice(0, 60);
+        return resp(JSON.stringify(all.map((d, i) => ({ itemCode: '003490', bizdate: d, foreignerPureBuyQuant: '+' + (1000 + i).toLocaleString('en-US'), organPureBuyQuant: '-200', individualPureBuyQuant: '+5' }))));
+      }
       const fd = state.flowDays || ['20260107', '20260106', '20260105'];
       return resp(JSON.stringify(fd.map((d, i) => ({ itemCode: '015760', bizdate: d, foreignerPureBuyQuant: i === 0 ? '-970,498' : '+1,000', organPureBuyQuant: '+477,979', individualPureBuyQuant: '+496,820', closePrice: '29,750' }))));
     }
@@ -197,6 +203,59 @@ const KEYS = { DATA_GO_KR_KEY: 'pub+key/with=chars', DART_API_KEY: 'dartSecret12
     const dir3 = tmp(); fs.writeFileSync(path.join(dir3, 'watchlist.json'), JSON.stringify([{ code: '003490', name: 'x' }]));
     const r5 = await C.run({ env: { COLLECT_FLOW: '0', COLLECT_YEARS: '2' }, dataDir: dir3, fetch: mockFetch({}), today, log: () => {}, pageDelayMs: 0 });
     assert.equal(r5.status.stocks['003490'].prices.years, 2);
+  });
+  await t('수급 10년: 날짜 커서로 과거까지 이어 받고 중복·빈 구간 없음', async () => {
+    const all = weekdaysBack('2026-11-27', 3000).map((d) => d.replace(/-/g, '')); // 약 11.5년치
+    const dir = tmp(); fs.writeFileSync(path.join(dir, 'watchlist.json'), JSON.stringify({ years: 10, stocks: [{ code: '003490', name: '대한항공' }] }));
+    const st = { flowAll: all };
+    const r = await C.run({ env: { COLLECT_PRICE_NAVER: '0' }, dataDir: dir, fetch: mockFetch(st), today: new Date('2026-11-27T19:00:00Z'), log: () => {}, pageDelayMs: 0 });
+    assert.equal(r.failures, 0, JSON.stringify(r.status));
+    const rows = fs.readFileSync(path.join(dir, 'flow', '003490.csv'), 'utf8').trim().split('\n').slice(1).map((l) => l.split(','));
+    const ds = rows.map((x) => x[0]);
+    assert.equal(new Set(ds).size, ds.length); assert.deepEqual(ds, [...ds].sort());
+    assert(ds[0] >= '2016-11-27' && ds[0] <= '2016-12-05', ds[0]); assert.equal(ds[ds.length - 1], '2026-11-27');
+    const want = all.filter((d) => d >= '20161127').length; assert.equal(ds.length, want, '평일 전부 있어야 함(빈 구간 없음)');
+    assert(st.flowReq.length >= 40 && st.flowReq.length <= 45, '요청 수 ' + st.flowReq.length); assert(!/bizdate/.test(st.flowReq[0])); assert(/bizdate=\d{8}/.test(st.flowReq[1]));
+    assert.equal(r.status.stocks['003490'].flow.range, '최근 10년'); assert.equal(rows[0].length, 4);
+  });
+  await t('수급 이어받기: 오래 쉬어 60일을 넘겨도 사이가 비지 않음, 이미 충분하면 최근분만', async () => {
+    const all = weekdaysBack('2026-11-27', 700).map((d) => d.replace(/-/g, ''));
+    const dir = tmp(); fs.writeFileSync(path.join(dir, 'watchlist.json'), JSON.stringify({ years: 2, stocks: [{ code: '003490', name: '대한항공' }] }));
+    const old = all.filter((d) => d <= '20260801' && d >= '20241201'); // 8/1까지만 받아 둔 상태(그 뒤 약 85거래일 공백)
+    fs.mkdirSync(path.join(dir, 'flow'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'flow', '003490.csv'), 'date,frgn,inst,indiv\n' + old.slice().reverse().map((d) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6)},1,2,3`).join('\n') + '\n');
+    const st = { flowAll: all };
+    await C.run({ env: { COLLECT_PRICE_NAVER: '0' }, dataDir: dir, fetch: mockFetch(st), today: new Date('2026-11-27T19:00:00Z'), log: () => {}, pageDelayMs: 0 });
+    const ds = fs.readFileSync(path.join(dir, 'flow', '003490.csv'), 'utf8').trim().split('\n').slice(1).map((l) => l.split(',')[0]);
+    const want = all.filter((d) => d >= '20241201' && d <= '20261127').map((d) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6)}`).reverse();
+    assert.deepEqual(ds, want); assert(st.flowReq.length <= 3, '필요한 만큼만 요청 ' + st.flowReq.length);
+    // 바로 다시 실행하면 1묶음만
+    const st2 = { flowAll: all }; await C.run({ env: { COLLECT_PRICE_NAVER: '0' }, dataDir: dir, fetch: mockFetch(st2), today: new Date('2026-11-28T19:00:00Z'), log: () => {}, pageDelayMs: 0 });
+    assert.equal(st2.flowReq.length, 1);
+  });
+  await t('시작일·종료일 지정: 시세·수급 모두 그 구간만, 이미 있으면 건너뜀, 종목별 지정, 잘못된 날짜', async () => {
+    const all = weekdaysBack('2026-11-27', 1200).map((d) => d.replace(/-/g, ''));
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, 'watchlist.json'), JSON.stringify({ from: '2025-03-03', to: '2025-09-30', stocks: [{ code: '003490', name: '대한항공' }, { code: '005930', name: '삼성전자', from: '2025-06-02', to: '2025-06-30' }] }));
+    const st = { flowAll: all, pxDays: weekdaysBack('2026-11-27', 1200) };
+    const r = await C.run({ env: {}, dataDir: dir, fetch: mockFetch(st), today: new Date('2026-11-27T19:00:00Z'), log: () => {}, pageDelayMs: 0 });
+    assert.equal(r.failures, 0, JSON.stringify(r.status));
+    const rd = (kind, c) => fs.readFileSync(path.join(dir, kind, c + '.csv'), 'utf8').trim().split('\n').slice(1).map((l) => l.split(',')[0]);
+    for (const k of ['flow', 'prices']) { const a = rd(k, '003490'); assert.equal(a[0], '2025-03-03'); assert.equal(a[a.length - 1], '2025-09-30'); const b = rd(k, '005930'); assert.equal(b[0], '2025-06-02'); assert.equal(b[b.length - 1], '2025-06-30'); }
+    assert.equal(r.status.stocks['003490'].flow.range, '2025-03-03 ~ 2025-09-30');
+    const wd = (a, b) => weekdaysBack('2025-09-30', 400).filter((d) => d >= a && d <= b).length; assert.equal(rd('flow', '003490').length, wd('2025-03-03', '2025-09-30')); // 구간 안 평일 전부
+    // 같은 설정으로 다시 실행하면 요청 없음
+    const st2 = { flowAll: all, pxDays: st.pxDays }; const f2 = mockFetch(st2);
+    const r2 = await C.run({ env: {}, dataDir: dir, fetch: f2, today: new Date('2026-11-28T19:00:00Z'), log: () => {}, pageDelayMs: 0 });
+    assert.equal(r2.failures, 0); assert(!f2.calls.some((u) => u.includes('m.stock.naver.com')), '이미 있는 구간을 다시 받음'); assert(/이미 수집됨/.test(r2.status.stocks['003490'].flow.msg));
+    // 잘못된 날짜(시작 > 종료): 시세·수급 모두 건너뛰고 이유 기록, 요청 없음
+    const dir2 = tmp(); fs.writeFileSync(path.join(dir2, 'watchlist.json'), JSON.stringify({ from: '2025-10-01', to: '2025-03-01', stocks: [{ code: '003490', name: 'x' }] }));
+    const f3 = mockFetch({}); const r3 = await C.run({ env: {}, dataDir: dir2, fetch: f3, today: new Date('2026-11-27T19:00:00Z'), log: () => {}, pageDelayMs: 0 });
+    assert(/시작일이 종료일보다 늦습니다/.test(r3.status.stocks['003490'].flow.skipped)); assert(!f3.calls.some((u) => u.includes('m.stock.naver.com')));
+    // 날짜 형식 검증
+    assert.equal(C.isYmd('2025-03-03'), true); assert.equal(C.isYmd('2025-3-3'), false); assert.equal(C.isYmd('abc'), false);
+    const dir4 = tmp(); fs.writeFileSync(path.join(dir4, 'watchlist.json'), JSON.stringify({ from: '잘못', stocks: [{ code: '003490', name: 'x', to: '2025-13-45' }] }));
+    const wl = C.readWatchlist(dir4); assert.equal(wl.from, null); assert.equal(wl.stocks[0].to, null);
   });
   console.log(`${ok} passed${bad ? ', ' + bad + ' failed' : ''}`);
 })();

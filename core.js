@@ -9,7 +9,9 @@
     us: { buyFee: 0.25, sellFee: 0.25, sellTax: 0, taxRate: 22, deduction: 2500000 },
     fxNow: 1400,
     upColor: 'red',
-    collectYears: 3, // 자동 수집: 일봉 시세를 몇 년치 받을지(1~15)
+    collectYears: 3, // 자동 수집: 시세·수급을 몇 년치 받을지(1~15)
+    collectFrom: '', // 자동 수집 시작일(YYYY-MM-DD). 비우면 최근 collectYears년
+    collectTo: '', // 자동 수집 종료일. 비우면 오늘까지
     linkMode: 'tab', // 링크 열기: 'tab'(새 창) | 'browser'(기본 브라우저, 안드로이드) | 'app'(앱 안에서 보기)
     linkTabHosts: [], // 앱 안에서 열리지 않아 새 창으로 고정한 사이트
     // {code}, {name} 자리표시자는 종목 정보로 바뀝니다. 설정에서 수정/추가할 수 있습니다.
@@ -67,6 +69,8 @@
       us: Object.assign(d.us, o.us || {}),
       fxNow: o.fxNow || d.fxNow,
       upColor: o.upColor || d.upColor,
+      collectFrom: /^\d{4}-\d{2}-\d{2}$/.test(o.collectFrom || '') && Number.isFinite(Date.parse(o.collectFrom)) ? o.collectFrom : '',
+      collectTo: /^\d{4}-\d{2}-\d{2}$/.test(o.collectTo || '') && Number.isFinite(Date.parse(o.collectTo)) ? o.collectTo : '',
       collectYears: Number.isFinite(+o.collectYears) && +o.collectYears >= 1 ? Math.min(15, Math.round(+o.collectYears)) : d.collectYears,
       linkMode: ['app', 'browser'].includes(o.linkMode) ? o.linkMode : 'tab',
       linkTabHosts: Array.isArray(o.linkTabHosts) ? o.linkTabHosts.filter((h) => typeof h === 'string') : [],

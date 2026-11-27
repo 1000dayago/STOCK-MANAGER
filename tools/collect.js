@@ -13,7 +13,7 @@ const PRICE_URL = 'https://apis.data.go.kr/1160100/service/GetStockSecuritiesInf
 const NEWS_URL = 'https://openapi.naver.com/v1/search/news.json';
 const DART = 'https://opendart.fss.or.kr/api';
 const NAVER_STOCK = 'https://m.stock.naver.com/api/stock';
-const FLOW_URL = NAVER_STOCK; // 비공식(네이버 모바일 증권이 쓰는 주소). 키 불필요, 한 번에 최대 60거래일
+const FLOW_URL = NAVER_STOCK; // 비공식(네이버 모바일 증권이 쓰는 주소). 키 불필요, 60거래일씩 날짜 커서로 과거까지
 
 /* ---------- 공통 ---------- */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -109,10 +109,12 @@ function mergePrices(existingText, newRows) {
 
 /* ---------- 일봉 시세 (네이버 모바일 증권, 키 불필요) — 공공데이터 키가 없을 때 사용 ---------- */
 const MAX_YEARS = 15;
+const isYmd = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && Number.isFinite(Date.parse(v));
+const addDays = (d, n) => ymd(new Date(Date.parse(d) + n * 86400000));
 const clampYears = (v, def = 3) => { const x = Math.round(Number(v)); return Number.isFinite(x) ? Math.min(MAX_YEARS, Math.max(1, x)) : def; };
 // 최신 → 과거 순으로 60거래일씩 페이지를 넘기며 stopDate(포함)까지 받습니다.
 async function fetchNaverPrices(code, fetchFn, opt = {}) {
-  const stopDate = opt.stopDate || '0000-00-00', maxPages = opt.maxPages || 80, delay = opt.delayMs == null ? 250 : opt.delayMs;
+  const stopDate = opt.stopDate || '0000-00-00', endDate = opt.endDate || null, maxPages = opt.maxPages || 80, delay = opt.delayMs == null ? 250 : opt.delayMs;
   const out = [];
   for (let page = 1; page <= maxPages; page++) {
     const { status, text } = await getText(fetchFn, `${NAVER_STOCK}/${code}/price?pageSize=60&page=${page}`, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' } });
@@ -128,6 +130,7 @@ async function fetchNaverPrices(code, fetchFn, opt = {}) {
       if (c == null) continue;
       oldest = d;
       if (opt.skipDate && d === opt.skipDate) continue; // 장이 끝나기 전의 오늘 값은 확정이 아니라서 제외
+      if (endDate && d > endDate) continue;
       out.push({ d, o: o == null ? c : o, h: h == null ? c : h, l: l == null ? c : l, c, v: v == null ? 0 : v });
     }
     if (list.length < 60 || !oldest || oldest <= stopDate) break;
@@ -139,22 +142,35 @@ async function fetchNaverPrices(code, fetchFn, opt = {}) {
 
 /* ---------- 투자자별 순매수 (외국인·기관·개인, 단위: 주) ---------- */
 const FLOW_HEAD = 'date,frgn,inst,indiv';
-async function fetchFlow(code, fetchFn) {
-  const { status, text } = await getText(fetchFn, `${FLOW_URL}/${code}/trend?pageSize=60`, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' } });
-  if (status !== 200) throw new Error(`수급 응답 HTTP ${status}`);
-  let list;
-  try { list = JSON.parse(text); } catch (e) { throw new Error('수급 응답을 읽지 못했습니다 (주소나 형식이 바뀌었을 수 있습니다)'); }
-  if (!Array.isArray(list)) throw new Error('수급 응답 형식이 예상과 다릅니다');
-  const rows = [];
-  for (const x of list) {
-    const b = String((x && x.bizdate) || '');
-    if (!/^\d{8}$/.test(b)) continue;
-    const f = num(x.foreignerPureBuyQuant), i = num(x.organPureBuyQuant), d = num(x.individualPureBuyQuant);
-    if (f == null && i == null && d == null) continue;
-    rows.push({ d: dash(b), f, i, p: d });
+// 수급: bizdate(YYYYMMDD)를 주면 그 날짜 '이전' 60거래일이 옵니다. 직전 묶음의 가장 오래된 날짜를 넣어 과거로 이어 갑니다.
+async function fetchFlow(code, fetchFn, opt = {}) {
+  const stopDate = opt.stopDate || '0000-00-00', endDate = opt.endDate || null, maxPages = opt.maxPages || 80, delay = opt.delayMs == null ? 250 : opt.delayMs;
+  let cursor = endDate ? compact(ymd(new Date(Date.parse(endDate) + 86400000))) : null; // 종료일 포함 → 다음 날짜 이전
+  const out = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const { status, text } = await getText(fetchFn, `${FLOW_URL}/${code}/trend?pageSize=60${cursor ? `&bizdate=${cursor}` : ''}`, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' } });
+    if (status !== 200) throw new Error(`수급 응답 HTTP ${status}${page > 1 ? ` (${page}번째 묶음)` : ''}`);
+    let list;
+    try { list = JSON.parse(text); } catch (e) { throw new Error('수급 응답을 읽지 못했습니다 (주소나 형식이 바뀌었을 수 있습니다)'); }
+    if (!Array.isArray(list)) throw new Error('수급 응답 형식이 예상과 다릅니다');
+    let oldest = null;
+    for (const x of list) {
+      const b = String((x && x.bizdate) || '');
+      if (!/^\d{8}$/.test(b)) continue;
+      oldest = dash(b);
+      const f = num(x.foreignerPureBuyQuant), i = num(x.organPureBuyQuant), d = num(x.individualPureBuyQuant);
+      if (f == null && i == null && d == null) continue;
+      if (endDate && oldest > endDate) continue;
+      out.push({ d: oldest, f, i, p: d });
+    }
+    if (list.length < 60 || !oldest || oldest <= stopDate) break;
+    const next = compact(oldest);
+    if (next === cursor) break; // 더 나아가지 못함
+    cursor = next;
+    if (page < maxPages && delay) await sleep(delay);
   }
-  if (!rows.length) throw new Error('받은 수급 데이터가 없습니다');
-  return rows;
+  if (!out.length) throw new Error('받은 수급 데이터가 없습니다');
+  return out;
 }
 function parseFlowCsv(text) {
   const out = [];
@@ -284,15 +300,16 @@ function readWatchlist(dir) {
   const w = readJSON(path.join(dir, 'watchlist.json'), { stocks: [] });
   const list = Array.isArray(w) ? w : w.stocks || [];
   const years = !Array.isArray(w) && w.years != null ? clampYears(w.years) : null;
+  const gfrom = !Array.isArray(w) && isYmd(w.from) ? w.from : null, gto = !Array.isArray(w) && isYmd(w.to) ? w.to : null;
   const seen = new Set(), ok = [], skipped = [];
   for (const s of list) {
     const code = String((s && s.code) || '').trim();
     const name = String((s && s.name) || '').trim();
     if (!/^\d{6}$/.test(code)) { skipped.push(`${name || code}: 국내 종목코드(6자리)가 아닙니다`); continue; }
     if (seen.has(code)) continue;
-    seen.add(code); ok.push({ code, name: name || code, years: s.years != null ? clampYears(s.years) : null });
+    seen.add(code); ok.push({ code, name: name || code, years: s.years != null ? clampYears(s.years) : null, from: isYmd(s.from) ? s.from : null, to: isYmd(s.to) ? s.to : null });
   }
-  return { stocks: ok, skipped, years };
+  return { stocks: ok, skipped, years, from: gfrom, to: gto };
 }
 
 async function run(opt = {}) {
@@ -328,20 +345,35 @@ async function run(opt = {}) {
     status.stocks[s.code] = status.stocks[s.code] || {};
     // 시세 (공공데이터 키가 없으면 네이버에서 받음. COLLECT_PRICE_NAVER=0 이면 끔)
     const useNaverPx = !keys.prices && env.COLLECT_PRICE_NAVER !== '0';
+    // 수집 범위: 시작일(from)이 있으면 그것을, 없으면 오늘부터 years년 전. 종료일(to)이 없으면 오늘까지.
     const years = s.years || wl.years || (env.COLLECT_YEARS ? clampYears(env.COLLECT_YEARS) : 3);
-    if (useNaverPx) await step(s.code, 'prices', true, '', async () => {
+    const from = s.from || wl.from || null, to = s.to || wl.to || null;
+    const rangeErr = from && to && from > to ? '시작일이 종료일보다 늦습니다. 설정에서 날짜를 확인하세요.' : null;
+    const start = from || ymd(new Date(today.getTime() - years * 365.25 * 86400000));
+    const todayYmd = ymd(today), endEff = to && to < todayYmd ? to : null; // 오늘까지면 끝을 따로 두지 않음
+    const skipDate = today.getUTCHours() < 16 && !endEff ? todayYmd : null;
+    // 이미 받은 범위 판단: 앞쪽이 시작일 근처까지 있으면(coveredStart) 최근분만 이어받음. 종료일이 과거로 고정이면 양쪽이 다 있을 때만 건너뜀.
+    const plan = (oldRows) => {
+      const coveredStart = !!oldRows.length && oldRows[0].d <= addDays(start, 10);
+      if (endEff) return coveredStart && oldRows[oldRows.length - 1].d >= addDays(endEff, -7) ? { skip: true } : { stopDate: start };
+      return { stopDate: coveredStart ? addDays(oldRows[oldRows.length - 1].d, -7) : start }; // 이어받기는 최근 1주일을 다시 받아 보정
+    };
+    const inRange = (r) => r.d >= start && (!endEff || r.d <= endEff);
+    const label = from || to ? `${start} ~ ${to || '오늘'}` : `최근 ${years}년`;
+    if (useNaverPx) await step(s.code, 'prices', !rangeErr, rangeErr || '', async () => {
       const f = path.join(dir, 'prices', `${s.code}.csv`);
       let old = ''; try { old = fs.readFileSync(f, 'utf8'); } catch (e) { /* 없음 */ }
-      const oldRows = parseCsvRows(old);
-      const startDate = ymd(new Date(today.getTime() - years * 365.25 * 86400000));
-      const covered = oldRows.length && oldRows[0].d <= ymd(new Date(Date.parse(startDate) + 10 * 86400000)); // 이미 기간 앞쪽까지 있음
-      const stopDate = covered ? ymd(new Date(Date.parse(oldRows[oldRows.length - 1].d) - 7 * 86400000)) : startDate; // 이어받기는 최근 1주일만 다시 받아 보정
-      const skipDate = today.getUTCHours() < 16 ? ymd(today) : null;
-      const rows = (await fetchNaverPrices(s.code, fetchFn, { stopDate, skipDate, delayMs: opt.pageDelayMs })).filter((r) => r.d >= startDate);
-      const m = mergePrices(old, rows);
+      const oldRows = parseCsvRows(old), pl = plan(oldRows);
+      let m;
+      if (pl.skip) m = { rows: oldRows.filter(inRange) };
+      else {
+        const rows = (await fetchNaverPrices(s.code, fetchFn, { stopDate: pl.stopDate, endDate: endEff, skipDate, delayMs: opt.pageDelayMs })).filter(inRange);
+        m = mergePrices(old, rows);
+        if (writeIfChanged(f, m.text)) changed++;
+      }
       if (!m.rows.length) throw new Error('받은 시세가 없습니다');
-      if (writeIfChanged(f, m.text)) changed++;
-      return { source: 'naver', years, from: m.rows[0].d, last: m.rows[m.rows.length - 1].d, count: m.rows.length, msg: `(네이버, ${m.rows.length}일, ${m.rows[0].d} ~ ${m.rows[m.rows.length - 1].d})` };
+      const rr = m.rows.filter(inRange);
+      return { source: 'naver', years, range: label, from: m.rows[0].d, last: m.rows[m.rows.length - 1].d, count: m.rows.length, msg: `(네이버, ${label}, ${m.rows.length}일, ${m.rows[0].d} ~ ${m.rows[m.rows.length - 1].d}${pl.skip ? ', 이미 수집됨' : ''})`, inRange: rr.length };
     });
     else await step(s.code, 'prices', !!keys.prices, env.COLLECT_PRICE_NAVER === '0' ? '시세 수집을 껐습니다(COLLECT_PRICE_NAVER=0)' : '', async () => {
       const f = path.join(dir, 'prices', `${s.code}.csv`);
@@ -354,13 +386,20 @@ async function run(opt = {}) {
       if (writeIfChanged(f, m.text)) changed++;
       return { source: 'data.go.kr', from: m.rows[0].d, last: m.rows[m.rows.length - 1].d, count: m.rows.length, msg: `(${m.rows.length}일, 마지막 ${m.rows[m.rows.length - 1].d})` };
     });
-    // 수급 (키 없음, COLLECT_FLOW=0 이면 끔)
-    await step(s.code, 'flow', env.COLLECT_FLOW !== '0', '수급 수집을 껐습니다(COLLECT_FLOW=0)', async () => {
+    // 수급 (키 없음, COLLECT_FLOW=0 이면 끔) — 시세와 같은 수집 범위, 과거는 날짜 기준으로 이어 받음
+    await step(s.code, 'flow', env.COLLECT_FLOW !== '0' && !rangeErr, rangeErr || '수급 수집을 껐습니다(COLLECT_FLOW=0)', async () => {
       const f = path.join(dir, 'flow', `${s.code}.csv`);
       let old = ''; try { old = fs.readFileSync(f, 'utf8'); } catch (e) { /* 없음 */ }
-      const m = mergeFlowRows(old, await fetchFlow(s.code, fetchFn));
-      if (writeIfChanged(f, m.text)) changed++;
-      return { last: m.rows[m.rows.length - 1].d, count: m.rows.length, msg: `(${m.rows.length}일, 마지막 ${m.rows[m.rows.length - 1].d})` };
+      const oldRows = parseFlowCsv(old).map((r) => ({ d: r.d })), pl = plan(oldRows);
+      let m;
+      if (pl.skip) m = { rows: parseFlowCsv(old).filter(inRange) };
+      else {
+        const rows = (await fetchFlow(s.code, fetchFn, { stopDate: pl.stopDate, endDate: endEff, delayMs: opt.pageDelayMs })).filter(inRange);
+        m = mergeFlowRows(old, rows);
+        if (writeIfChanged(f, m.text)) changed++;
+      }
+      if (!m.rows.length) throw new Error('받은 수급 데이터가 없습니다');
+      return { range: label, from: m.rows[0].d, last: m.rows[m.rows.length - 1].d, count: m.rows.length, msg: `(${label}, ${m.rows.length}일, ${m.rows[0].d} ~ ${m.rows[m.rows.length - 1].d}${pl.skip ? ', 이미 수집됨' : ''})` };
     });
     // 뉴스
     await step(s.code, 'news', !!(keys.newsId && keys.newsSecret), '네이버 키(NAVER_CLIENT_ID/SECRET) 없음', async () => {
@@ -400,4 +439,4 @@ async function run(opt = {}) {
 if (require.main === module) {
   run().then((r) => { if (r.attempts > 0 && r.failures === r.attempts) process.exitCode = 2; }).catch((e) => { console.error('수집 중 예기치 않은 오류:', e.message); process.exitCode = 1; });
 }
-module.exports = { run, fetchNaverPrices, clampYears, fetchFlow, mergeFlowRows, parseFlowCsv, fetchPrices, mergePrices, parseCsvRows, fetchNews, cleanText, unzipFirst, parseCorpXml, fetchDisclosures, fetchFinancials, parseFinancials, readWatchlist, encKey, makeMask, mergeList, apiErrorFromText };
+module.exports = { run, isYmd, fetchNaverPrices, clampYears, fetchFlow, mergeFlowRows, parseFlowCsv, fetchPrices, mergePrices, parseCsvRows, fetchNews, cleanText, unzipFirst, parseCorpXml, fetchDisclosures, fetchFinancials, parseFinancials, readWatchlist, encKey, makeMask, mergeList, apiErrorFromText };

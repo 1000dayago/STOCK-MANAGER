@@ -425,13 +425,17 @@ t('데이터 정보: 가격만/수급 일부 구간/기간 안 수급 일수/최
   assert.equal(inf.range.days, 9); assert.equal(inf.range.flowDays, 3);
   assert.equal(SM.dataInfo(data, { from: '2026-01-04', to: '2026-01-05' }).range.flowDays, 2);
 });
-t('자동 수집 기간 설정: 기본 3년, 1~15년으로 보정, 목록 JSON에 포함', () => {
-  assert.equal(SM.DEFAULT_SETTINGS().collectYears, 3);
+t('자동 수집 기간 설정: 기본 3년, 1~15년로 보정, 날짜 지정, 목록 JSON에 포함', () => {
+  assert.equal(SM.DEFAULT_SETTINGS().collectYears, 3); assert.equal(SM.DEFAULT_SETTINGS().collectFrom, '');
   const n = (v) => SM.normalizeState({ settings: { collectYears: v } }).settings.collectYears;
   assert.equal(n(undefined), 3); assert.equal(n(5), 5); assert.equal(n('7'), 7); assert.equal(n(99), 15); assert.equal(n(0), 3); assert.equal(n('x'), 3); assert.equal(n(2.6), 3);
+  const dt = (o) => SM.normalizeState({ settings: o }).settings;
+  assert.equal(dt({ collectFrom: '2017-01-02', collectTo: '2017-12-29' }).collectFrom, '2017-01-02'); assert.equal(dt({ collectFrom: '2017-1-2' }).collectFrom, ''); assert.equal(dt({ collectTo: 'abc' }).collectTo, ''); assert.equal(dt({ collectFrom: '2017-13-45' }).collectFrom, '');
   const stocks = [SM.newStock({ name: '대한항공', code: '003490', market: 'KR' })];
-  assert.deepEqual(JSON.parse(SM.data.watchJson(stocks, 5)), { years: 5, stocks: [{ code: '003490', name: '대한항공' }] });
-  assert.deepEqual(Object.keys(JSON.parse(SM.data.watchJson(stocks))), ['stocks']); // 기간을 안 주면 예전 형식 그대로
+  assert.deepEqual(JSON.parse(SM.data.watchJson(stocks, 5)), { years: 5, stocks: [{ code: '003490', name: '대한항공' }] }); // 숫자만 줘도 동작(예전 호출)
+  assert.deepEqual(JSON.parse(SM.data.watchJson(stocks, { years: 10, from: '2017-01-02', to: '2017-12-29' })), { years: 10, from: '2017-01-02', to: '2017-12-29', stocks: [{ code: '003490', name: '대한항공' }] });
+  assert.deepEqual(JSON.parse(SM.data.watchJson(stocks, { years: 3, from: '', to: '' })), { years: 3, stocks: [{ code: '003490', name: '대한항공' }] });
+  assert.deepEqual(Object.keys(JSON.parse(SM.data.watchJson(stocks))), ['stocks']);
 });
 t('버전 비교', () => {
   assert.equal(SM.compareVersions('1.10.0', '1.9.9'), 1);
