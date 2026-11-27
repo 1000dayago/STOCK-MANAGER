@@ -122,6 +122,14 @@ t('매수 신호: 외국인·기관 동시 순매수 + 거래량이 전일보다
   assert.deepEqual(r.buys.map((b) => d.d[b.i]), [d.d[1], d.d[4]]); // 2일째(거래량 100→150, 둘 다 순매수), 5일째(200→210). 3일째는 기관 순매도, 4일째는 외국인 순매도, 6일째는 거래량 같음(210→210)
   const r2 = SM.runBacktest(d, mk([{ type: 'volPrev', x: 1.3 }], [], { fill: 'close', qty: 1, growth: 1 }), S); assert.deepEqual(r2.buys.map((b) => d.d[b.i]), [d.d[1], d.d[3]]); // 150/100=1.5배, 200/120=1.67배(1.3배 초과)
 });
+t('이동평균선 방향(상승 중) 조건', () => {
+  const px = [10, 10, 10, 10, 10, 11, 12, 13, 14, 15, 14, 13, 12, 11, 10, 9, 8]; // 오르다가 내림
+  const d = { d: [], o: px.slice(), h: px.slice(), l: px.slice(), c: px.slice(), v: px.map(() => 1000), hasVol: true, hasHL: true }, dt = new Date('2024-03-01'); px.forEach(() => { d.d.push(dt.toISOString().slice(0, 10)); dt.setDate(dt.getDate() + 1); });
+  const up = SM.runBacktest(d, mk([{ type: 'maSlope', ma: 'sma', n: 3, k: 1, dir: 'up' }], [], { fill: 'close', qty: 1, growth: 1 }), S), down = SM.runBacktest(d, mk([{ type: 'maSlope', ma: 'sma', n: 3, k: 1, dir: 'down' }], [], { fill: 'close', qty: 1, growth: 1 }), S);
+  const upDays = up.buys.map((b) => b.i), dnDays = down.buys.map((b) => b.i), sma3 = SM.sma(px, 3);
+  assert(upDays.length > 0 && dnDays.length > 0); assert(upDays.every((i) => sma3[i] > sma3[i - 1])); assert(dnDays.every((i) => sma3[i] < sma3[i - 1])); assert(upDays.every((i) => !dnDays.includes(i)));
+  assert(upDays.includes(5) && !upDays.includes(2) && !dnDays.includes(5)); assert(Math.max(...upDays) <= 10 && Math.min(...dnDays) >= 11); // 3일 평균은 10일째까지 올라가고 11일째부터 내려감
+});
 t('재생: cutRaw는 모든 배열을 같은 길이로 자름', () => {
   const raw = { d: ['2025-01-01', '2025-01-02', '2025-01-03'], o: [1, 2, 3], h: [1, 2, 3], l: [1, 2, 3], c: [1, 2, 3], v: [1, 1, 1], frgn: [5, null, 7], hasVol: true, flowUnit: 'shares' };
   const a = SM.cutRaw(raw, '2025-01-02'); assert.deepEqual(a.d, ['2025-01-01', '2025-01-02']); assert.deepEqual(a.frgn, [5, null]); assert.equal(a.hasVol, true); assert.equal(a.flowUnit, 'shares');

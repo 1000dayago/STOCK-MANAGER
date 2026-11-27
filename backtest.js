@@ -439,6 +439,7 @@
     volRatio: { use: 'both', group: '거래량', label: '거래량이 최근 평균의 x배 이상', params: [{ k: 'n', label: '평균 기간(일)', def: 20 }, { k: 'x', label: '배수', def: 2 }] },
     maCross: { use: 'both', group: '이동평균', label: '이동평균 교차', params: [{ k: 'ma', label: '종류', def: 'sma', opts: MA_OPTS }, { k: 's', label: '단기', def: 5 }, { k: 'l', label: '장기', def: 20 }, { k: 'dir', label: '방향', def: 'up', opts: [['up', '골든크로스(상향 돌파)'], ['down', '데드크로스(하향 이탈)']] }] },
     maState: { use: 'both', group: '이동평균', label: '이동평균 단기선·장기선 위치(상태)', params: [{ k: 'ma', label: '종류', def: 'sma', opts: MA_OPTS }, { k: 's', label: '단기', def: 5 }, { k: 'l', label: '장기', def: 20 }, { k: 'dir', label: '조건', def: 'above', opts: [['above', '단기선이 위'], ['below', '단기선이 아래']] }] },
+    maSlope: { use: 'both', group: '이동평균', label: '이동평균선 방향(상승/하락 중)', params: [{ k: 'ma', label: '종류', def: 'sma', opts: MA_OPTS }, { k: 'n', label: '기간(일)', def: 30 }, { k: 'k', label: '비교 일수(며칠 전과)', def: 5 }, { k: 'dir', label: '방향', def: 'up', opts: [['up', '상승 중(오늘 값이 더 높음)'], ['down', '하락 중']] }] },
     priceMa: { use: 'both', group: '이동평균', label: '종가와 이동평균 위치', params: [{ k: 'ma', label: '종류', def: 'sma', opts: MA_OPTS }, { k: 'n', label: '기간', def: 20 }, { k: 'dir', label: '조건', def: 'above', opts: [['above', '종가가 위'], ['below', '종가가 아래']] }] },
     bb: { use: 'both', group: '지표', label: '볼린저밴드 터치', params: [{ k: 'n', label: '기간', def: 20 }, { k: 'k', label: '배수', def: 2 }, { k: 'band', label: '밴드', def: 'lower', opts: [['lower', '하단'], ['upper', '상단']] }, { k: 'basis', label: '기준', def: 'close', opts: [['close', '종가'], ['extreme', '장중 저가/고가']] }] },
     rsi: { use: 'both', group: '지표', label: 'RSI', params: [{ k: 'n', label: '기간', def: 14 }, { k: 'op', label: '조건', def: 'lte', opts: [['lte', '이하'], ['gte', '이상']] }, { k: 'v', label: '값', def: 30 }] },
@@ -487,6 +488,11 @@
           if (s[i] == null || l[i] == null || s[i - 1] == null || l[i - 1] == null) continue;
           out[i] = p.dir === 'down' ? s[i] < l[i] && s[i - 1] >= l[i - 1] : s[i] > l[i] && s[i - 1] <= l[i - 1];
         }
+        break;
+      }
+      case 'maSlope': { // 이동평균선이 k일 전보다 높으면(낮으면) 상승(하락) 중
+        const m = maOf(p.ma, data.c, Math.max(2, Math.floor(num(p.n, 30)))), k = Math.max(1, Math.floor(num(p.k, 5)));
+        for (let i = k; i < n; i++) out[i] = m[i] != null && m[i - k] != null && (p.dir === 'down' ? m[i] < m[i - k] : m[i] > m[i - k]);
         break;
       }
       case 'maState': {
