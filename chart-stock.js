@@ -136,7 +136,7 @@
     canvas.className = 'stockchart';
     canvas.style.touchAction = 'pan-y'; // 세로 스크롤은 페이지가, 가로 드래그·핀치는 차트가
     host.appendChild(canvas);
-    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
+    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
 
     function rebuild(keepWindow) {
       if (!S.raw) { S.bars = null; return; }
@@ -301,34 +301,39 @@
         for (const v of niceTicks(0, vmax, 2)) { const y = VY(v); if (v > 0 && !nearTag(y) && y > vp.y + 12) ctx.fillText(fmtCompact(v, 'shares'), W - PR + 6, y); }
       }
 
-      /* ---- 영업이익 패널: 분기 막대(공시일 위치) + 전년 동기 대비 증가율 ---- */
+      /* ---- 영업이익 패널: 분기 선그래프(공시일 위치의 점) + 전년 동기 대비 증가율 ---- */
       const ep = P.find((p) => p.k === 'earn');
       const visEarn = (S.earn || []).map((e) => ({ e, i: firstIdxOnOrAfter(b.d, e.at) })).filter((x) => x.i >= from && x.i <= to);
       if (ep) {
         const et = 26, eb = 8, eh = ep.h - et - eb;
-        ctx.fillStyle = T.text; ctx.textAlign = 'left'; ctx.fillText('영업이익 (분기 · 공시일 위치)', PL + 2, ep.y + 8);
+        ctx.fillStyle = T.text; ctx.textAlign = 'left'; ctx.fillText(S.cfg.earnStep ? '영업이익 (분기 · 공시일마다 갱신)' : '영업이익 (분기 · 공시일 위치)', PL + 2, ep.y + 8);
         if (!visEarn.length) { ctx.textAlign = 'center'; ctx.fillText('이 구간에는 공시된 분기 실적이 없습니다', PL + pw / 2, ep.y + ep.h / 2 + 4); ctx.textAlign = 'left'; }
         else {
           let emin = 0, emax = 0; for (const x of visEarn) { emin = Math.min(emin, x.e.opEok); emax = Math.max(emax, x.e.opEok); }
           if (emin === emax) emax = emin + 1;
-          const rng = emax - emin; emax += rng * 0.42; if (emin < 0) emin -= rng * 0.42; // 막대 위·아래에 글자 자리
+          const rng = emax - emin; emax += rng * 0.42; if (emin < 0) emin -= rng * 0.42; // 점 위·아래에 글자 자리
           const EY = (v) => ep.y + et + ((emax - v) / (emax - emin)) * eh, zero = EY(0);
-          const nPer = S.tf === 'W' ? 13 : S.tf === 'M' ? 3 : 63, bwq = Math.max(8, Math.min(46, bw * nPer * 0.5));
           ctx.strokeStyle = T.grid; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(PL, Math.round(zero) + 0.5); ctx.lineTo(W - PR, Math.round(zero) + 0.5); ctx.stroke(); ctx.setLineDash([]);
-          const geomOf = (e, i) => { const x = X(i), y1 = EY(e.opEok), top = Math.min(zero, y1); return { x, lx: Math.min(W - PR - 24, Math.max(PL + 24, x)), top, hgt: Math.max(1.5, Math.abs(y1 - zero)), col: e.opEok >= 0 ? T.up : T.down }; };
-          for (const { e, i } of visEarn) { // 막대
-            const g = geomOf(e, i);
-            ctx.globalAlpha = e.filedEst ? 0.4 : 0.8; ctx.fillStyle = g.col; ctx.fillRect(g.x - bwq / 2, g.top, bwq, g.hgt); ctx.globalAlpha = 1;
-            if (e.filedEst) { ctx.strokeStyle = g.col; ctx.lineWidth = 1; ctx.setLineDash([3, 2]); ctx.strokeRect(g.x - bwq / 2 + 0.5, g.top + 0.5, bwq - 1, g.hgt - 1); ctx.setLineDash([]); }
+          const geomOf = (e, i) => { const x = X(i), y = EY(e.opEok); return { x, lx: Math.min(W - PR - 24, Math.max(PL + 24, x)), y, col: e.opEok >= 0 ? T.up : T.down }; };
+          // 선: 공시일 위치의 점들을 잇습니다(창 밖의 이웃 점까지 이어 그려 선이 끊기지 않게, 패널 밖은 잘라냄). 계단형이면 다음 공시 전까지 직전 값을 유지
+          const near = (S.earn || []).map((e) => ({ e, i: firstIdxOnOrAfter(b.d, e.at) })).filter((x) => x.i >= 0 && x.i >= from - 140 && x.i <= to + 140);
+          ctx.save(); ctx.beginPath(); ctx.rect(PL, ep.y + 1, pw + 1, ep.h - 2); ctx.clip();
+          ctx.strokeStyle = '#7c3aed'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.beginPath();
+          near.forEach(({ e, i }, k) => { const g = geomOf(e, i); if (k === 0) ctx.moveTo(g.x, g.y); else if (S.cfg.earnStep) { const pg = geomOf(near[k - 1].e, near[k - 1].i); ctx.lineTo(g.x, pg.y); ctx.lineTo(g.x, g.y); } else ctx.lineTo(g.x, g.y); });
+          if (S.cfg.earnStep && near.length) { const lg = geomOf(near[near.length - 1].e, near[near.length - 1].i); ctx.lineTo(W - PR, lg.y); } // 마지막 공시 값이 지금까지 유지
+          ctx.stroke(); ctx.restore();
+          for (const { e, i } of visEarn) { // 점: 흑자 빨강 · 적자 파랑, 공시일 추정이면 속이 빈 점
+            const g = geomOf(e, i); ctx.beginPath(); ctx.arc(g.x, g.y, 4, 0, Math.PI * 2);
+            if (e.filedEst) { ctx.fillStyle = T.bg; ctx.fill(); ctx.strokeStyle = g.col; ctx.lineWidth = 1.5; ctx.setLineDash([2, 2]); ctx.stroke(); ctx.setLineDash([]); } else { ctx.fillStyle = g.col; ctx.fill(); ctx.strokeStyle = T.bg; ctx.lineWidth = 1.5; ctx.stroke(); }
           }
           let lastLabelX = 1e9; // 글자(금액·증가율): 가장 최근(오른쪽) 분기부터 배치하고, 너무 가까우면 건너뜀 → 최근 값은 항상 표시
           for (let k = visEarn.length - 1; k >= 0; k--) {
             const { e, i } = visEarn[k], g = geomOf(e, i);
-            if (lastLabelX - g.lx < 46 && bwq < 40) continue;
+            if (lastLabelX - g.lx < 46) continue;
             const pos = e.opEok >= 0, yy = SM.chartYoyText(e.yoy);
-            ctx.font = 'bold 10px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = T.fg; ctx.fillText(fmtEok(e.opEok) + (e.derived ? '*' : ''), g.lx, pos ? g.top - 20 : g.top + g.hgt + 7);
+            ctx.font = 'bold 10px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = T.fg; ctx.fillText(fmtEok(e.opEok) + (e.derived ? '*' : ''), g.lx, pos ? g.y - 21 : g.y + 8);
             const yc = e.yoy.kind === 'pct' ? (e.yoy.pct >= 0 ? T.up : T.down) : e.yoy.kind === 'turn_profit' ? T.up : e.yoy.kind === 'turn_loss' ? T.down : e.yoy.kind === 'loss' ? (e.yoy.better ? T.up : T.down) : T.text;
-            ctx.font = '10px -apple-system, "Noto Sans KR", sans-serif'; ctx.fillStyle = yc; if (yy !== '-') ctx.fillText(yy, g.lx, pos ? g.top - 8 : g.top + g.hgt + 18);
+            ctx.font = '10px -apple-system, "Noto Sans KR", sans-serif'; ctx.fillStyle = yc; if (yy !== '-') ctx.fillText(yy, g.lx, pos ? g.y - 9 : g.y + 19);
             ctx.fillStyle = T.text; ctx.textAlign = 'left'; ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif';
             lastLabelX = g.lx;
           }
@@ -336,7 +341,7 @@
           for (const v of niceTicks(emin, emax, 2)) { const y = EY(v); if (y < ep.y + 12 || y > ep.y + ep.h - 6) continue; ctx.fillText(Math.abs(v) < 1e-9 ? '0' : fmtEok(v), W - PR + 6, y); }
         }
       }
-      // 캔들 패널 아래쪽: 실적 공시일 표시(위를 향한 작은 삼각형). 영업이익 막대와 같은 위치
+      // 캔들 패널 아래쪽: 실적 공시일 표시(위를 향한 작은 삼각형). 영업이익 점과 같은 위치
       if (visEarn.length) for (const { e, i } of visEarn) { const x = X(i); ctx.fillStyle = e.filedEst ? 'rgba(148,163,184,0.9)' : (e.opEok >= 0 ? T.up : T.down); ctx.beginPath(); ctx.moveTo(x - 4, m.y + m.h - 2); ctx.lineTo(x + 4, m.y + m.h - 2); ctx.lineTo(x, m.y + m.h - 9); ctx.closePath(); ctx.fill(); }
 
       /* ---- 십자선 ---- */

@@ -757,3 +757,17 @@ body.chart-fullbody { overflow: hidden; }
 .divrow .dd { flex: none; width: 82px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .divrow .da { flex: 1; min-width: 0; font-size: 14px; line-height: 1.5; } .divrow .da small { display: block; }
 .divrow .dnote { color: var(--fg); opacity: .75; }
+
+/* 영업이익 표 */
+.earnbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; font-size: 13px; }
+.earnbar .chartseg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
+.earnbar .chartseg button { min-height: 34px; padding: 5px 12px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.earnbar .chartseg button:first-child { border-left: 0; } .earnbar .chartseg button.on { background: var(--accent); color: var(--accent-fg); font-weight: 700; }
+.earnwrap { max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; margin: 6px 0; }
+table.earntable { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.earntable th, table.earntable td { padding: 6px 6px; text-align: right; border-bottom: 1px solid var(--line); font-size: 12px; }
+table.earntable td small { margin-left: 2px; font-size: 10px; }
+table.earntable th:first-child, table.earntable td:first-child { position: sticky; left: 0; background: var(--card); z-index: 1; }
+table.earntable th:first-child, table.earntable td:first-child, table.earntable th:nth-child(2), table.earntable td:nth-child(2) { text-align: left; }
+table.earntable thead th { position: sticky; top: 0; background: var(--card); z-index: 1; font-weight: 700; }
+table.earntable .cr-up { color: var(--up); } table.earntable .cr-down { color: var(--down); }

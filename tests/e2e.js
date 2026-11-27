@@ -146,9 +146,20 @@ function fixtures() {
     const before = await at('2025-10-01'), after = await at('2025-12-01');
     ok('공시 전 날짜(2025-10-01)의 십자선에는 2025 2분기까지만(3분기는 11-14 공시)', /2025 2분기/.test(before) && !/2025 3분기/.test(before) && /공시 2025-08-14/.test(before), before.slice(-150));
     ok('공시 후 날짜(2025-12-01)에는 2025 3분기(전년 동기 대비 표시)', /2025 3분기/.test(after) && /공시 2025-11-14/.test(after), after.slice(-150));
-    await page.evaluate(() => { document.querySelector('.chartopts').open = true; }); await page.uncheck('[data-chartopt=earn]'); await page.waitForTimeout(150); const hWithout = await page.$eval('canvas.stockchart', (c) => c.clientHeight);
-    ok('영업이익 패널을 끄면 차트가 낮아지고 읽기 상자의 실적 줄이 사라짐', hWithout < hWith && !/실적\s*20/.test(await page.textContent('#chartRead')) && !(await page.textContent('#chartRead')).includes('영업이익'), [hWith, hWithout]);
-    await page.check('[data-chartopt=earn]'); await page.waitForTimeout(150); ok('다시 켜면 복귀', (await page.$eval('canvas.stockchart', (c) => c.clientHeight)) === hWith);
+    // 선그래프(기본) / 표 / 끄기 전환
+    ok('영업이익 기본 표시는 선그래프(전환 버튼에서 선그래프가 선택됨, 표는 숨김)', (await page.$eval('[data-act=chartEarn][data-v=line]', (b) => b.classList.contains('on'))) && (await page.$('#earnTable table')) === null);
+    await page.click('[data-act=chartEarn][data-v=table]'); await page.waitForSelector('#earnTable table'); await page.waitForTimeout(150);
+    const rows = await page.$$eval('#earnTable tbody tr', (e) => e.map((x) => x.textContent.replace(/\s+/g, ' ').trim())), hTable = await page.$eval('canvas.stockchart', (c) => c.clientHeight);
+    ok('표: 분기 8행, 최근 분기부터, 영업이익·전년 동기 대비·공시일', rows.length === 8 && /^26\.4Q/.test(rows[0]) && /추정/.test(rows[0]) && /^26\.3Q/.test(rows[1]) && /3,492/.test(rows[1]) && /\+122%/.test(rows[1]) && /26-11-13/.test(rows[1]) && /적자전환/.test(rows.find((r) => /^26\.2Q/.test(r))), rows.slice(0, 3));
+    ok('표: 4분기 계산값에 * 표시', rows.some((r) => /^25\.4Q\*/.test(r)));
+    ok('표로 바꾸면 차트의 영업이익 패널이 빠져 차트가 낮아지고 읽기 상자의 실적 줄도 사라짐', hTable < hWith && !(await page.textContent('#chartRead')).includes('영업이익'), [hWith, hTable]);
+    await page.click('[data-act=chartEarn][data-v=off]'); await page.waitForTimeout(150); ok('끄기: 표와 패널이 모두 사라짐', (await page.$('#earnTable table')) === null && (await page.$eval('canvas.stockchart', (c) => c.clientHeight)) === hTable);
+    await page.click('[data-act=chartEarn][data-v=line]'); await page.waitForTimeout(150); ok('선그래프로 돌아오면 패널 복귀', (await page.$eval('canvas.stockchart', (c) => c.clientHeight)) === hWith && (await page.textContent('#chartRead')).includes('영업이익'));
+    await page.evaluate(() => { document.querySelector('.chartopts').open = true; }); await page.check('[data-chartopt=earnStep]'); await page.waitForTimeout(150); ok('계단형 선택(설정에 저장)', (await page.evaluate(() => SM.app._chartPrefs().earnStep)) === true); await page.uncheck('[data-chartopt=earnStep]');
+    await page.click('[data-act=chartEarn][data-v=table]'); await page.waitForSelector('#earnTable table'); // 표를 고른 상태로 새로고침
+    await page.reload(); await page.waitForSelector('#app'); await page.evaluate(() => { const A = SM.app; A.ui.view = 'stocks'; A.ui.stockTab = 'held'; A.ui.stockId = A.getState().stocks[0].id; A.render(); });
+    await page.waitForSelector('#earnTable table', { timeout: 10000 }); ok('선택한 표시 방식(표)은 새로고침 뒤에도 유지', (await page.$eval('[data-act=chartEarn][data-v=table]', (b) => b.classList.contains('on'))) && (await page.$$eval('#earnTable tbody tr', (e) => e.length)) === 8);
+    await page.click('[data-act=chartEarn][data-v=line]');
     ok('5c) 오류 없음', errs.length === 0, errs); await ctx.close(); }
   { const { ctx, page } = await open(); await page.route('**/data/status.json*', (r) => r.fulfill({ json: { updatedAt: new Date().toISOString(), keys: {}, stocks: { '003490': { prices: { ok: true, last: F.last, close: F.close }, flow: { ok: true, last: F.last } } } } })); // 재무(DART) 미수집
     await addStocks(page); await page.evaluate(() => { SM.app.collectInit(true); const A = SM.app; A.ui.view = 'stocks'; A.ui.stockTab = 'held'; A.ui.stockId = A.getState().stocks[0].id; A.render(); });
