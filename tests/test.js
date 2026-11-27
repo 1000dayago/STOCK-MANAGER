@@ -349,6 +349,15 @@ t('자동 수집 대상 목록: 관심 종목은 켠 것만', () => {
   assert.deepEqual(JSON.parse(SM.data.watchJson(list)).stocks.map((x) => x.code), ['015760', '000660']);
 });
 
+
+t('링크 열기 설정 기본값/정규화', () => {
+  const d = SM.normalizeState({});
+  assert.equal(d.settings.linkMode, 'tab'); assert.deepEqual(d.settings.linkTabHosts, []);
+  const e = SM.normalizeState({ settings: { linkMode: 'app', linkTabHosts: ['a.com', 5, 'b.com'] } });
+  assert.equal(e.settings.linkMode, 'app'); assert.deepEqual(e.settings.linkTabHosts, ['a.com', 'b.com']);
+  assert.equal(SM.normalizeState({ settings: { linkMode: 'weird' } }).settings.linkMode, 'tab');
+});
+
 console.log(ok + ' passed');
 t('버전 비교', () => {
   assert.equal(SM.compareVersions('1.10.0', '1.9.9'), 1);

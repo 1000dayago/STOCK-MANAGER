@@ -652,3 +652,25 @@ a.btn .ic:last-child:not(:first-child) { opacity: .6; }
 .cmpx th, .cmpx td { text-align: right; white-space: normal; } .cmpx th:first-child, .cmpx td:first-child { text-align: left; color: var(--muted); }
 label.chk.inl { margin: 0; font-size: 12px; }
 h4 { display: flex; align-items: center; gap: 6px; }
+
+/* ---------- 링크 보기 창(앱 안에서 열기) ---------- */
+.vw-overlay { position: fixed; inset: 0; z-index: 85; background: var(--card); display: flex; flex-direction: column; }
+.vw-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; padding-top: calc(8px + env(safe-area-inset-top)); border-bottom: 1px solid var(--line); }
+.vw-title { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.vw-title b, .vw-title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vw-title b { font-size: 14px; } .vw-title small { font-size: 11px; }
+.vw-head .btn { white-space: nowrap; }
+.vw-hint { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 6px 10px; background: color-mix(in srgb, var(--warn) 12%, var(--card)); border-bottom: 1px solid var(--line); font-size: 12px; }
+.vw-hint .ic { width: 14px; height: 14px; color: var(--warn); flex: none; }
+.vw-hint span { flex: 1 1 200px; }
+.vw-x { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 2px; display: inline-flex; }
+.vw-x .ic { width: 14px; height: 14px; color: inherit; }
+.vw-body { position: relative; flex: 1; min-height: 0; background: #fff; }
+.vw-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+.vw-loading { position: absolute; inset: 0; display: grid; place-items: center; color: #64748b; font-size: 13px; background: #fff; z-index: 1; }
+.pinhosts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 8px; }
+.pinhost { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; background: var(--bg); }
+.pinhost button { border: 0; background: none; cursor: pointer; display: inline-flex; padding: 2px; color: var(--muted); border-radius: 50%; }
+.pinhost button .ic { width: 12px; height: 12px; }
+@media (max-width: 520px) { .vw-lbl { display: none; } }
+.linkrow select.inp { flex: 0 1 100px; }

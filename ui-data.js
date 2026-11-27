@@ -37,10 +37,10 @@
     let body = '';
     if (ui.autoTab === 'dart') {
       const items = (d.dart && d.dart.items) || [];
-      body = items.length ? `<ul class="alist">${items.slice(0, 12).map((x) => `<li><span class="ad">${esc(x.date.slice(5))}</span><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}${ic('ext')}</a></li>`).join('')}</ul>` : '<p class="muted">수집된 공시가 없습니다.</p>';
+      body = items.length ? `<ul class="alist">${items.slice(0, 12).map((x) => `<li><span class="ad">${esc(x.date.slice(5))}</span>${A.linkA(x.url, esc(x.title) + ic('ext'), { title: x.title })}</li>`).join('')}</ul>` : '<p class="muted">수집된 공시가 없습니다.</p>';
     } else if (ui.autoTab === 'news') {
       const items = (d.news && d.news.items) || [];
-      body = items.length ? `<ul class="alist">${items.slice(0, 12).map((x) => `<li><span class="ad">${esc((x.date || '').slice(5, 10))}</span><span class="grow"><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}${ic('ext')}</a> <small class="muted">${esc(domain(x.url))}</small></span></li>`).join('')}</ul><p class="hint">제목과 링크만 보여줍니다. 내용은 원문에서 확인하세요.</p>` : '<p class="muted">수집된 뉴스가 없습니다.</p>';
+      body = items.length ? `<ul class="alist">${items.slice(0, 12).map((x) => `<li><span class="ad">${esc((x.date || '').slice(5, 10))}</span><span class="grow">${A.linkA(x.url, esc(x.title) + ic('ext'), { title: x.title })} <small class="muted">${esc(domain(x.url))}</small></span></li>`).join('')}</ul><p class="hint">제목과 링크만 보여줍니다. 내용은 원문에서 확인하세요.</p>` : '<p class="muted">수집된 뉴스가 없습니다.</p>';
     } else if (ui.autoTab === 'fin') {
       const ps = (d.fin && d.fin.periods) || [];
       body = ps.length ? `<div class="tablewrap"><table class="mini"><thead><tr><th>기간</th><th>매출(억)</th><th>영업이익(억)</th><th>영업이익률</th><th>순이익(억)</th><th>부채비율</th></tr></thead><tbody>${ps.slice(0, 8).map((p) => `<tr><td>${esc(p.label)} <small class="muted">${esc(p.fs || '')}</small></td><td>${eok(p.revenue)}</td><td>${eok(p.op)}</td><td>${p.revenue && p.op != null ? SM.fmtNum(p.op / p.revenue * 100, 1) + '%' : '-'}</td><td>${eok(p.net)}</td><td>${p.equity && p.liab != null ? SM.fmtNum(p.liab / p.equity * 100, 0) + '%' : '-'}</td></tr>`).join('')}</tbody></table></div><p class="hint">DART 공시 기준 요약입니다. 분기·반기 수치는 보고서에 따라 누적일 수 있어 기간 간 단순 비교는 조심하세요.</p>` : '<p class="muted">수집된 재무 자료가 없습니다.</p>';

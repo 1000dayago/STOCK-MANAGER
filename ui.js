@@ -234,7 +234,7 @@
       ${us ? `<label class="px">환율<input class="inp" data-change="fxNow" value="${state.settings.fxNow}" inputmode="decimal"></label>` : ''}
       <details class="menu"><summary aria-label="더보기">${ic('more')}</summary><div class="menu-body">${menuItems}</div></details></div></div>
       <div class="sh-sub"><small class="${age > 3 ? 'stale' : 'muted'}">${st.price ? '현재가 ' + (age > 365 ? '입력일 불명' : age === 0 ? '오늘 입력' : age + '일 전 입력') : '현재가를 입력하면 평가손익이 계산됩니다'}</small>
-        ${links.map((l) => `<a class="lnk" href="${esc(SM.fillLink(l.url, st))}" target="_blank" rel="noopener noreferrer">${esc(l.label)}${ic('ext')}</a>`).join('')}</div>
+        ${links.map((l) => A.linkA(SM.fillLink(l.url, st), esc(l.label) + ic('ext'), { cls: 'lnk', lid: l.id, title: `${l.label} · ${st.name}` })).join('')}</div>
       ${st.watch ? A.watchCards(st) : `<div class="cards">
         <div class="stat"><span>보유 수량</span><b>${qn(sm.qty)}주</b></div>
         <div class="stat"><span>전체 평단가</span><b>${fmtMoney(sm.avg, cur)}</b><small>수수료 포함 ${fmtMoney(sm.avgInclFee, cur)}${us && sm.avgKRW ? ` · 원화 ${fmtMoney(sm.avgKRW, 'KRW')}` : ''}</small></div>
@@ -692,8 +692,12 @@ service cloud.firestore {
       <div class="cols"><div><h4>국내</h4><div class="grid2">${f('kr.buyFee', '매수 수수료')}${f('kr.sellFee', '매도 수수료')}${f('kr.sellTax', '매도 거래세 등')}</div></div>
       <div><h4>해외</h4><div class="grid2">${f('us.buyFee', '매수 수수료')}${f('us.sellFee', '매도 수수료')}${f('us.sellTax', '매도 시 기타 세금')}${f('us.taxRate', '양도세율')}${f('us.deduction', '연 기본공제(원)')}</div></div></div>
       <div class="grid2">${f('fxNow', '현재 환율 (원/$)')}<label>수익 색상<select data-setting="upColor">${opts([['red', '수익=빨강, 손실=파랑 (한국식)'], ['green', '수익=초록, 손실=빨강 (해외식)']], s.upColor)}</select></label></div></section>
-      <section class="card"><h2>종목 바로가기 링크</h2><p class="hint">종목 화면에 보이는 링크입니다. 주소에 <code>{code}</code>(종목코드/티커)와 <code>{name}</code>(종목명)을 넣으면 종목마다 자동으로 바뀝니다. 사이트 주소 형식이 바뀌면 여기서 직접 고치세요.</p>
-      ${s.links.map((l, i) => `<div class="linkrow"><input class="inp" data-link="${i}.label" value="${esc(l.label)}" placeholder="이름"><input class="inp wide" data-link="${i}.url" value="${esc(l.url)}" placeholder="https://..."><select class="inp" data-link="${i}.market">${opts([['ALL', '전체'], ['KR', '국내'], ['US', '해외']], l.market || 'ALL')}</select><button class="btn sm danger" data-act="linkDel" data-i="${i}" aria-label="삭제">${ic('x')}</button></div>`).join('')}
+      <section class="card"><h2>종목 바로가기 링크</h2>
+      <div class="grid2"><label>링크 열기 방식 <small class="muted">(공시·뉴스 링크 포함)</small><select data-setting="linkMode">${opts([['tab', '새 창으로 열기 (권장)'], ['app', '앱 안에서 보기']], s.linkMode)}</select></label></div>
+      <p class="hint">앱 안에서 보기는 사이트를 이 앱 화면 위에 띄웁니다. <b>네이버·구글 등 많은 사이트가 이 방식을 막아 두어서</b> 화면이 비거나 “연결을 거부했습니다”로 나올 수 있습니다. 그럴 때는 보기 창의 <b>새 창으로 열기</b>를 쓰거나 “이 사이트는 항상 새 창으로”를 눌러 두세요. 링크마다 따로 정하려면 아래 목록의 열기 방식을 바꾸세요.</p>
+      ${(s.linkTabHosts || []).length ? `<div class="pinhosts"><small class="muted">새 창으로 고정한 사이트:</small> ${s.linkTabHosts.map((h) => `<span class="pinhost">${esc(h)}<button type="button" data-act="hostUnpin" data-host="${esc(h)}" aria-label="${esc(h)} 고정 해제">${ic('x')}</button></span>`).join('')}</div>` : ''}
+      <p class="hint">종목 화면에 보이는 링크입니다. 주소에 <code>{code}</code>(종목코드/티커)와 <code>{name}</code>(종목명)을 넣으면 종목마다 자동으로 바뀝니다. 사이트 주소 형식이 바뀌면 여기서 직접 고치세요.</p>
+      ${s.links.map((l, i) => `<div class="linkrow"><input class="inp" data-link="${i}.label" value="${esc(l.label)}" placeholder="이름"><input class="inp wide" data-link="${i}.url" value="${esc(l.url)}" placeholder="https://..."><select class="inp" data-link="${i}.market" aria-label="시장">${opts([['ALL', '전체'], ['KR', '국내'], ['US', '해외']], l.market || 'ALL')}</select><select class="inp" data-link="${i}.open" aria-label="열기 방식">${opts([['default', '기본 방식'], ['tab', '새 창'], ['app', '앱 안에서']], l.open || 'default')}</select><button class="btn sm danger" data-act="linkDel" data-i="${i}" aria-label="삭제">${ic('x')}</button></div>`).join('')}
       <div class="btns"><button class="btn" data-act="linkAdd">${ic('plus')}링크 추가</button><button class="btn sm" data-act="linkReset">기본값으로</button></div></section>
       ${A.autoCard ? A.autoCard() : ''}
       <section class="card" id="syncCard">${syncCard()}</section>
@@ -953,7 +957,7 @@ service cloud.firestore {
       const path = el.dataset.setting.split('.'); let o = state.settings;
       for (let i = 0; i < path.length - 1; i++) o = o[path[i]];
       const k = path[path.length - 1];
-      o[k] = k === 'upColor' ? el.value : num(el.value, o[k]);
+      o[k] = ['upColor', 'linkMode'].includes(k) ? el.value : num(el.value, o[k]);
       save();
       if (k === 'upColor') render(); else toast('저장했습니다');
     }
