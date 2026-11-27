@@ -14,7 +14,7 @@
     catch (e) { toast('가격 데이터를 저장할 공간이 부족합니다. 안 쓰는 데이터를 삭제하세요.', true); return false; }
   }
   const newImp = () => ({ stockId: '', autoNote: '', text: '', headerLine: '', an: null, fileNames: [], dest: 'new', destId: '', name: '', market: 'KR', useAdj: true, unit: '' });
-  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mode: 'mg', mgOpen: false, mg: { qty: 10, growth: 2, drop: 10, signal: 'drop', vx: 1, trend: false, tn: 30, tk: 5, pc: 'none', pn: 30, pv: 40, xtrend: true, xn: 30, xk: 5, exit: 'target', target: 5, s: 5, l: 15, maxLots: 0, maxInvest: 0 }, stockId: '', imp: newImp() });
+  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mode: 'mg', picker: null, condOpen: '', mgOpen: false, mg: { qty: 10, growth: 2, drop: 10, signal: 'drop', vx: 1, trend: false, tn: 30, tk: 5, pc: 'none', pn: 30, pv: 40, xtrend: true, xn: 30, xk: 5, exit: 'target', target: 5, s: 5, l: 15, maxLots: 0, maxInvest: 0 }, stockId: '', imp: newImp() });
   const MAP_KEY = 'stockmgr.colmaps';
   const loadMaps = () => { try { return JSON.parse(localStorage.getItem(MAP_KEY) || '{}'); } catch (e) { return {}; } };
   function rememberCols(an) { try { const m = loadMaps(); m[an.signature] = an.cols; localStorage.setItem(MAP_KEY, JSON.stringify(m)); } catch (e) { /* ignore */ } }
@@ -121,21 +121,61 @@
   function newCond(type) { const c = { type }; SM.COND_DEFS[type].params.forEach((p) => (c[p.k] = p.def)); return c; }
 
   /* ---------- 화면 조각 ---------- */
-  function typeOptions(g, selected) {
-    const want = g === 'entries' ? (d) => d.use !== 'exit' : (d) => d.use !== 'entry';
-    const groups = {};
-    Object.entries(SM.COND_DEFS).filter(([, d]) => want(d)).forEach(([k, d]) => { (groups[d.group] = groups[d.group] || []).push([k, d.label]); });
-    return (selected ? '' : '<option value="">조건 추가…</option>') + Object.entries(groups).map(([gr, list]) => `<optgroup label="${gr}">${list.map(([k, l]) => `<option value="${k}" ${k === selected ? 'selected' : ''}>${esc(l)}</option>`).join('')}</optgroup>`).join('');
+  /* ---------- 조건 UI: 선택한 조건은 한 줄 요약으로 모아 보이고, 눌러서 펼쳐 값을 고침 · 추가는 아래에서 올라오는 선택창 ---------- */
+  const COND_SHORT = { vol: '거래량 N주 이상', volPrev: '거래량이 전일보다 높음', volRatio: '거래량이 평균 대비 급증', maCross: '이동평균 교차 (골든·데드)', maState: '단기·장기선 위치', maSlope: '이동평균선 방향 (상승·하락 중)', priceMa: '종가와 이동평균선 위치', bb: '볼린저밴드 터치', rsi: 'RSI', macd: 'MACD 시그널 교차', breakout: '신고가·신저가', change: '전일 대비 등락률', renkoFlip: '렌코 반전', renkoRun: '렌코 상승 연속', flow: '수급 (외국인·기관·개인)', dropLast: '하락 시 추가 매수', tp: '목표수익 도달 (순번별)', sl: '손절 (순번별)', trail: '고점 대비 하락 (순번별)', holdDays: 'N일 보유 후 (순번별)', avgPct: '평단 대비 ±N% (전량)' };
+  const WHO_TXT = { frgn: '외국인', inst: '기관', indiv: '개인', both: '외국인·기관 동시' };
+  function condSummary(c) {
+    const n = (v) => esc(String(v == null ? '' : v)), ma = c.ma === 'ema' ? 'EMA' : '', up = c.dir !== 'down';
+    switch (c.type) {
+      case 'vol': return `거래량 ${n(c.n)}주 이상`;
+      case 'volPrev': return Number(c.x) > 1 ? `거래량이 전일의 ${n(c.x)}배 초과` : '거래량이 전일보다 높음';
+      case 'volRatio': return `거래량이 ${n(c.n)}일 평균의 ${n(c.x)}배 이상`;
+      case 'maCross': return `${ma}${n(c.s)}일선이 ${n(c.l)}일선을 ${up ? '위로 (골든크로스)' : '아래로 (데드크로스)'}`;
+      case 'maState': return `${ma}${n(c.s)}일선이 ${n(c.l)}일선 ${c.dir === 'below' ? '아래' : '위'}`;
+      case 'maSlope': return `${ma}${n(c.n)}일선이 ${n(c.k)}일 전보다 ${up ? '높음 (상승 중)' : '낮음 (하락 중)'}`;
+      case 'priceMa': return `종가가 ${ma}${n(c.n)}일선 ${c.dir === 'below' ? '아래' : '위'}`;
+      case 'bb': return `볼린저 ${c.band === 'upper' ? '상단' : '하단'} 터치 (${n(c.n)}일·${n(c.k)}배, ${c.basis === 'extreme' ? '장중' : '종가'})`;
+      case 'rsi': return `RSI(${n(c.n)}) ${n(c.v)} ${c.op === 'gte' ? '이상' : '이하'}`;
+      case 'macd': return `MACD(${n(c.s)},${n(c.l)},${n(c.sig)}) ${up ? '상향 돌파' : '하향 이탈'}`;
+      case 'breakout': return `${n(c.n)}일 ${c.dir === 'low' ? '신저가 이탈' : '신고가 돌파'}`;
+      case 'change': return `전일 대비 ${n(c.v)}% ${c.op === 'gte' ? '이상' : '이하'}`;
+      case 'renkoFlip': return `렌코 ${c.dir === 'down' ? '상승→하락' : '하락→상승'} 반전`;
+      case 'renkoRun': return `렌코 상승 벽돌 ${n(c.n)}개 연속`;
+      case 'flow': { const who = WHO_TXT[c.who] || '외국인', dir = c.dir === 'sell' ? '순매도' : '순매수', md = c.mode === 'streak' ? `${n(c.n)}일 연속` : c.mode === 'sum' ? `최근 ${n(c.n)}일 합 ${n(c.v)} 이상` : c.mode === 'ratio' ? `당일 거래량의 ${n(c.v)}% 이상` : `당일 ${n(c.v)} 이상`; return `${who} ${dir} · ${md}`; }
+      case 'dropLast': return `${c.basis === 'avg' ? '전체 평단' : c.basis === 'low' ? '가장 낮은 매수가' : '직전 매수가'} 대비 ${n(c.pct)}% 하락 시 추가 매수`;
+      case 'tp': return `순번 수익률 +${n(c.pct)}% 도달 시 그 순번 매도`;
+      case 'sl': return `순번 손실 -${n(c.pct)}% 도달 시 그 순번 매도`;
+      case 'trail': return `고점 대비 ${n(c.pct)}% 하락 시 그 순번 매도`;
+      case 'holdDays': return `${n(c.n)}일 보유 후 그 순번 매도`;
+      case 'avgPct': return `평단 대비 ${c.dir === 'down' ? '-' : '+'}${n(c.pct)}% 도달 시 전량 매도`;
+      default: return esc((SM.COND_DEFS[c.type] || {}).label || c.type);
+    }
   }
-  function condRow(g, i, c) {
-    const def = SM.COND_DEFS[c.type];
-    return `<div class="cond"><select class="inp" data-change="btType" data-g="${g}" data-i="${i}">${typeOptions(g, c.type)}</select>
-      ${def.params.map((p) => p.opts
-        ? `<label class="mini">${p.label}<select class="inp" data-change="btParam" data-g="${g}" data-i="${i}" data-k="${p.k}" data-seg>${opts(p.opts, c[p.k] != null ? c[p.k] : p.def)}</select></label>`
-        : `<label class="mini">${p.label}<input class="inp" data-btp="${g}.${i}.${p.k}" value="${esc(c[p.k] != null ? c[p.k] : p.def)}" inputmode="decimal"></label>`).join('')}
-      <button class="btn sm danger" type="button" data-act="btDel" data-g="${g}" data-i="${i}" aria-label="삭제">${ic('x')}</button></div>`;
+  function condCard(g, i, c) {
+    const def = SM.COND_DEFS[c.type], open = bt.condOpen === `${g}.${i}`;
+    const fields = def.params.map((p) => p.opts
+      ? `<label class="mini">${p.label}<select class="inp" data-change="btParam" data-g="${g}" data-i="${i}" data-k="${p.k}" data-seg>${opts(p.opts, c[p.k] != null ? c[p.k] : p.def)}</select></label>`
+      : `<label class="mini">${p.label}<input class="inp" data-btp="${g}.${i}.${p.k}" value="${esc(c[p.k] != null ? c[p.k] : p.def)}" inputmode="decimal"></label>`).join('');
+    return `<div class="cnd ${open ? 'open' : ''}" data-g="${g}" data-i="${i}"><div class="cnd-h" role="button" tabindex="0" data-act="btCondOpen" data-g="${g}" data-i="${i}" aria-expanded="${open}"><span class="cnd-t">${condSummary(c)}</span><button type="button" class="cnd-del" data-act="btDel" data-g="${g}" data-i="${i}" aria-label="조건 삭제">✕</button><i class="cnd-ch">▾</i></div><div class="cnd-b">${fields}</div></div>`;
   }
-  const adder = (g) => `<div class="row gap wrap"><select class="inp" data-change="btAdd" data-g="${g}">${typeOptions(g, '')}</select></div>`;
+  function condBox(g) {
+    const buy = g === 'entries', c = bt.cfg, conds = c[g].conds, mode = c[g].mode;
+    const seg = buy ? [['AND', '모두 만족'], ['OR', '하나라도']] : [['OR', '하나라도'], ['AND', '모두 만족']];
+    return `<div class="cndbox ${buy ? 'buy' : 'sell'}"><div class="cndbox-h"><b>${buy ? '매수 조건' : '매도 조건'}</b><select data-change="btMode" data-g="${g}" data-seg aria-label="조건 결합 방식">${opts(seg, mode || (buy ? 'AND' : 'OR'))}</select></div>
+      ${conds.map((x, i) => condCard(g, i, x)).join('') || `<p class="cnd-empty">${buy ? '조건이 없으면 매수하지 않습니다' : '조건이 없으면 기간 끝까지 보유합니다'}</p>`}
+      <button type="button" class="cnd-add" data-act="btPickOpen" data-g="${g}">＋ ${buy ? '매수' : '매도'} 조건 추가</button></div>`;
+  }
+  function pickerHtml() {
+    const g = bt.picker; if (!g) return '';
+    const want = g === 'entries' ? (d) => d.use !== 'exit' : (d) => d.use !== 'entry', groups = {};
+    Object.entries(SM.COND_DEFS).filter(([, d]) => want(d)).forEach(([k, d]) => { (groups[d.group] = groups[d.group] || []).push(k); });
+    return `<div class="sheet-bg" data-act="btPickClose"></div><div class="sheet ${g === 'entries' ? 'buy' : 'sell'}" role="dialog" aria-label="조건 고르기"><div class="sheet-h"><b>${g === 'entries' ? '매수' : '매도'} 조건 고르기</b><button type="button" class="btn sm" data-act="btPickClose">닫기</button></div>
+      ${Object.entries(groups).map(([gr, list]) => `<div class="sheet-g"><span>${esc(gr)}</span><div class="chips">${list.map((k) => `<button type="button" class="chip pick" data-act="btPick" data-t="${k}" title="${esc(SM.COND_DEFS[k].label)}">${esc(COND_SHORT[k] || SM.COND_DEFS[k].label)}</button>`).join('')}</div></div>`).join('')}</div>`;
+  }
+  function condRefresh(g, i) { // 값을 고치면 요약 한 줄을 바로 갱신
+    const el = document.querySelector(`.cnd[data-g="${g}"][data-i="${i}"] .cnd-t`), c = bt.cfg[g] && bt.cfg[g].conds[+i];
+    if (el && c) el.innerHTML = condSummary(c);
+  }
 
   function dsSelectOptions(ds, keys) {
     const o = (k) => `<option value="${esc(k)}" ${k === bt.datasetId ? 'selected' : ''}>${esc(dsLabel(k, ds[k]))}${ds[k].pending ? ' (선택하면 불러옴)' : ''}</option>`;
@@ -188,30 +228,24 @@
     const act = (m) => (m === 0 ? !c.from && !c.to : c.from && !c.to && (c.from === addMonthsStr(last, -m) || (c.from === d[0] && addMonthsStr(last, -m) < d[0])));
     return `<div class="chips" role="group" aria-label="기간">${[[3, '3개월'], [6, '6개월'], [12, '1년'], [36, '3년'], [0, '전체']].map(([m, l]) => `<button type="button" class="chip ${act(m) ? 'on' : ''}" data-act="btRange" data-v="${m}">${l}</button>`).join('')}</div>`;
   }
-  // 간단 입력(물타기 전략): 값 입력은 한 줄에 하나, 설명은 짧게
+  // 간단 입력(물타기 전략): 매수(분홍) · 매도(하늘) · 자금 한도로 나눠 한 줄에 하나씩
   function mgForm() {
     const m = bt.mg, cross = m.exit === 'cross';
     const row = (k, label, unit, hint) => `<label class="ios-row"><span>${label}${hint ? `<small>${hint}</small>` : ''}</span><span class="rowr"><input class="inp" data-btmg="${k}" value="${esc(m[k])}" inputmode="decimal">${unit ? `<i>${unit}</i>` : ''}</span></label>`;
-    const vxTxt = Number(m.vx) > 0 ? `, 거래량이 전일의 <b>${esc(m.vx)}배를 넘을 때</b>` : '';
-    const sigTxt = m.signal === 'flow' ? `<b>외국인과 기관이 같은 날 모두 순매수</b>${vxTxt} 매수합니다(신호가 나올 때마다). ` : m.signal === 'flowdrop' ? `<b>외국인·기관 동시 순매수</b>${vxTxt}이면서, 직전 매수가보다 <b>${esc(m.drop)}%</b> 내려가 있을 때 매수합니다(처음은 신호만). ` : `직전 매수가보다 <b>${esc(m.drop)}%</b> 내려갈 때마다 추가 매수합니다(처음 매수는 바로). `;
-    const pcTxt = m.pc === 'ma' ? ` 그리고 <b>종가가 ${esc(m.pn)}일선 아래</b>일 때(눌림목)` : m.pc === 'rsi' ? ` 그리고 <b>RSI(${esc(m.pn)})가 ${esc(m.pv)} 이하</b>일 때` : m.pc === 'bb' ? ` 그리고 <b>종가가 볼린저 하단(${esc(m.pn)}일·${esc(m.pv)}배) 밖</b>일 때` : '';
-    const trTxt0 = m.trend ? ` 단, <b>${esc(m.tn)}일 이동평균선이 ${esc(m.tk)}일 전보다 높은(상승 중)</b> 때만 삽니다.` : '';
-    const trTxt = trTxt0 + pcTxt;
-    const exitTxt = cross ? `${esc(m.s)}일선이 ${esc(m.l)}일선을 아래로 뚫는 날(데드크로스)${m.xtrend ? `, 그리고 <b>${esc(m.xn)}일선이 ${esc(m.xk)}일 전보다 낮은(하락 중)</b> 때` : ''} 보유한 순번 전부 매도` : `전체 평단 대비 +${esc(m.target)}%가 되면 전부 매도`;
-    return `<div class="ios-list">
-        ${row('qty', '첫 매수', '주', '처음 사는 수량')}${row('growth', '수량 배수', '배', '추가 매수 때마다 곱함 (2 = 10→20→40)')}
-        <div class="ios-row stack"><span>매수 신호</span><span class="rowr"><select data-change="btMgSignal" data-seg>${opts([['drop', '하락 시'], ['flow', '수급 신호'], ['flowdrop', '수급 신호 + 하락']], m.signal)}</select></span></div>
-        <div class="ios-row stack"><span>추세 조건</span><span class="rowr"><select data-change="btMgTrend" data-seg>${opts([['0', '없음'], ['1', '이동평균선 상승 중']], m.trend ? '1' : '0')}</select></span></div>
-        ${m.trend ? row('tn', '이동평균 기간', '일') + row('tk', '상승 판단', '일 전보다 높음', '며칠 전 값과 비교') : ''}
-        <div class="ios-row stack"><span>가격 조건<small>싸게 살 때만 사기</small></span><span class="rowr"><select data-change="btMgPrice" data-seg>${opts([['none', '없음'], ['ma', '이평선 아래'], ['rsi', 'RSI 낮음'], ['bb', '볼린저 하단']], m.pc)}</select></span></div>
-        ${m.pc === 'ma' ? row('pn', '이동평균 기간', '일', '종가가 이 선 아래일 때(눌림목)') : m.pc === 'rsi' ? row('pn', 'RSI 기간', '일') + row('pv', 'RSI 값', '이하', '낮을수록 과매도') : m.pc === 'bb' ? row('pn', '볼린저 기간', '일') + row('pv', '볼린저 배수', '배', '종가가 하단 밖일 때') : ''}
-        ${m.signal !== 'drop' ? row('vx', '거래량 조건', '배 초과', '전일 거래량 대비 (1 = 어제보다 높음, 0 = 조건 없음)') : ''}${m.signal !== 'flow' ? row('drop', '추가 매수 조건', '% 하락', '직전 매수가 대비') : ''}
-        <div class="ios-row stack"><span>매도 방식</span><span class="rowr"><select data-change="btMgExit" data-seg>${opts([['target', '평단 목표 수익'], ['cross', '이동평균 데드크로스']], m.exit)}</select></span></div>
-        ${cross ? row('s', '단기 이동평균', '일') + row('l', '장기 이동평균', '일') + `<div class="ios-row stack"><span>추세 확인<small>이동평균선이 내려가는 중일 때만 매도</small></span><span class="rowr"><select data-change="btMgXTrend" data-seg>${opts([['0', '없음'], ['1', '이동평균선 하락 중']], m.xtrend ? '1' : '0')}</select></span></div>` + (m.xtrend ? row('xn', '이동평균 기간', '일') + row('xk', '하락 판단', '일 전보다 낮음') : '') : row('target', '목표 수익률', '%', '평단 대비')}
-        ${row('maxInvest', '최대 투입금', '원', '0 = 제한 없음')}${row('maxLots', '최대 매수 횟수', '회', '0 = 제한 없음')}
-      </div>
-      <p class="hint">${sigTxt}${trTxt} 처음 <b>${esc(m.qty)}주</b>, 이후 매수마다 <b>${esc(m.growth)}배</b>씩 늘려 삽니다. ${exitTxt}하고, 다시 신호가 나오면 처음부터 시작합니다.</p>
-      <p class="hint warn">하락이 이어지면 매수량이 빠르게 커집니다. 최대 투입금·최대 매수 횟수를 현실적인 값으로 넣고 결과의 “최대 투입금”을 꼭 확인하세요.${cross ? ' 데드크로스 매도는 평단보다 낮은 가격이라 손실로 청산될 수 있습니다.' : ''}</p>`;
+    const sel = (label, change, items, val, hint) => `<div class="ios-row stack"><span>${label}${hint ? `<small>${hint}</small>` : ''}</span><span class="rowr"><select data-change="${change}" data-seg>${opts(items, val)}</select></span></div>`;
+    const buyRows = row('qty', '첫 매수', '주') + row('growth', '수량 배수', '배', '추가 매수마다 곱함 (2 = 10→20→40)')
+      + sel('매수 신호', 'btMgSignal', [['drop', '하락 시'], ['flow', '수급 신호'], ['flowdrop', '수급 + 하락']], m.signal, m.signal !== 'drop' ? '외국인·기관 동시 순매수' : '')
+      + (m.signal !== 'drop' ? row('vx', '거래량 조건', '배 초과', '전일 대비 (0 = 조건 없음)') : '') + (m.signal !== 'flow' ? row('drop', '하락 조건', '% 하락', '직전 매수가 대비') : '')
+      + sel('추세 조건', 'btMgTrend', [['0', '없음'], ['1', '이평선 상승 중']], m.trend ? '1' : '0')
+      + (m.trend ? row('tn', '이동평균 기간', '일') + row('tk', '상승 판단', '일 전보다') : '')
+      + sel('가격 조건', 'btMgPrice', [['none', '없음'], ['ma', '이평선 아래'], ['rsi', 'RSI 낮음'], ['bb', '볼린저 하단']], m.pc)
+      + (m.pc === 'ma' ? row('pn', '이동평균 기간', '일') : m.pc === 'rsi' ? row('pn', 'RSI 기간', '일') + row('pv', 'RSI 값', '이하') : m.pc === 'bb' ? row('pn', '볼린저 기간', '일') + row('pv', '볼린저 배수', '배') : '');
+    const sellRows = sel('매도 방식', 'btMgExit', [['target', '평단 목표 수익'], ['cross', '데드크로스']], m.exit)
+      + (cross ? row('s', '단기 이동평균', '일') + row('l', '장기 이동평균', '일') + sel('추세 확인', 'btMgXTrend', [['0', '없음'], ['1', '이평선 하락 중']], m.xtrend ? '1' : '0') + (m.xtrend ? row('xn', '이동평균 기간', '일') + row('xk', '하락 판단', '일 전보다') : '') : row('target', '목표 수익률', '%', '평단 대비'));
+    return `<div class="mgblock buy"><div class="mgblock-h">매수</div><div class="ios-list">${buyRows}</div></div>
+      <div class="mgblock sell"><div class="mgblock-h">매도</div><div class="ios-list">${sellRows}</div></div>
+      <div class="mgblock"><div class="mgblock-h">자금 한도</div><div class="ios-list">${row('maxInvest', '최대 투입금', '원', '0 = 제한 없음')}${row('maxLots', '최대 매수 횟수', '회', '0 = 제한 없음')}</div></div>
+      <p class="hint warn">하락이 이어지면 매수량이 빠르게 커집니다. 한도를 꼭 넣어 두세요.</p>`;
   }
   A.renderers.btMain = function () {
     if (!repo.loaded && !repo.loading) setTimeout(() => A.btRepoInit(), 0);
@@ -219,7 +253,7 @@
     const rangeTxt = cur ? `${cur.data.d[0]} ~ ${cur.data.d[cur.data.d.length - 1]} (${cur.data.d.length}일)` : '';
     const st = strategies();
     const imp = bt.imp;
-    const importBlock = `<p class="hint">증권사·거래소·포털의 <b>일봉 파일(CSV)</b>이나 표를 <b>복사해서 붙여 넣은 것</b>을 읽습니다. 제목 줄과 열 이름은 자동으로 찾습니다. 데이터는 이 기기에만 저장됩니다.</p>
+    const importBlock = `<p class="hint">일봉 CSV 파일이나 복사한 표를 읽습니다. 데이터는 이 기기에만 저장됩니다.</p>
       <div class="row gap wrap"><label class="btn file">${ic('download')}파일 선택 (여러 개 가능)<input type="file" multiple accept=".csv,.txt,.tsv,text/csv,text/plain" data-change="btFiles" hidden></label><button class="btn" type="button" data-act="btRepo">${ic('stocks')}자동 수집 데이터를 내 기기에 복사</button>
         <label class="mini">제목 줄 번호<input class="inp" data-btimp="headerLine" value="${esc(imp.headerLine)}" inputmode="numeric" placeholder="자동" style="width:90px"></label></div>
       <label>또는 여기에 붙여 넣기<textarea data-btimp="text" rows="4" placeholder="날짜,시가,고가,저가,종가,거래량&#10;2025-01-02,...">${esc(imp.text)}</textarea></label>
@@ -241,9 +275,9 @@
       ${bt.datasetId && !cur && isRepoId(bt.datasetId) ? '<p class="hint">저장소에서 불러오는 중…</p>' : ''}${cur && cur.repo ? `<p class="hint">${ic('info')} ${repoNote(cur)}</p>` : ''}${dataInfoCard(cur)}` : '<p class="muted">불러온 데이터가 없습니다. 아래 “데이터 불러오기”에서 자동 수집 시세를 복사하거나 CSV 파일을 읽으세요.</p>'}
       <details class="box" ${keys.length ? '' : 'open'}><summary>데이터 불러오기 · 관리 <small class="muted">(CSV·붙여 넣기·자동 수집)</small></summary>
         ${importBlock}
+        ${A.getState().stocks.length ? `<h4>내 종목에 데이터 연결</h4>${stockPickHtml()}` : ''}
         ${keys.length ? `<div class="row gap wrap">${cur && cur.repo ? '' : '<button class="btn sm danger" data-act="btDSDel">선택한 데이터 삭제</button>'}${repo.list.length ? `<button class="btn sm" type="button" data-act="btRepoRefresh">${ic('download')}저장소 새로고침</button>` : ''}</div>` : ''}
       </details>
-      ${A.getState().stocks.length ? `<details class="box"><summary>내 종목으로 고르기</summary>${stockPickHtml()}</details>` : ''}
     </section>
     <h3 class="sim-h">② 전략 ${custom ? '<small>조건을 직접 조합</small>' : '<small>10주 → 하락하면 20주 → 40주…</small>'}</h3>
     <section class="card">
@@ -253,12 +287,8 @@
         <label class="ios-row"><span>최대 투입금<small>0 = 제한 없음</small></span><span class="rowr"><input class="inp" data-btc="maxInvest" value="${esc(c.maxInvest)}" inputmode="decimal"><i>원</i></span></label>
         <label class="ios-row"><span>최대 보유 순번<small>0 = 무제한</small></span><span class="rowr"><input class="inp" data-btc="maxLots" value="${esc(c.maxLots)}" inputmode="decimal"><i>개</i></span></label>
       </div>
-      ${num(c.growth, 1) > 1 ? '<p class="hint warn">수량 배수가 1보다 크면 하락할수록 매수량이 커집니다. 결과의 최대 투입금을 꼭 확인하세요.</p>' : ''}
-      <h4>매수 조건 <span class="seg"><label><input type="radio" name="emode" value="AND" data-change="btMode" data-g="entries" ${c.entries.mode !== 'OR' ? 'checked' : ''}> 모두 만족(AND)</label> <label><input type="radio" name="emode" value="OR" data-change="btMode" data-g="entries" ${c.entries.mode === 'OR' ? 'checked' : ''}> 하나라도(OR)</label></span></h4>
-      ${c.entries.conds.map((x, i) => condRow('entries', i, x)).join('') || '<p class="muted">매수 조건이 없습니다. 아래에서 추가하세요.</p>'}${adder('entries')}
-      <h4>매도 조건 <span class="seg"><label><input type="radio" name="xmode" value="OR" data-change="btMode" data-g="exits" ${c.exits.mode !== 'AND' ? 'checked' : ''}> 하나라도(OR)</label> <label><input type="radio" name="xmode" value="AND" data-change="btMode" data-g="exits" ${c.exits.mode === 'AND' ? 'checked' : ''}> 모두 만족(AND)</label></span></h4>
-      <p class="hint">“순번별” 조건은 그 순번만 팔고, 그 외 조건이 참이 되면 보유한 순번을 <b>전량 매도</b>합니다. 매도 조건이 없으면 기간 끝까지 보유하고 평가손익만 계산합니다.</p>
-      ${c.exits.conds.map((x, i) => condRow('exits', i, x)).join('') || '<p class="muted">매도 조건이 없습니다.</p>'}${adder('exits')}
+      ${num(c.growth, 1) > 1 ? '<p class="hint warn">수량 배수가 1보다 크면 매수량이 빠르게 커집니다.</p>' : ''}
+      ${condBox('entries')}${condBox('exits')}
       ${`<details class="box"><summary>렌코 차트 설정</summary><div class="grid2"><label>벽돌 크기 기준<select data-change="btRenko" data-k="mode" data-seg>${opts([['pct', '첫 종가의 N%'], ['fixed', '고정 금액'], ['atr', 'ATR(평균변동폭) × 배수']], c.renko.mode)}</select></label>
       <label>값 (%, 금액, 배수)<input data-btr="value" value="${esc(c.renko.value)}" inputmode="decimal"></label><label>ATR 기간<input data-btr="period" value="${esc(c.renko.period)}" inputmode="decimal"></label></div><p class="hint">일봉 종가로 만든 렌코라서 증권사 렌코 차트와 모양이 다를 수 있습니다.</p></details>`}` : mgForm()}
       <details class="box"><summary>고급 설정 <small class="muted">(체결 방식 · 수수료 · 전략 저장 · 기간 분할 검증)</small></summary>
@@ -267,7 +297,7 @@
           <div class="ios-row stack"><span>수수료·세금 기준</span><span class="rowr">${seg('market', [['KR', '국내'], ['US', '해외']], c.market)}</span></div>
           ${custom ? `<div class="ios-row stack"><span>매수 단위</span><span class="rowr">${seg('qtyMode', [['shares', '주 수'], ['amount', '금액']], c.qtyMode)}</span></div>` : ''}
         </div>
-        <p class="hint">“다음 날 시가”는 신호가 난 다음 날 시가로 체결해 현실적이고, “당일 종가”는 낙관적입니다.</p>
+        
         <h4>전략 저장 · 불러오기</h4>
         <div class="stratbar"><select class="inp" data-change="btStratPick"><option value="">저장된 전략 불러오기…</option>${st.map((x) => `<option value="${x.id}" ${bt.strategyId === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
           <input id="stratName" class="inp" placeholder="전략 이름" value="${esc((st.find((x) => x.id === bt.strategyId) || {}).name || '')}">
@@ -277,7 +307,7 @@
       </details>
     </section>
     <div class="btns runrow"><button class="btn primary runbtn" data-act="btRun" ${cur ? '' : 'disabled'}>시뮬레이션 실행</button>${st.length ? `<button class="btn" data-act="btCmp" ${cur ? '' : 'disabled'}>저장된 전략 모두 비교 (${st.length}개)</button>` : ''}</div>
-    ${bt.cmp ? cmpHtml() : ''}${bt.val ? valHtml() : ''}${bt.result ? resultHtml() : ''}</div>`;
+    ${bt.cmp ? cmpHtml() : ''}${bt.val ? valHtml() : ''}${bt.result ? resultHtml() : ''}${pickerHtml()}</div>`;
   };
 
   /* ---------- 불러오기 패널(열 지정 · 미리보기 · 저장 위치) ---------- */
@@ -363,7 +393,7 @@
     <section class="card chartfirst">
       ${rpHtml()}
       ${A.chartSection ? A.chartSection(null, `<div id="rpState" class="rp rp-statebox" ${rp.on ? '' : 'hidden'}>${rp.on ? rpStateHtml() : ''}</div>`) : '<canvas id="btCandle" class="chart"></canvas>'}
-      <p class="hint"><b>파란 B 원</b>은 매수, 그 아래 숫자는 <b>사이클-매수 순서</b>입니다(1 = 1사이클 첫 매수, 1-2 = 두 번째 매수). <b>S 원</b>은 전량 매도(이익이면 상승색, 손실이면 하락색)이고 옆에 수익률이 붙습니다. 주황 선은 평단, 초록 점선은 목표가입니다.</p>
+      <p class="hint"><b>B</b> 매수 (아래 숫자 = 사이클-순서) · <b>S</b> 전량 매도 (수익률) · 주황선 평단 · 초록 점선 목표가</p>
     </section>
     <section class="card">
       <div class="cards cards4">
@@ -379,7 +409,7 @@
         ${stat('수수료·세금 합계', fmtMoney(s.fees, cur), '')}
       </div></details>
       ${cycleSection(r, cur)}
-      <p class="hint warn">과거 결과일 뿐 미래 수익을 보장하지 않습니다. 한 종목·한 기간 결과는 우연일 수 있으니 다른 종목·기간에서도 비슷한지 확인하세요. 일봉으로는 장중 체결 순서를 알 수 없고, 기간 끝에 남은 순번은 평가손익으로만 반영됩니다.</p>
+      <p class="hint warn">과거 결과일 뿐입니다. 다른 종목·기간에서도 확인하세요.</p>
     </section>
     <section class="card"><h4>누적 손익 곡선 <small class="muted">(실현 + 평가)</small></h4><canvas id="btEquity" class="chart"></canvas>
       ${r.renko ? `<h4>렌코 차트</h4><canvas id="btRenko" class="chart"></canvas>` : ''}</section>
@@ -479,7 +509,7 @@
         ${card('청산까지(평균)', d(cs.avgDays), d(cs.maxDays))}
       </div>
       <div class="dist" aria-label="몇 번 매수하고 청산됐는지"><span class="dist-t">매수 횟수별 사이클 수 (총 ${done}번 청산)</span>${dist.map((k) => `<span class="dist-r"><i>${k}회</i><u style="width:${Math.max(4, Math.round((cs.dist[k] / dmax) * 100))}%"></u><b>${cs.dist[k]}</b></span>`).join('')}</div>` : '<p class="hint">이 기간에는 이익으로 전부 판 사이클이 없습니다.</p>';
-    const prog = oc ? `<p class="hint prog">진행 중 1건(평균·최대에는 포함하지 않음): ${md(oc.startDate)} 시작, ${oc.lots}회 매수·${fmtNum(oc.qty, 0)}주, 투입금 ${fmtMoney(oc.peakInv, cur)}, 평가손익 ${fmtMoney(oc.realized + oc.unrealized, cur)}. 목표에 닿지 못한 채 기간이 끝나, 실제로는 더 오래 기다리거나 더 들어갔을 수 있습니다.</p>` : '';
+    const prog = oc ? `<p class="hint prog">진행 중 1건(평균·최대 제외): ${md(oc.startDate)} 시작, ${oc.lots}회 매수·${fmtNum(oc.qty, 0)}주, 투입금 ${fmtMoney(oc.peakInv, cur)}, 평가손익 ${fmtMoney(oc.realized + oc.unrealized, cur)}.</p>` : '';
     const opt = bt.cycOpt || (bt.cycOpt = { target: false, pnl: false });
     const trOf = (lot) => r.trades.find((t) => t.no === lot);
     const detail = (x) => {
@@ -494,7 +524,7 @@
     return `<h4>사이클 분석 <small class="muted">(첫 매수 → 보유 순번 전부 매도)</small></h4>${summary}${prog}
       <div class="cycopt"><span class="muted">펼쳤을 때 추가로 보기</span><button type="button" class="chip ${opt.target ? 'on' : ''}" data-act="btCycOpt" data-k="target">목표가</button><button type="button" class="chip ${opt.pnl ? 'on' : ''}" data-act="btCycOpt" data-k="pnl">순번별 매도·손익</button></div>
       <div class="cycwrap ${opt.target ? 'show-target' : ''} ${opt.pnl ? 'show-pnl' : ''}"><div class="tablewrap"><table class="cyc cmp"><thead><tr><th>사이클</th><th>매수</th><th>투입금</th><th>손익</th></tr></thead><tbody>${r.cycles.map((x, k) => row(x, k + 1)).join('')}${oc ? row(oc, 0) : ''}</tbody></table></div></div>
-      <p class="hint">줄을 누르면 그 사이클의 매수별 평단·누적 투입금과 전량 매도가 펼쳐집니다. 평균·최대는 청산이 끝난 사이클만 계산하며, 과거 한 종목·한 기간의 값이라 다른 기간에는 더 깊이 들어갈 수 있습니다.</p>`;
+      <p class="hint">줄을 누르면 매수별 내역이 펼쳐집니다. 평균·최대는 청산이 끝난 사이클만 계산합니다.</p>`;
   }
 
   A.afterRender.backtest = function () {
@@ -599,7 +629,16 @@
   Object.assign(H, {
     btRepoRefresh: async () => { SM.data.clear(); repo.cache = {}; repo.initP = null; await A.btRepoInit(true); toast('저장소의 최신 목록을 읽었습니다'); },
     btDSDel: () => { if (isRepoId(bt.datasetId)) return toast('자동 수집 데이터는 삭제하지 않습니다. 수집 대상에서 빼면 목록에서 사라집니다.', true); if (!confirm('이 가격 데이터를 삭제할까요?')) return; const ds = loadDS(); delete ds[bt.datasetId]; saveDS(ds); bt.datasetId = null; bt.result = null; bt.val = null; bt.cmp = null; A.render(); },
-    btDel: (el) => { bt.cfg[el.dataset.g].conds.splice(+el.dataset.i, 1); A.render(); },
+    btDel: (el) => { bt.cfg[el.dataset.g].conds.splice(+el.dataset.i, 1); bt.condOpen = ''; A.render(); },
+    btCondOpen: (el) => {
+      const card = el.closest('.cnd'); if (!card) return; const was = card.classList.contains('open');
+      document.querySelectorAll('.cnd.open').forEach((x) => { x.classList.remove('open'); const h = x.querySelector('.cnd-h'); if (h) h.setAttribute('aria-expanded', 'false'); });
+      if (!was) { card.classList.add('open'); el.setAttribute('aria-expanded', 'true'); }
+      bt.condOpen = was ? '' : `${el.dataset.g}.${el.dataset.i}`;
+    },
+    btPickOpen: (el) => { bt.picker = el.dataset.g; A.render(); },
+    btPickClose: () => { bt.picker = null; A.render(); },
+    btPick: (el) => { const g = bt.picker; if (!g || !SM.COND_DEFS[el.dataset.t]) return; bt.cfg[g].conds.push(newCond(el.dataset.t)); bt.condOpen = `${g}.${bt.cfg[g].conds.length - 1}`; bt.picker = null; A.render(); },
     btRepo: async () => {
       const [wl, st] = await Promise.all([SM.data.watchlist(true), SM.data.status(true)]);
       const okOf = (w, k) => st && st.stocks && st.stocks[w.code] && st.stocks[w.code][k] && st.stocks[w.code][k].ok;
@@ -738,9 +777,7 @@
     btImpAdj: (el) => { bt.imp.useAdj = el.checked; A.render(); },
     btImpDest: (el) => { bt.imp[el.dataset.k] = el.type === 'radio' ? el.value : el.value; A.render(); },
     btDS: (el) => { bt.datasetId = el.value; bt.result = null; bt.val = null; bt.cmp = null; bt.cfg.from = ''; bt.cfg.to = ''; if (isRepoId(el.value)) A.btRepoLoad(el.value.slice(5)); A.render(); },
-    btAdd: (el) => { if (!el.value) return; bt.cfg[el.dataset.g].conds.push(newCond(el.value)); A.render(); },
-    btType: (el) => { bt.cfg[el.dataset.g].conds[+el.dataset.i] = newCond(el.value); A.render(); },
-    btParam: (el) => { bt.cfg[el.dataset.g].conds[+el.dataset.i][el.dataset.k] = el.value; },
+    btParam: (el) => { bt.cfg[el.dataset.g].conds[+el.dataset.i][el.dataset.k] = el.value; condRefresh(el.dataset.g, el.dataset.i); },
     btMode: (el) => { bt.cfg[el.dataset.g].mode = el.value; },
     btTop: (el) => { bt.cfg[el.dataset.k] = el.value; if (el.dataset.k === 'qtyMode') A.render(); },
     btRenko: (el) => { bt.cfg.renko[el.dataset.k] = el.value; },
@@ -767,11 +804,10 @@
     if (!stocks.length) return '';
     const st = stocks.find((x) => x.id === bt.stockId);
     const linked = st ? linkedDatasets(st.id) : [];
-    return `<section class="card"><h2>시험할 종목 <small class="muted">관심·보유 종목에서 고르기</small></h2>
-      <div class="row gap wrap"><select class="inp" data-change="btStock" style="max-width:300px" aria-label="시험할 종목">${stockOptions(bt.stockId).replace('연결 안 함', '종목 선택 (선택 사항)')}</select>
-      ${st ? (linked.length ? `<span class="muted">연결된 가격 데이터: ${esc(linked.map(([, d]) => d.name).join(', '))}</span>` : `<span class="stale">연결된 가격 데이터가 없습니다</span>`) : ''}</div>
-      ${st && !linked.length ? `<div class="btns"><button class="btn sm" data-act="btStockRepo">${ic('stocks')}자동 수집 시세로 불러오기</button><button class="btn sm" data-act="btStockFile">${ic('download')}파일로 불러오기</button></div><p class="hint">불러올 때 “${esc(st.name)}”에 자동으로 연결됩니다. 연결해 두면 이 종목을 고를 때 바로 그 데이터로 시험하고, 가상 매매의 “종가 채우기”와 “백테스트와 비교”에도 쓰입니다.</p>` : ''}
-      ${st && linked.length ? `<p class="hint">아래 “2. 전략 설정”에서 이 종목의 데이터로 시험합니다.</p>` : ''}</section>`;
+    return `<div class="stockpick">
+      <div class="row gap wrap"><select class="inp" data-change="btStock" style="max-width:300px" aria-label="내 종목">${stockOptions(bt.stockId).replace('연결 안 함', '종목 선택')}</select>
+      ${st ? (linked.length ? `<span class="muted">연결됨: ${esc(linked.map(([, d]) => d.name).join(', '))}</span>` : `<span class="stale">연결된 데이터 없음</span>`) : ''}</div>
+      ${st && !linked.length ? `<div class="btns"><button class="btn sm" data-act="btStockRepo">${ic('stocks')}자동 수집 시세로 불러오기</button><button class="btn sm" data-act="btStockFile">${ic('download')}파일로 불러오기</button></div>` : ''}</div>`;
   }
   A.btPickStock = (id) => {
     bt.stockId = id || '';
@@ -857,7 +893,7 @@
   Object.assign(A.changeHandlers, { btMgPrice: (el) => { const v = ['ma', 'rsi', 'bb'].includes(el.value) ? el.value : 'none'; bt.mg.pc = v; if (v === 'ma') bt.mg.pn = 30; else if (v === 'rsi') { bt.mg.pn = 14; bt.mg.pv = 40; } else if (v === 'bb') { bt.mg.pn = 20; bt.mg.pv = 2; } A.render(); }, btMgXTrend: (el) => { bt.mg.xtrend = el.value === '1'; A.render(); }, btMgTrend: (el) => { bt.mg.trend = el.value === '1'; A.render(); }, btMgSignal: (el) => { bt.mg.signal = ['flow', 'flowdrop'].includes(el.value) ? el.value : 'drop'; A.render(); }, btMgExit: (el) => { bt.mg.exit = el.value === 'cross' ? 'cross' : 'target'; bt.mgOpen = true; A.render(); }, btStock: (el) => { A.btPickStock(el.value); A.render(); } });
 
   A.inputHandlers.bt = (el) => {
-    if (el.dataset.btp) { const [g, i, k] = el.dataset.btp.split('.'); const c = bt.cfg[g].conds[+i]; if (c) c[k] = el.value; }
+    if (el.dataset.btp) { const [g, i, k] = el.dataset.btp.split('.'); const c = bt.cfg[g].conds[+i]; if (c) { c[k] = el.value; condRefresh(g, i); } }
     else if (el.dataset.btc) bt.cfg[el.dataset.btc] = el.value;
     else if (el.dataset.btr) bt.cfg.renko[el.dataset.btr] = el.value;
     else if (el.dataset.btsplit) bt.splitPct = el.value;

@@ -888,3 +888,45 @@ body.ios-sim .ios-row.stack .rowr .segsel { min-width: 0; width: 100%; }
 body.ios-sim .grpseg button { text-align: center; }
 .rp-statebox { margin: 10px 0 0; } .rp-statebox[hidden] { display: none; }
 .rp-bar .rpb { min-width: 40px; height: 36px; } .rp-opts .chips { margin: 4px 0; }
+
+/* ===== 시뮬레이션 전략: 매수(연한 분홍) · 매도(연한 하늘) 구분, 조건은 한 줄 요약 + 펼침, 선택창 ===== */
+body.ios-sim { --buy-bg: rgba(255, 45, 85, .09); --buy-line: rgba(255, 45, 85, .28); --buy-fg: #d70f3c; --sell-bg: rgba(50, 173, 230, .12); --sell-line: rgba(50, 173, 230, .34); --sell-fg: #0a7fb8; }
+@media (prefers-color-scheme: dark) { body.ios-sim { --buy-bg: rgba(255, 55, 95, .16); --buy-line: rgba(255, 55, 95, .4); --buy-fg: #ff6482; --sell-bg: rgba(100, 210, 255, .14); --sell-line: rgba(100, 210, 255, .4); --sell-fg: #64d2ff; } }
+.mgblock { margin: 12px 0 0; border-radius: 14px; padding: 8px 8px 4px; }
+.mgblock.buy { background: var(--buy-bg); } .mgblock.sell { background: var(--sell-bg); }
+.mgblock-h { font-size: 13px; font-weight: 700; padding: 2px 8px 4px; color: var(--muted); }
+.mgblock.buy .mgblock-h { color: var(--buy-fg); } .mgblock.sell .mgblock-h { color: var(--sell-fg); }
+.mgblock .ios-list { background: var(--card); margin-top: 0; }
+body.ios-sim .mgblock .ios-list { background: var(--card); }
+.cndbox { margin: 12px 0 0; border-radius: 14px; padding: 8px; }
+.cndbox.buy { background: var(--buy-bg); } .cndbox.sell { background: var(--sell-bg); }
+.cndbox-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 4px 8px; }
+.cndbox-h b { font-size: 14px; } .cndbox.buy .cndbox-h b { color: var(--buy-fg); } .cndbox.sell .cndbox-h b { color: var(--sell-fg); }
+.cndbox-h .segsel { min-width: 150px; }
+.cnd { background: var(--card); border-radius: 12px; margin-bottom: 6px; border: 1px solid transparent; overflow: hidden; }
+.cndbox.buy .cnd { border-color: var(--buy-line); } .cndbox.sell .cnd { border-color: var(--sell-line); }
+.cnd-h { display: flex; align-items: center; gap: 8px; padding: 11px 12px; cursor: pointer; min-height: 44px; }
+.cnd-t { flex: 1; font-size: 14px; font-weight: 600; line-height: 1.35; }
+.cnd-del { border: 0; background: transparent; color: var(--muted); font-size: 15px; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; }
+.cnd-del:hover { background: var(--ios-fill); }
+.cnd-ch { font-style: normal; color: var(--muted); transition: transform .15s; } .cnd.open .cnd-ch { transform: rotate(180deg); }
+.cnd-b { display: none; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; padding: 2px 12px 12px; } .cnd.open .cnd-b { display: grid; }
+.cnd-b label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); } .cnd-b .inp { width: 100%; }
+.cnd-empty { margin: 4px 6px 8px; font-size: 13px; color: var(--muted); }
+.cnd-add { width: 100%; border: 1.5px dashed var(--line); background: transparent; color: var(--accent); border-radius: 12px; padding: 11px; font-weight: 600; font-size: 14px; cursor: pointer; }
+.cndbox.buy .cnd-add { border-color: var(--buy-line); color: var(--buy-fg); } .cndbox.sell .cnd-add { border-color: var(--sell-line); color: var(--sell-fg); }
+/* 아래에서 올라오는 선택창 */
+.sheet-bg { position: fixed; inset: 0; background: rgba(0, 0, 0, .38); z-index: 60; }
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 78vh; overflow: auto; z-index: 61; background: var(--card); border-radius: 18px 18px 0 0; padding: 14px 14px calc(18px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 30px rgba(0, 0, 0, .25); max-width: 720px; margin: 0 auto; }
+.sheet::before { content: ''; display: block; width: 38px; height: 4px; border-radius: 2px; background: var(--line); margin: -4px auto 8px; }
+.sheet-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; } .sheet.buy .sheet-h b { color: var(--buy-fg); } .sheet.sell .sheet-h b { color: var(--sell-fg); }
+.sheet-g { margin-top: 10px; } .sheet-g > span { font-size: 12px; color: var(--muted); font-weight: 600; }
+.sheet.buy .chip.pick { background: var(--buy-bg); } .sheet.sell .chip.pick { background: var(--sell-bg); }
+.sheet .chip.pick { padding: 9px 14px; font-size: 13.5px; }
+.stockpick { margin: 6px 0; }
+/* 버튼형 선택(segsel): 선택된 칸은 흰색(iOS 분할 버튼)으로 */
+body.ios-sim .segsel { border: 0; background: var(--ios-fill); padding: 2px; gap: 0; border-radius: 9px; }
+body.ios-sim .segsel button { border-left: 0; min-height: 34px; border-radius: 7px; font-size: 13px; font-weight: 500; background: transparent; color: var(--fg); }
+body.ios-sim .segsel button[aria-checked="true"] { background: var(--ios-seg-on); color: var(--fg); font-weight: 700; box-shadow: 0 1px 3px rgba(0, 0, 0, .18), 0 0 0 .5px rgba(0, 0, 0, .04); }
+body.ios-sim .mgblock .segsel { background: rgba(118, 118, 128, .16); }
+.cndbox-h b { white-space: nowrap; } .cndbox-h .segsel { flex: 0 1 190px; min-width: 0; }
