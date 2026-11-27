@@ -577,6 +577,31 @@ t('배당 기록: 세금 자동 제안, 검증, 환율 환산, 기간·종목 �
   assert.equal(SM.pnlReport(state, { group: 'all', stockId: kr.id, from: '2026-01-01', to: '2026-12-31' }).div.count, 1);
   assert.equal(SM.pnlReport(state, { group: 'all', stockId: us.id, from: '2027-01-01' }).div.count, 0);
 });
+t('차트 실적: 전년 동기 대비·흑전/적전·공시일 추정·기준일까지 공시된 실적', () => {
+  const Q = (ym, op, filed, extra) => Object.assign({ ym, op: op * 1e8, revenue: Math.abs(op) * 10e8, net: 0, filed }, extra || {});
+  const q = [Q('2025-03', 43, '2025-05-15'), Q('2025-06', 37, '2025-08-14'), Q('2025-09', 15.75, '2025-11-14'), Q('2025-12', 15.5, '2026-03-20', { derived: true }), Q('2026-03', 51.74, '2026-05-15'), Q('2026-06', -20.71, null), Q('2026-09', 34.92, '2026-11-13'), Q('2027-03', -5, '2027-05-14'), Q('2026-12', -8, '2027-03-30')];
+  const s = SM.earningsSeries(q), by = Object.fromEntries(s.map((e) => [e.ym, e]));
+  assert.deepEqual(s.map((e) => e.ym), ['2025-03', '2025-06', '2025-09', '2025-12', '2026-03', '2026-06', '2026-09', '2026-12', '2027-03']); // 공시(또는 추정) 날짜순
+  assert.equal(by['2025-03'].yoy.kind, 'na'); // 전년 동기 없음
+  assert(Math.abs(by['2026-03'].yoy.pct - (51.74 / 43 - 1) * 100) < 1e-9);
+  assert.equal(by['2026-06'].yoy.kind, 'turn_loss'); // 37 → -20.71: 흑자에서 적자로 assert(Math.abs(by['2026-09'].yoy.pct - (34.92 / 15.75 - 1) * 100) < 1e-9 && by['2026-09'].yoy.pct > 120 && by['2026-09'].yoy.pct < 123); // +122%(기저효과)
+  assert.equal(by['2026-12'].yoy.kind, 'turn_loss'); assert.equal(by['2027-03'].yoy.kind, 'turn_loss'); // 15.5 → -8, 51.74 → -5
+  assert.deepEqual(SM.yoyOf(10, -5), { kind: 'turn_profit' }); assert.deepEqual(SM.yoyOf(-3, -5), { kind: 'loss', better: true }); assert.deepEqual(SM.yoyOf(-8, -5), { kind: 'loss', better: false }); assert.equal(SM.yoyOf(5, 0).kind, 'na'); assert.equal(SM.yoyOf(null, 5).kind, 'na'); assert.equal(SM.yoyOf(0, 5).kind, 'pct');
+  assert.equal(SM.yoyOf(0, 5).pct, -100);
+  // 억원·이익률·공시일 추정
+  assert.equal(Math.round(by['2026-03'].opEok * 100) / 100, 51.74); assert(Math.abs(by['2026-03'].margin - 10) < 1e-9);
+  assert.equal(by['2026-06'].filedEst, true); assert.equal(by['2026-06'].at, '2026-08-14'); // 6월 말 + 45일
+  assert.equal(SM.estimateFiled('2025-12'), '2026-03-31'); assert.equal(SM.estimateFiled('2026-03'), '2026-05-15'); assert.equal(SM.estimateFiled('2024-12'), '2025-03-31'); // 연간은 +90일, 윤년 2월 처리
+  assert.equal(by['2025-12'].derived, true); assert.equal(by['2026-09'].filedEst, false);
+  // 기준일까지 공시된 최근 실적(미래 정보 금지)
+  assert.equal(SM.earningsAsOf(s, '2025-05-14'), null); assert.equal(SM.earningsAsOf(s, '2025-05-15').ym, '2025-03'); assert.equal(SM.earningsAsOf(s, '2026-11-12').ym, '2026-06'); assert.equal(SM.earningsAsOf(s, '2026-11-13').ym, '2026-09'); assert.equal(SM.earningsAsOf(s, '2030-01-01').ym, '2027-03'); assert.equal(SM.earningsAsOf([], '2026-01-01'), null); assert.equal(SM.earningsAsOf(null, '2026-01-01'), null);
+  // 표기
+  assert.equal(SM.chartFmtEok(3492), '3,492억'); assert.equal(SM.chartFmtEok(12345), '1.2조'); assert.equal(SM.chartFmtEok(-2071), '-2,071억'); assert.equal(SM.chartFmtEok(123456), '12조'); assert.equal(SM.chartYoyText({ kind: 'pct', pct: 121.7 }), '+122%'); assert.equal(SM.chartYoyText({ kind: 'pct', pct: -6.04 }), '-6.0%'); assert.equal(SM.chartYoyText({ kind: 'turn_profit' }), '흑자전환'); assert.equal(SM.chartYoyText({ kind: 'loss', better: false }), '적자 확대');
+  // 잘못된 입력은 무시
+  assert.deepEqual(SM.earningsSeries([null, { ym: 'x', op: 1 }, { ym: '2026-03' }, { ym: '2026-03', op: NaN }]), []); assert.deepEqual(SM.earningsSeries(null), []);
+  // 날짜 위치 찾기
+  const ds = ['2026-01-02', '2026-01-05', '2026-01-06']; assert.equal(SM.chartFirstIdx(ds, '2026-01-03'), 1); assert.equal(SM.chartFirstIdx(ds, '2026-01-02'), 0); assert.equal(SM.chartFirstIdx(ds, '2026-02-01'), -1); assert.equal(SM.chartFirstIdx(ds, '2025-12-01'), 0);
+});
 t('버전 비교', () => {
   assert.equal(SM.compareVersions('1.10.0', '1.9.9'), 1);
   assert.equal(SM.compareVersions('1.2.0', '1.2.0'), 0);

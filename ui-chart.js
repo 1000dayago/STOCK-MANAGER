@@ -6,7 +6,7 @@
   const ic = SM.ic;
   const ui = A.ui;
   const KEY = 'stockmgr.chartcfg';
-  const DEF = { tf: 'D', months: 6, ma: [5, 20, 60, 120], bbOn: true, bbN: 20, bbK: 2, flow: true, vol: true };
+  const DEF = { tf: 'D', months: 6, ma: [5, 20, 60, 120], bbOn: true, bbN: 20, bbK: 2, flow: true, vol: true, earn: true };
   const MONTHS = [[3, '3개월'], [6, '6개월'], [12, '1년'], [36, '3년'], [0, '전체']];
 
   // 보기 설정은 이 기기에만 기억합니다(편의 기능)
@@ -40,10 +40,10 @@
           <label class="chk"><input type="checkbox" data-chartopt="bbOn" ${prefs.bbOn ? 'checked' : ''}> 볼린저밴드</label>
           <div class="grid2"><label>볼린저 기간<input class="inp" data-chartopt="bbN" value="${prefs.bbN}" inputmode="numeric"></label><label>볼린저 배수<input class="inp" data-chartopt="bbK" value="${prefs.bbK}" inputmode="decimal"></label></div>
           <label>이동평균 기간 <small class="muted">(쉼표로 구분, 최대 6개)</small><input class="inp" data-chartopt="ma" value="${esc(prefs.ma.join(', '))}" inputmode="numeric" placeholder="예: 5, 20, 60, 120, 200"></label>
-          <div class="row gap wrap"><label class="chk"><input type="checkbox" data-chartopt="flow" ${prefs.flow ? 'checked' : ''}> 외국인·기관·개인 수급</label><label class="chk"><input type="checkbox" data-chartopt="vol" ${prefs.vol ? 'checked' : ''}> 거래량</label></div>
+          <div class="row gap wrap"><label class="chk"><input type="checkbox" data-chartopt="flow" ${prefs.flow ? 'checked' : ''}> 외국인·기관·개인 수급</label><label class="chk"><input type="checkbox" data-chartopt="vol" ${prefs.vol ? 'checked' : ''}> 거래량</label><label class="chk"><input type="checkbox" data-chartopt="earn" ${prefs.earn ? 'checked' : ''}> 영업이익(분기 실적, DART)</label></div>
           <p class="hint">설정은 이 기기에만 저장됩니다. 주·월봉에서는 이동평균·볼린저가 주·월 단위로 계산됩니다.</p>
         </div></details>
-      <p class="hint chartguide">좌우로 <b>드래그</b>하면 이동, <b>두 손가락 벌리기</b>(PC는 마우스 휠)로 확대·축소, <b>탭</b>(PC는 마우스 올리기)하면 그 날의 시세와 수급이 위에 표시됩니다. 수급 누적선은 화면에 보이는 구간의 첫 날부터 합산합니다.</p>
+      <p class="hint chartguide">좌우로 <b>드래그</b>하면 이동, <b>두 손가락 벌리기</b>(PC는 마우스 휠)로 확대·축소, <b>탭</b>(PC는 마우스 올리기)하면 그 날의 시세와 수급이 위에 표시됩니다. 수급 누적선은 화면에 보이는 구간의 첫 날부터 합산합니다. 영업이익 막대는 <b>공시일</b> 위치에 그려지며(공시일을 모르면 점선·옅은 색, 분기 말 + 45일 추정), <b>*</b>는 연간 실적에서 앞 3분기를 뺀 4분기 값입니다.</p>
     </div></details>`;
   };
 
@@ -52,9 +52,17 @@
     const sm = SM.stockSummary(st, A.getState().settings);
     const avg = st.market === 'US' ? (sm && sm.avgLocal) : sm && sm.avg;
     const lots = st.lots.filter((l) => SM.lotRem(st, l) > 0).map((l) => ({ date: l.date, no: l.no }));
-    return { ma: prefs.ma, bb: { on: prefs.bbOn, n: Math.max(2, Math.min(200, Math.round(+prefs.bbN) || 20)), k: Math.max(0.5, Math.min(5, +prefs.bbK || 2)) }, flow: prefs.flow, vol: prefs.vol, avg: sm && sm.qty > 0 && avg ? avg : null, lots };
+    return { ma: prefs.ma, bb: { on: prefs.bbOn, n: Math.max(2, Math.min(200, Math.round(+prefs.bbN) || 20)), k: Math.max(0.5, Math.min(5, +prefs.bbK || 2)) }, flow: prefs.flow, vol: prefs.vol, earn: prefs.earn, avg: sm && sm.qty > 0 && avg ? avg : null, lots };
   }
 
+  // 분기 실적(DART): 수집된 종목만. 없으면 null
+  async function loadQuarters(st) {
+    const code = String(st.code || '').trim();
+    if (st.market !== 'KR' || !/^[0-9A-Z]{6}$/.test(code)) return null;
+    const c = A.collect, info = c && c.status && c.status.stocks && c.status.stocks[code];
+    if (c && c.loaded && c.status && !(info && info.fin && info.fin.ok)) return null; // 재무 수집이 안 된 종목은 요청하지 않음(404 방지)
+    try { const d = await SM.data.fin(code); return d && Array.isArray(d.quarters) && d.quarters.length ? d.quarters : null; } catch (e) { return null; }
+  }
   // 종목 화면이 그려진 뒤 호출: 차트 영역이 있으면 데이터를 읽어 그립니다
   A.mountChart = async () => {
     const host = document.getElementById('chartHost'), card = document.getElementById('chartCard');
@@ -78,9 +86,12 @@
     chart.state.tf = prefs.tf;
     chart.setData(ds.data);
     chart.setMonths(prefs.months);
+    const quarters = await loadQuarters(st);
+    if (my !== loadSeq || !chart) return;
+    chart.setEarnings(quarters || []);
     const info = chart.state.bars, unit = ds.data.flowUnit === 'krw' ? '금액(원) 단위' : '수량(주) 단위';
     const hasFlow = ['frgn', 'inst', 'indiv'].some((k) => ds.data[k]);
-    msg.innerHTML = `<small class="muted">데이터: ${esc(ds.name)} · ${ds.data.d[0]} ~ ${ds.data.d[ds.data.d.length - 1]} (${ds.data.d.length}일)${hasFlow ? ' · 수급 ' + unit : ' · 수급 없음(수급 패널은 숨겨집니다)'}</small>`;
+    msg.innerHTML = `<small class="muted">데이터: ${esc(ds.name)} · ${ds.data.d[0]} ~ ${ds.data.d[ds.data.d.length - 1]} (${ds.data.d.length}일)${hasFlow ? ' · 수급 ' + unit : ' · 수급 없음(수급 패널은 숨겨집니다)'}${quarters ? ` · 실적(DART) ${quarters[0].ym} ~ ${quarters[quarters.length - 1].ym} ${quarters.length}분기` : ' · 영업이익 패널 없음(DART 키로 재무가 수집된 종목만 표시)'}</small>`;
   };
 
   const setOn = (btn) => { btn.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn)); };
@@ -107,7 +118,7 @@
   document.addEventListener('change', (e) => {
     const el = e.target, k = el && el.dataset && el.dataset.chartopt;
     if (!k) return;
-    if (k === 'bbOn' || k === 'flow' || k === 'vol') prefs[k] = el.checked;
+    if (k === 'bbOn' || k === 'flow' || k === 'vol' || k === 'earn') prefs[k] = el.checked;
     else if (k === 'ma') { const v = parseMa(el.value); prefs.ma = v.length ? v : DEF.ma; el.value = prefs.ma.join(', '); }
     else if (k === 'bbN') { prefs.bbN = Math.max(2, Math.min(200, Math.round(+el.value) || DEF.bbN)); el.value = prefs.bbN; }
     else if (k === 'bbK') { prefs.bbK = Math.max(0.5, Math.min(5, +el.value || DEF.bbK)); el.value = prefs.bbK; }

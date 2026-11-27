@@ -90,7 +90,35 @@
   }
   const signed = (v, f) => (v > 0 ? '+' : '') + f(v);
 
-  Object.assign(SM, { aggregateBars, chartSma: sma, chartBollinger: bollinger, chartWindow: windowRange, chartCumulative: cumulative, chartBarsForMonths: barsForMonths, chartExtremes: extremes, chartNiceTicks: niceTicks, chartFmtCompact: fmtCompact });
+  /* ---------- 분기 영업이익(실적) ---------- */
+  const shiftYm = (ym, n) => { const [y, m] = ym.split('-').map(Number), t = y * 12 + (m - 1) + n; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`; };
+  const lastDay = (ym) => { const [y, m] = ym.split('-').map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); };
+  // 공시일을 모를 때의 추정: 분기 말 + 45일(1·2·3분기), 연간(사업보고서)은 + 90일
+  function estimateFiled(ym) { return new Date(Date.parse(lastDay(ym) + 'T00:00:00Z') + (ym.endsWith('-12') ? 90 : 45) * 86400000).toISOString().slice(0, 10); }
+  // 전년 동기 대비. 직전(전년) 값이 0 이하이면 % 대신 전환/지속으로 표시합니다.
+  //  pct: 증가율(%) · turn_profit: 흑자전환 · turn_loss: 적자전환 · loss: 적자 지속(better=적자 축소 여부) · na: 전년 값 없음/0
+  function yoyOf(cur, prev) {
+    if (cur == null || prev == null || prev === 0) return { kind: 'na' };
+    if (prev > 0) return cur >= 0 ? { kind: 'pct', pct: (cur / prev - 1) * 100 } : { kind: 'turn_loss' };
+    return cur > 0 ? { kind: 'turn_profit' } : { kind: 'loss', better: cur > prev };
+  }
+  // quarters: [{ym, op, revenue, net, filed, derived}] (원 단위) → 화면용(억원, 이익률, 증가율, 막대를 그릴 날짜 at)
+  function earningsSeries(quarters) {
+    const list = (quarters || []).filter((q) => q && /^\d{4}-\d{2}$/.test(q.ym) && Number.isFinite(q.op)).slice().sort((a, b) => (a.ym < b.ym ? -1 : 1));
+    const by = new Map(list.map((q) => [q.ym, q]));
+    return list.map((q) => {
+      const prev = by.get(shiftYm(q.ym, -12));
+      return Object.assign({}, q, { opEok: q.op / 1e8, margin: q.revenue > 0 ? (q.op / q.revenue) * 100 : null, yoy: yoyOf(q.op, prev && prev.op), filedEst: !q.filed, at: q.filed || estimateFiled(q.ym) });
+    }).sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  }
+  // 기준 날짜까지 공시된(공시일이 그 날짜 이전인) 가장 최근 실적 — 미래 정보를 쓰지 않기 위함
+  function earningsAsOf(series, date) { let r = null; for (const e of series || []) { if (e.at <= date) r = e; else break; } return r; }
+  const fmtEok = (v) => (Math.abs(v) >= 10000 ? (v / 10000).toFixed(Math.abs(v) >= 100000 ? 0 : 1) + '조' : Math.round(v).toLocaleString('ko-KR') + '억');
+  const yoyText = (y) => (y.kind === 'pct' ? `${y.pct > 0 ? '+' : ''}${y.pct.toFixed(Math.abs(y.pct) >= 100 ? 0 : 1)}%` : y.kind === 'turn_profit' ? '흑자전환' : y.kind === 'turn_loss' ? '적자전환' : y.kind === 'loss' ? (y.better ? '적자 축소' : '적자 확대') : '-');
+  // 날짜 배열(오름차순)에서 date 이후 첫 위치. 마지막 날짜보다 뒤면 -1
+  function firstIdxOnOrAfter(dates, date) { let lo = 0, hi = dates.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (dates[mid] < date) lo = mid + 1; else hi = mid; } return lo < dates.length ? lo : -1; }
+
+  Object.assign(SM, { earningsSeries, earningsAsOf, estimateFiled, yoyOf, chartFmtEok: fmtEok, chartYoyText: yoyText, chartFirstIdx: firstIdxOnOrAfter, aggregateBars, chartSma: sma, chartBollinger: bollinger, chartWindow: windowRange, chartCumulative: cumulative, chartBarsForMonths: barsForMonths, chartExtremes: extremes, chartNiceTicks: niceTicks, chartFmtCompact: fmtCompact });
 
   /* ================= 그리기 · 조작 ================= */
   if (typeof document === 'undefined') return;
@@ -108,7 +136,7 @@
     canvas.className = 'stockchart';
     canvas.style.touchAction = 'pan-y'; // 세로 스크롤은 페이지가, 가로 드래그·핀치는 차트가
     host.appendChild(canvas);
-    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, avg: null, lots: [], full: false }, cfg0 || {}), geom: null };
+    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
 
     function rebuild(keepWindow) {
       if (!S.raw) { S.bars = null; return; }
@@ -125,6 +153,7 @@
       const P = [{ k: 'main', h: main }];
       if (S.cfg.flow && hasFlow()) for (const [k, name, color] of WHO) if (S.bars[k]) P.push({ k, h: sub, name, color });
       if (S.cfg.vol && S.bars.hasVol !== false) P.push({ k: 'vol', h: sub });
+      if (S.cfg.earn && S.earn && S.earn.length) P.push({ k: 'earn', h: sub + 34 });
       let y = 0; for (const p of P) { p.y = y; y += p.h; }
       return { P, H: y + 22 };
     }
@@ -272,6 +301,44 @@
         for (const v of niceTicks(0, vmax, 2)) { const y = VY(v); if (v > 0 && !nearTag(y) && y > vp.y + 12) ctx.fillText(fmtCompact(v, 'shares'), W - PR + 6, y); }
       }
 
+      /* ---- 영업이익 패널: 분기 막대(공시일 위치) + 전년 동기 대비 증가율 ---- */
+      const ep = P.find((p) => p.k === 'earn');
+      const visEarn = (S.earn || []).map((e) => ({ e, i: firstIdxOnOrAfter(b.d, e.at) })).filter((x) => x.i >= from && x.i <= to);
+      if (ep) {
+        const et = 26, eb = 8, eh = ep.h - et - eb;
+        ctx.fillStyle = T.text; ctx.textAlign = 'left'; ctx.fillText('영업이익 (분기 · 공시일 위치)', PL + 2, ep.y + 8);
+        if (!visEarn.length) { ctx.textAlign = 'center'; ctx.fillText('이 구간에는 공시된 분기 실적이 없습니다', PL + pw / 2, ep.y + ep.h / 2 + 4); ctx.textAlign = 'left'; }
+        else {
+          let emin = 0, emax = 0; for (const x of visEarn) { emin = Math.min(emin, x.e.opEok); emax = Math.max(emax, x.e.opEok); }
+          if (emin === emax) emax = emin + 1;
+          const rng = emax - emin; emax += rng * 0.42; if (emin < 0) emin -= rng * 0.42; // 막대 위·아래에 글자 자리
+          const EY = (v) => ep.y + et + ((emax - v) / (emax - emin)) * eh, zero = EY(0);
+          const nPer = S.tf === 'W' ? 13 : S.tf === 'M' ? 3 : 63, bwq = Math.max(8, Math.min(46, bw * nPer * 0.5));
+          ctx.strokeStyle = T.grid; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(PL, Math.round(zero) + 0.5); ctx.lineTo(W - PR, Math.round(zero) + 0.5); ctx.stroke(); ctx.setLineDash([]);
+          const geomOf = (e, i) => { const x = X(i), y1 = EY(e.opEok), top = Math.min(zero, y1); return { x, lx: Math.min(W - PR - 24, Math.max(PL + 24, x)), top, hgt: Math.max(1.5, Math.abs(y1 - zero)), col: e.opEok >= 0 ? T.up : T.down }; };
+          for (const { e, i } of visEarn) { // 막대
+            const g = geomOf(e, i);
+            ctx.globalAlpha = e.filedEst ? 0.4 : 0.8; ctx.fillStyle = g.col; ctx.fillRect(g.x - bwq / 2, g.top, bwq, g.hgt); ctx.globalAlpha = 1;
+            if (e.filedEst) { ctx.strokeStyle = g.col; ctx.lineWidth = 1; ctx.setLineDash([3, 2]); ctx.strokeRect(g.x - bwq / 2 + 0.5, g.top + 0.5, bwq - 1, g.hgt - 1); ctx.setLineDash([]); }
+          }
+          let lastLabelX = 1e9; // 글자(금액·증가율): 가장 최근(오른쪽) 분기부터 배치하고, 너무 가까우면 건너뜀 → 최근 값은 항상 표시
+          for (let k = visEarn.length - 1; k >= 0; k--) {
+            const { e, i } = visEarn[k], g = geomOf(e, i);
+            if (lastLabelX - g.lx < 46 && bwq < 40) continue;
+            const pos = e.opEok >= 0, yy = SM.chartYoyText(e.yoy);
+            ctx.font = 'bold 10px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = T.fg; ctx.fillText(fmtEok(e.opEok) + (e.derived ? '*' : ''), g.lx, pos ? g.top - 20 : g.top + g.hgt + 7);
+            const yc = e.yoy.kind === 'pct' ? (e.yoy.pct >= 0 ? T.up : T.down) : e.yoy.kind === 'turn_profit' ? T.up : e.yoy.kind === 'turn_loss' ? T.down : e.yoy.kind === 'loss' ? (e.yoy.better ? T.up : T.down) : T.text;
+            ctx.font = '10px -apple-system, "Noto Sans KR", sans-serif'; ctx.fillStyle = yc; if (yy !== '-') ctx.fillText(yy, g.lx, pos ? g.top - 8 : g.top + g.hgt + 18);
+            ctx.fillStyle = T.text; ctx.textAlign = 'left'; ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif';
+            lastLabelX = g.lx;
+          }
+          ctx.fillStyle = T.text; ctx.textAlign = 'left';
+          for (const v of niceTicks(emin, emax, 2)) { const y = EY(v); if (y < ep.y + 12 || y > ep.y + ep.h - 6) continue; ctx.fillText(Math.abs(v) < 1e-9 ? '0' : fmtEok(v), W - PR + 6, y); }
+        }
+      }
+      // 캔들 패널 아래쪽: 실적 공시일 표시(위를 향한 작은 삼각형). 영업이익 막대와 같은 위치
+      if (visEarn.length) for (const { e, i } of visEarn) { const x = X(i); ctx.fillStyle = e.filedEst ? 'rgba(148,163,184,0.9)' : (e.opEok >= 0 ? T.up : T.down); ctx.beginPath(); ctx.moveTo(x - 4, m.y + m.h - 2); ctx.lineTo(x + 4, m.y + m.h - 2); ctx.lineTo(x, m.y + m.h - 9); ctx.closePath(); ctx.fill(); }
+
       /* ---- 십자선 ---- */
       if (S.cross != null && S.cross >= from && S.cross <= to) {
         const x = Math.round(X(S.cross)) + 0.5; ctx.strokeStyle = T.fg; ctx.globalAlpha = 0.55; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H - 22); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
@@ -290,6 +357,10 @@
           const cu = cumulative(b[k], from, i), v = b[k][i];
           return `<span class="cr-who" style="--c:${color}">${name}</span> <b class="${col(v)}">${v == null ? '-' : signed(v, (x) => fmtCompact(x, unit))}</b> <small>(누적 ${cu.any ? signed(cu.cum[cu.cum.length - 1], (x) => fmtCompact(x, unit)) : '-'})</small>`;
         }).join(' · ');
+      }
+      if (S.earn && S.earn.length && S.cfg.earn) {
+        const e = earningsAsOf(S.earn, b.d[i]);
+        h += '<br>' + (e ? `<span class="cr-who" style="--c:#64748b">실적</span> <b>${e.label || e.ym}</b> 영업이익 <b class="${e.opEok > 0 ? 'cr-up' : e.opEok < 0 ? 'cr-down' : ''}">${fmtEok(e.opEok)}</b> <small>(전년 동기 대비 <b>${SM.chartYoyText(e.yoy)}</b>${e.margin != null ? ' · 이익률 ' + e.margin.toFixed(1) + '%' : ''} · 공시 ${e.at}${e.filedEst ? ' 추정' : ''}${e.derived ? ' · 연간−3분기' : ''})</small>` : '<span class="muted">이 날짜 이전에 공시된 분기 실적이 없습니다.</span>');
       }
       readEl.innerHTML = h;
     }
@@ -341,6 +412,7 @@
       },
       setMonths(months) { if (!S.bars) return; S.count = barsForMonths(S.tf, months, S.bars.d.length); S.end = S.bars.d.length - 1; const w = windowRange(S.bars.d.length, S.count, S.end); S.count = w.count; S.end = w.to; S.cross = null; draw(); },
       setConfig(c) { Object.assign(S.cfg, c); rebuild(true); draw(); },
+      setEarnings(quarters) { S.earn = earningsSeries(quarters); draw(); },
       redraw() { draw(); },
       destroy() { if (ro) ro.disconnect(); canvas.remove(); },
     };

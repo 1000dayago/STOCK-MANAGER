@@ -32,7 +32,10 @@ function fixtures() {
   days.forEach((d) => { const o = c, ch = (rnd() - 0.48) * 600; c = Math.max(15000, Math.round(o + ch)); const h = Math.max(o, c) + Math.round(rnd() * 250), l = Math.min(o, c) - Math.round(rnd() * 250);
     px.push(`${d},${o},${h},${l},${c},${Math.round(800000 + rnd() * 900000)}`); fl.push(`${d},${Math.round((rnd() - 0.45) * 400000)},${Math.round((rnd() - 0.5) * 200000)},${Math.round((rnd() - 0.5) * 300000)}`); });
   const stocks = { updatedAt: '2026-11-27T00:00:00.000Z', count: 5, stocks: [['005930', '삼성전자', 'P', 's'], ['062040', '산일전기', 'P', 's'], ['003490', '대한항공', 'P', 's'], ['069500', 'KODEX 200', 'P', 'e'], ['0126Z0', '삼성에피스홀딩스', 'P', 's']] };
-  return { px: px.join('\n') + '\n', fl: fl.join('\n') + '\n', last: days[days.length - 1], close: c, stocks };
+  // 분기 영업이익(원 단위): 2025-03 이후 6분기, 마지막 분기는 공시일 없음(추정 표시 확인용)
+  const Q = (ym, op, filed, extra) => Object.assign({ ym, year: +ym.slice(0, 4), q: Math.ceil(+ym.slice(5) / 3), label: `${ym.slice(0, 4)} ${Math.ceil(+ym.slice(5) / 3)}분기`, fs: '연결', revenue: Math.abs(op) * 12, op, net: 0, filed }, extra || {});
+  const fin = { updatedAt: '2026-11-27T00:00:00.000Z', periods: [], quarters: [Q('2025-03', 4310e8, '2025-05-15'), Q('2025-06', 3701e8, '2025-08-14'), Q('2025-09', 1575e8, '2025-11-14'), Q('2025-12', 1549e8, '2026-03-18', { derived: true }), Q('2026-03', 5174e8, '2026-05-15'), Q('2026-06', -2071e8, '2026-08-14'), Q('2026-09', 3492e8, '2026-11-13'), Q('2026-12', 1456e8, null)] };
+  return { px: px.join('\n') + '\n', fl: fl.join('\n') + '\n', last: days[days.length - 1], close: c, stocks, fin };
 }
 
 (async () => {
@@ -47,7 +50,7 @@ function fixtures() {
     page.on('console', (m) => { if (m.type() === 'error' && !/firebase|gstatic|net::ERR|404|Failed to load resource/i.test(m.text())) errs.push('CONSOLE ' + m.text()); });
     const dlg = { mode: 'accept', msgs: [] }; // 확인창: 문구를 기록하고 mode 에 따라 수락/취소
     page.on('dialog', (d) => { dlg.msgs.push(d.message()); return dlg.mode === 'dismiss' ? d.dismiss() : d.accept(); });
-    const status = { updatedAt: new Date().toISOString(), keys: {}, stocks: { '003490': { prices: { ok: true, source: 'naver', last: F.last, close: F.close, from: '2025-06-01', count: 360 }, flow: { ok: true, last: F.last, from: '2025-06-01', count: 360 } } } };
+    const status = { updatedAt: new Date().toISOString(), keys: {}, stocks: { '003490': { prices: { ok: true, source: 'naver', last: F.last, close: F.close, from: '2025-06-01', count: 360 }, flow: { ok: true, last: F.last, from: '2025-06-01', count: 360 }, fin: { ok: true, quarters: 8, last: '2026-12' } } } };
     if (opt.noData) { await page.route('**/data/**', (r) => r.fulfill({ status: 404, body: '' })); }
     else {
       await page.route('**/data/watchlist.json*', (r) => r.fulfill({ json: { years: 3, stocks: [{ code: '003490', name: '대한항공' }] } }));
@@ -55,6 +58,7 @@ function fixtures() {
       await page.route('**/data/prices/003490.csv*', (r) => r.fulfill({ body: F.px, contentType: 'text/csv' }));
       await page.route('**/data/flow/003490.csv*', (r) => r.fulfill({ body: F.fl, contentType: 'text/csv' }));
       await page.route('**/data/stocks.json*', (r) => r.fulfill({ json: F.stocks }));
+      await page.route('**/data/fin/003490.json*', (r) => r.fulfill({ json: F.fin }));
     }
     await page.goto(base); await page.waitForSelector('.empty');
     return { ctx, page, errs, dlg };
@@ -128,6 +132,27 @@ function fixtures() {
     await page.uncheck('[data-chartopt=flow]'); await page.waitForTimeout(120); ok('수급 패널 끄면 차트가 낮아짐', (await page.$eval('canvas.stockchart', (c) => c.clientHeight)) < h3); await page.check('[data-chartopt=flow]');
     await page.click('[data-act=chartFull]'); ok('전체 화면 모드', await page.$eval('#chartCard', (e) => e.classList.contains('chart-full'))); await page.keyboard.press('Escape'); await page.waitForTimeout(100); ok('Esc로 전체 화면 닫힘', !(await page.$eval('#chartCard', (e) => e.classList.contains('chart-full'))));
     ok('5) 오류 없음', errs.length === 0, errs); await ctx.close(); }
+  { const { ctx, page, errs } = await open(); await addStocks(page); // 영업이익 패널(DART 분기 실적)
+    await page.evaluate(() => { const A = SM.app; A.ui.view = 'stocks'; A.ui.stockTab = 'held'; A.ui.stockId = A.getState().stocks[0].id; A.render(); });
+    await page.waitForSelector('canvas.stockchart', { timeout: 10000 }); await page.waitForFunction(() => /실적\(DART\)/.test(document.querySelector('#chartMsg').textContent), null, { timeout: 10000 }); await page.waitForTimeout(800);
+    const hWith = await page.$eval('canvas.stockchart', (c) => c.clientHeight);
+    ok('영업이익 패널: 데이터 줄에 실적(DART) 분기 수 표시', /실적\(DART\) 2025-03 ~ 2026-12 8분기/.test(await page.textContent('#chartMsg')), await page.textContent('#chartMsg'));
+    const rd = await page.textContent('#chartRead'); ok('읽기 상자: 그 시점까지 공시된 실적·전년 동기 대비(+122%)·이익률', /실적/.test(rd) && /2026 3분기/.test(rd) && /3,492억/.test(rd) && /\+122%/.test(rd) && /공시 2026-11-13/.test(rd), rd.slice(-160));
+    await page.click('[data-act=chartMonths][data-v="12"]'); await (await page.$('canvas.stockchart')).scrollIntoViewIfNeeded(); await page.evaluate(() => window.scrollBy(0, -250)); let bx = await (await page.$('canvas.stockchart')).boundingBox();
+    // 미래 정보 금지: 2025-09 분기는 2025-11-14에 공시 → 그 전 날짜의 십자선에는 2분기(2025-08-14 공시)까지만, 이후 날짜에는 3분기가 보여야 함
+    await page.click('[data-act=chartMonths][data-v="0"]'); await page.waitForTimeout(150); bx = await (await page.$('canvas.stockchart')).boundingBox();
+    const dates = F.px.trim().split('\n').slice(1).map((l) => l.split(',')[0]), n = dates.length, step = (bx.width - 6 - 72) / n;
+    const at = async (d) => { const i = dates.indexOf(dates.find((x) => x >= d)); await page.mouse.move(bx.x + 6 + (i + 0.5) * step, bx.y + 100); await page.waitForTimeout(150); return page.textContent('#chartRead'); };
+    const before = await at('2025-10-01'), after = await at('2025-12-01');
+    ok('공시 전 날짜(2025-10-01)의 십자선에는 2025 2분기까지만(3분기는 11-14 공시)', /2025 2분기/.test(before) && !/2025 3분기/.test(before) && /공시 2025-08-14/.test(before), before.slice(-150));
+    ok('공시 후 날짜(2025-12-01)에는 2025 3분기(전년 동기 대비 표시)', /2025 3분기/.test(after) && /공시 2025-11-14/.test(after), after.slice(-150));
+    await page.evaluate(() => { document.querySelector('.chartopts').open = true; }); await page.uncheck('[data-chartopt=earn]'); await page.waitForTimeout(150); const hWithout = await page.$eval('canvas.stockchart', (c) => c.clientHeight);
+    ok('영업이익 패널을 끄면 차트가 낮아지고 읽기 상자의 실적 줄이 사라짐', hWithout < hWith && !/실적\s*20/.test(await page.textContent('#chartRead')) && !(await page.textContent('#chartRead')).includes('영업이익'), [hWith, hWithout]);
+    await page.check('[data-chartopt=earn]'); await page.waitForTimeout(150); ok('다시 켜면 복귀', (await page.$eval('canvas.stockchart', (c) => c.clientHeight)) === hWith);
+    ok('5c) 오류 없음', errs.length === 0, errs); await ctx.close(); }
+  { const { ctx, page } = await open(); await page.route('**/data/status.json*', (r) => r.fulfill({ json: { updatedAt: new Date().toISOString(), keys: {}, stocks: { '003490': { prices: { ok: true, last: F.last, close: F.close }, flow: { ok: true, last: F.last } } } } })); // 재무(DART) 미수집
+    await addStocks(page); await page.evaluate(() => { SM.app.collectInit(true); const A = SM.app; A.ui.view = 'stocks'; A.ui.stockTab = 'held'; A.ui.stockId = A.getState().stocks[0].id; A.render(); });
+    await page.waitForSelector('canvas.stockchart', { timeout: 10000 }); await page.waitForFunction(() => /영업이익 패널 없음/.test(document.querySelector('#chartMsg').textContent), null, { timeout: 10000 }); ok('DART 재무가 없는 종목은 영업이익 패널 없이 안내 문구', true); await ctx.close(); }
   { const { ctx, page, errs } = await open(); // 관심 종목에도 차트가 나와야 함(보유 종목 전용으로 잘못 들어간 적이 있어 확인)
     await page.evaluate(() => { const A = SM.app, S = A.getState(); const w = SM.newStock({ name: '대한항공', code: '003490', market: 'KR', watch: true }); S.stocks.push(w); A.ui.view = 'stocks'; A.ui.stockTab = 'watch'; A.ui.stockId = w.id; A.save(); A.render(); });
     await page.waitForSelector('canvas.stockchart', { timeout: 10000 }); await page.waitForFunction((d) => document.querySelector('#chartRead').textContent.includes(d), F.last);
