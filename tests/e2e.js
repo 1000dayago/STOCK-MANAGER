@@ -146,6 +146,18 @@ function fixtures() {
         const vis = await page.evaluate(() => { const s = SM.app._chart().state, d = s.bars.d, w = s.geom; return [d[w.from], d[w.to]]; });
         ok('사이클 줄을 누르면 차트가 그 사이클 구간(시작~종료)을 보여줌', vis[0] <= cy.from && vis[1] >= cy.to, [vis, cy]);
         await page.click('tr.cycrow[data-from="' + cy.from + '"]'); }
+      { // 차트의 B·S 원을 누르면 그 사이클이 펼쳐지고 그 줄이 강조됨
+        await page.evaluate(() => { document.querySelector('#chartHost canvas').scrollIntoView({ block: 'start' }); window.scrollBy(0, -80); }); await page.waitForTimeout(200);
+        const target = await page.evaluate(() => { const s = SM.app._chart().state; const h = s.hits.filter((x) => x.kind === 'B' && x.seq >= 2)[0] || s.hits.filter((x) => x.kind === 'B')[0]; return h ? { x: h.x, y: h.y, no: h.no, seq: h.seq } : null; });
+        ok('차트에 눌러볼 수 있는 B·S 원 위치가 기록됨', !!target && (await page.evaluate(() => SM.app._chart().state.hits.some((x) => x.kind === 'S'))), target);
+        const cb = await (await page.$('#chartHost canvas')).boundingBox(); await page.mouse.click(cb.x + target.x, cb.y + target.y); await page.waitForTimeout(500);
+        const st = await page.evaluate((t) => { const row = document.querySelector(`tr.cycrow[data-cd="${t.no}"]`) || document.querySelector(`tr.cycrow[data-cd="${t.no}o"]`), det = row && row.parentNode.querySelector(`tr.cycdet[data-cd="${row.dataset.cd}"]`); return { open: !!det && !det.hidden, exp: row && row.getAttribute('aria-expanded'), hl: !!(det && det.querySelector(`tr[data-seq="${t.seq}"].hl`)), others: [...document.querySelectorAll('tr.cycdet')].filter((d) => !d.hidden).length }; }, target);
+        ok('B 원을 누르면 그 사이클만 펼쳐지고 그 매수 줄이 강조됨', st.open && st.exp === 'true' && st.hl && st.others === 1, st);
+        const sh = await page.evaluate(() => { const h = SM.app._chart().state.hits.find((x) => x.kind === 'S'); return h && { x: h.x, y: h.y, no: h.no }; });
+        await page.evaluate(() => { document.querySelector('#chartHost canvas').scrollIntoView({ block: 'start' }); window.scrollBy(0, -80); }); await page.waitForTimeout(200);
+        const cb2 = await (await page.$('#chartHost canvas')).boundingBox(); await page.mouse.click(cb2.x + sh.x, cb2.y + sh.y); await page.waitForTimeout(500);
+        ok('S 원을 누르면 그 사이클의 전량 매도 줄이 강조됨', await page.evaluate((no) => { const row = document.querySelector(`tr.cycrow[data-cd="${no}"]`), det = row.parentNode.querySelector(`tr.cycdet[data-cd="${no}"]`); return !det.hidden && !!det.querySelector('tr.cycsell.hl'); }, sh.no));
+        await page.evaluate(() => document.querySelectorAll('tr.cycdet').forEach((d) => { d.hidden = true; })); }
       { // 재생(리플레이): 시작일 이전은 모두 보이고 이후는 한 봉씩, 배속·주봉
         const nBars = () => page.evaluate(() => SM.app._chart().state.bars.d.length), full = await nBars();
         if (process.env.SIM_SHOT2) { await page.click('[data-act=rpStart]'); await page.waitForSelector('#rpSlider'); for (let i = 0; i < 4; i++) await page.click('[data-act=rpStep][data-v="1"]'); await page.waitForTimeout(200); await page.screenshot({ path: process.env.SIM_SHOT2, fullPage: false }); if (process.env.SIM_SHOT3) { await page.click('[data-act=chartMonths][data-v="3"]'); await page.waitForTimeout(200); await (await page.$('.chartfirst')).screenshot({ path: process.env.SIM_SHOT3 }); } await page.click('[data-act=rpEnd]'); }

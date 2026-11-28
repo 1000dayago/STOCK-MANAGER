@@ -478,6 +478,17 @@
     rp.cur = x.data.d[rpNext(1)]; rpSync(); if (rpIdx(rp.cur) >= ei) rpStop();
   }
   function rpPlay() { rpStop(); if (rpIdx(rp.cur) >= rpIdx(rp.end)) rp.cur = rp.start; rp.playing = true; rp.timer = setInterval(rpTick, Math.max(25, 900 / rp.speed)); const b = document.getElementById('rpPlayBtn'); if (b) { b.textContent = '⏸'; b.setAttribute('aria-label', '일시정지'); } }
+  // 차트의 B·S 원을 누르면: 그 사이클만 펼치고(다른 것은 접음) 그 매수(또는 전량 매도) 줄을 강조하며 화면 가운데로 스크롤
+  A.btOpenCycle = (h) => {
+    const row = document.querySelector(`tr.cycrow[data-cd="${h.no}"]`) || document.querySelector(`tr.cycrow[data-cd="${h.no}o"]`); if (!row) return;
+    const tb = row.parentNode;
+    tb.querySelectorAll('tr.cycdet').forEach((d) => { d.hidden = d.dataset.cd !== row.dataset.cd; });
+    tb.querySelectorAll('tr.cycrow').forEach((r) => { const on = r === row; r.setAttribute('aria-expanded', String(on)); const ar = r.querySelector('.cycar'); if (ar) ar.textContent = on ? '▾' : '▸'; });
+    const det = tb.querySelector(`tr.cycdet[data-cd="${row.dataset.cd}"]`), tr = det && (h.kind === 'S' ? det.querySelector('tr.cycsell, tr.muted') : det.querySelector(`tr[data-seq="${h.seq}"]`));
+    tb.querySelectorAll('.hl').forEach((x) => x.classList.remove('hl')); row.classList.add('hl'); if (tr) tr.classList.add('hl');
+    setTimeout(() => { row.classList.remove('hl'); if (tr) tr.classList.remove('hl'); }, 2600);
+    (tr || row).scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
   A.rpReset = () => { rpStop(); rp.on = false; }; // 새 결과가 나오면 재생 상태 초기화
   A._rp = rp; // 테스트용
   Object.assign(A.handlers, {
@@ -521,7 +532,7 @@
     const trOf = (lot) => r.trades.find((t) => t.no === lot);
     const detail = (x) => {
       const rows = x.buys.map((bu) => { const t = trOf(bu.lot), tprice = tp != null ? bu.avg * (1 + tp / 100) : null;
-        return `<tr><td>${SM.cycleLabel(x.no, bu.seq)}</td><td>${md(bu.date)}</td><td>${fmtNum(bu.price, 2)} × ${fmtNum(bu.qty, 0)}</td><td>${fmtNum(bu.cumQty, 0)}주</td><td>${fmtMoney(bu.cost, cur)}</td><td><b>${fmtNum(bu.avg, 2)}</b></td><td class="c-target">${tprice != null ? fmtNum(tprice, 2) : '-'}</td><td class="c-pnl ${t ? cls(t.pnl) : ''}">${t ? `${fmtNum(t.sellPrice, 2)} · ${pc(t.ret)}` : '-'}</td></tr>`; }).join('');
+        return `<tr data-seq="${bu.seq}"><td>${SM.cycleLabel(x.no, bu.seq)}</td><td>${md(bu.date)}</td><td>${fmtNum(bu.price, 2)} × ${fmtNum(bu.qty, 0)}</td><td>${fmtNum(bu.cumQty, 0)}주</td><td>${fmtMoney(bu.cost, cur)}</td><td><b>${fmtNum(bu.avg, 2)}</b></td><td class="c-target">${tprice != null ? fmtNum(tprice, 2) : '-'}</td><td class="c-pnl ${t ? cls(t.pnl) : ''}">${t ? `${fmtNum(t.sellPrice, 2)} · ${pc(t.ret)}` : '-'}</td></tr>`; }).join('');
       const last = x.buys[x.buys.length - 1];
       const end = x.open ? `<tr class="muted"><td colspan="8">진행 중 · ${md(x.endDate)} 종가 ${fmtNum(x.lastPrice, 2)} · 평가손익 ${fmtMoney(x.realized + x.unrealized, cur)} (${pc(x.ret)})</td></tr>`
         : `<tr class="cycsell"><td>${x.no}✓ 매도</td><td>${md(x.endDate)}</td><td>${fmtNum(x.sellPrice, 2)} × ${fmtNum(x.sellQty, 0)}</td><td></td><td></td><td>평단 ${fmtNum(last.avg, 2)}</td><td class="c-target">${tp != null ? '+' + tp + '%' : ''}</td><td class="${cls(x.realized)}"><b>${fmtMoney(x.realized, cur)}</b> (${pc(x.ret)})</td></tr>`;
@@ -544,7 +555,7 @@
     const targetPct = (cfg.exits.conds.find((c) => c.type === 'avgPct' && c.dir !== 'down') || {}).pct;
     if (A.mountChart && document.getElementById('chartHost')) {
       const dsId = String(bt.datasetId || ''), code = dsId.startsWith('repo:') ? dsId.slice(5) : '';
-      const mounted = A.mountChart({ ds: { name: stored.name || '시뮬레이션 데이터', data }, code, cycles: r.cycles.concat(r.openCycle ? [r.openCycle] : []), target: targetPct != null ? Number(targetPct) : 0 });
+      const mounted = A.mountChart({ ds: { name: stored.name || '시뮬레이션 데이터', data }, code, onMarker: (h) => A.btOpenCycle(h), cycles: r.cycles.concat(r.openCycle ? [r.openCycle] : []), target: targetPct != null ? Number(targetPct) : 0 });
       if (mounted && mounted.then) mounted.then(() => { if (rp.on && A.chartReveal) A.chartReveal(rp.cur); }); // 다시 그려져도 재생 위치 유지
     }
     const canvas = document.getElementById('btCandle');

@@ -60,7 +60,7 @@
 
   function stockOf() { return A.curStock && A.curStock(); }
   let btCtx = null; // 시뮬레이션 결과 화면에서 쓸 때: { ds:{name,data}, code, cycles, target }
-  function btOpts(c) { return { ma: prefs.ma, bb: { on: prefs.bbOn, n: Math.max(2, Math.min(200, Math.round(+prefs.bbN) || 20)), k: Math.max(0.5, Math.min(5, +prefs.bbK || 2)) }, flow: prefs.flow, vol: prefs.vol, earn: prefs.earnView === 'line', chg: prefs.chg, chgScale: prefs.chgScale, earnStep: !!prefs.earnStep, showEvents: prefs.events, avg: null, lots: [], cycles: c.cycles || [], cycleTarget: c.target || 0 }; }
+  function btOpts(c) { return { ma: prefs.ma, bb: { on: prefs.bbOn, n: Math.max(2, Math.min(200, Math.round(+prefs.bbN) || 20)), k: Math.max(0.5, Math.min(5, +prefs.bbK || 2)) }, flow: prefs.flow, vol: prefs.vol, earn: prefs.earnView === 'line', chg: prefs.chg, chgScale: prefs.chgScale, earnStep: !!prefs.earnStep, showEvents: prefs.events, onMarkerClick: c.onMarker || null, avg: null, lots: [], cycles: c.cycles || [], cycleTarget: c.target || 0 }; }
   function curOpts() { if (btCtx) return btOpts(btCtx); const st = stockOf(); return st ? optsFor(st) : null; }
   function optsFor(st) {
     const sm = SM.stockSummary(st, A.getState().settings);

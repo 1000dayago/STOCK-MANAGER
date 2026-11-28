@@ -933,3 +933,5 @@ body.ios-sim .mgblock .segsel { background: rgba(118, 118, 128, .16); }
 
 .mgblock.safe { background: color-mix(in srgb, var(--warn) 13%, transparent); } .mgblock.safe .mgblock-h { color: var(--warn); }
 .chartwrap canvas.stockchart { touch-action: pan-y; }
+@keyframes hlflash { 0%, 60% { background: color-mix(in srgb, var(--accent) 28%, transparent); } 100% { background: transparent; } }
+tr.hl > td { animation: hlflash 2.4s ease-out; }

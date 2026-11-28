@@ -171,7 +171,7 @@
     canvas.className = 'stockchart';
     canvas.style.touchAction = 'pan-y'; // 세로 스크롤은 페이지가, 가로 드래그·핀치는 차트가
     host.appendChild(canvas);
-    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, events: [], reveal: null, rawFull: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, chg: false, chgScale: 'zero', cycles: null, cycleTarget: 0, sells: [], showEvents: true, earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
+    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, hits: [], events: [], reveal: null, rawFull: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, chg: false, chgScale: 'zero', cycles: null, cycleTarget: 0, sells: [], showEvents: true, earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
 
     function rebuild(keepWindow) {
       if (!S.raw) { S.bars = null; return; }
@@ -207,6 +207,7 @@
       const X = (i) => idxToX(g, i);
       ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif'; ctx.textBaseline = 'middle';
       const up = (i) => b.c[i] >= b.o[i];
+      S.hits = []; // 눌러서 반응하는 표시(시뮬레이션 B·S 원)의 위치
       const tagBoxes = []; // 오른쪽 축의 태그 위치(눈금 글자와 겹치지 않게 피하는 데 사용)
       const label = (txt, x, y, fg, bg, sub) => { // 값 태그: 한 줄 또는 두 줄(sub)
         const h = sub ? 26 : 16, tw = Math.max(ctx.measureText(txt).width, sub ? ctx.measureText(sub).width : 0) + 8, top = Math.round(y - h / 2);
@@ -288,11 +289,13 @@
         for (const bu of bs) {
           const i = firstIdxOnOrAfter(b.d, bu.date); if (i < from || i > to) continue;
           const x = X(i), y = Y(b.l[i]) + 11; ctx.fillStyle = '#2563eb'; ctx.beginPath(); ctx.arc(x, y, 7.5, 0, Math.PI * 2); ctx.fill(); // 매수: 파란 원 안에 B
+          S.hits.push({ x, y, r: 10, no: cy.no, seq: bu.seq, kind: 'B' });
           ctx.fillStyle = '#fff'; ctx.font = 'bold 10px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'center'; ctx.fillText('B', x, y + 0.5);
           ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif'; ctx.fillStyle = T.fg; ctx.fillText(cycleLabel(cy.no, bu.seq), x, y + 17); ctx.textAlign = 'left';
         }
         if (!cy.open && iE >= from && iE <= to) { // 전량 매도 ▼ + 수익률
           const x = X(iE), y = Y(b.h[iE]) - 11, good = (cy.ret || 0) >= 0; ctx.fillStyle = good ? T.up : T.down; ctx.beginPath(); ctx.arc(x, y, 7.5, 0, Math.PI * 2); ctx.fill(); // 매도: 원 안에 S(이익이면 상승색, 손실이면 하락색)
+          S.hits.push({ x, y, r: 10, no: cy.no, seq: 0, kind: 'S' });
           ctx.fillStyle = '#fff'; ctx.font = 'bold 10px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'center'; ctx.fillText('S', x, y + 0.5); ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif'; ctx.fillStyle = good ? T.up : T.down;
           ctx.fillText(`${cy.no}✓${cy.ret != null ? ' ' + (cy.ret >= 0 ? '+' : '') + (cy.ret * 100).toFixed(1) + '%' : ''}`, Math.min(W - PR - 24, Math.max(PL + 24, x)), y - 17); ctx.textAlign = 'left';
         }
@@ -521,6 +524,7 @@
     /* ---- 조작: 드래그 이동 · 핀치/휠 확대 · 탭(터치)·호버(마우스) 십자선 ---- */
     const ptrs = new Map(); let pan = null, pinch = null, moved = false, dragCross = false;
     const xToIdx = (clientX) => { const r = canvas.getBoundingClientRect(), g = S.geom; if (!g) return null; return Math.max(g.from, Math.min(g.to, g.from + Math.floor((clientX - r.left - g.PL) / g.bw))); };
+    const hitAt = (e) => { const r = canvas.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top, pad = e.pointerType === 'mouse' ? 2 : 8; let best = null, bd = 1e9; for (const h of S.hits || []) { const d = Math.hypot(h.x - px, h.y - py); if (d <= h.r + pad && d < bd) { best = h; bd = d; } } return best; };
     const setWindow = (count, end) => { const n = S.bars.d.length, w = windowRange(n, count, end); S.count = w.count; S.end = w.to; draw(); if (S.cfg.onChange) S.cfg.onChange(); };
     canvas.addEventListener('pointerdown', (e) => {
       if (!S.bars) return;
@@ -543,11 +547,15 @@
         if (moved) { S.cross = null; setWindow(pan.count, pan.end - Math.round(dx / S.geom.bw)); }
         return;
       }
-      if (e.pointerType === 'mouse' && !ptrs.size) { const i = xToIdx(e.clientX); if (i !== S.cross) { S.cross = i; draw(); } }
+      if (e.pointerType === 'mouse' && !ptrs.size) { canvas.style.cursor = hitAt(e) && S.cfg.onMarkerClick ? 'pointer' : 'crosshair'; const i = xToIdx(e.clientX); if (i !== S.cross) { S.cross = i; draw(); } }
     });
     const up = (e) => {
       if (!ptrs.has(e.pointerId)) return;
-      if (ptrs.size === 1 && !moved && S.bars) { const i = xToIdx(e.clientX); S.cross = S.cross === i && e.pointerType !== 'mouse' ? null : i; draw(); }
+      if (ptrs.size === 1 && !moved && S.bars) {
+        const hit = hitAt(e);
+        if (hit && S.cfg.onMarkerClick) S.cfg.onMarkerClick({ no: hit.no, seq: hit.seq, kind: hit.kind }); // B·S 원을 누르면 그 사이클을 펼쳐 보여 줌
+        else { const i = xToIdx(e.clientX); S.cross = S.cross === i && e.pointerType !== 'mouse' ? null : i; draw(); }
+      }
       ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (!ptrs.size) { pan = null; dragCross = false; }
     };
     canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
