@@ -876,6 +876,38 @@
     return { days: idx.length, signalDays: total.k, first: total.first, leaves: perLeaf, groups, hasDyn: leaves.some(isDyn) };
   }
 
+  /* ---------- 예시 전략: 탐색·시험해 본 전략을 문장 그대로 보관(시뮬레이션의 ‘예시’ 탭에서 불러와 수정) ---------- */
+  const mkLeaf = (type, o) => { const c = { type }; COND_DEFS[type].params.forEach((q) => { c[q.k] = q.def; }); return Object.assign(c, o || {}); };
+  function exampleCfg(spec) {
+    const c = blankCfg(); Object.assign(c, { qtyMode: 'shares', qty: 10, growth: 1, maxLots: 3, maxInvest: 0, cooldown: 0, minGap: 3, fill: 'nextOpen' }, spec.set || {});
+    const side = (op, list) => { const items = list.map((x) => mkLeaf(x[0], x[1])); return { mode: op, conds: items.slice(), expr: { op, items } }; };
+    c.entries = side(spec.eop || 'AND', spec.entries); c.exits = side('OR', spec.exits);
+    return c;
+  }
+  const LOWHIGH_E = [['maGap', { ma: 'sma', n: 60, dir: 'below', pct: 20 }], ['volPrev', { x: 1 }]];
+  const DOWN_ENTRY = [['maSlope', { ma: 'sma', n: 30, k: 5, dir: 'up' }], ['dropLast', { pct: 10, basis: 'last', first: 'yes' }]];
+  const MG = { growth: 2, maxLots: 5, minGap: 0 };
+  const EXAMPLES = [
+    { id: 'lowhigh', name: '저점 매수 · 목표 매도', note: '한국전력 10년으로 찾은 조합. 급락 뒤 거래량이 늘 때 사서 평단 +8%에 팔기', spec: { entries: LOWHIGH_E, exits: [['avgPct', { dir: 'up', pct: 8 }]] } },
+    { id: 'lowhigh-stop3', name: '저점 매수 + 하락·거래량 손절 (3%·2배)', note: '위 전략에 “당일 3% 이상 하락 + 거래량 20일 평균의 2배 이상”이면 전량 매도(손절) 추가', spec: { entries: LOWHIGH_E, exits: [['avgPct', { dir: 'up', pct: 8 }], ['dropVol', { pct: 3, n: 20, x: 2 }]] } },
+    { id: 'lowhigh-stop5', name: '저점 매수 + 하락·거래량 손절 (5%·3배)', note: '손절 기준을 더 높여 거의 안 나오게 한 버전', spec: { entries: LOWHIGH_E, exits: [['avgPct', { dir: 'up', pct: 8 }], ['dropVol', { pct: 5, n: 20, x: 3 }]] } },
+    { id: 'mg-base', name: '물타기 기본값', note: '30일선 상승 중일 때 직전 매수가보다 10% 하락하면 2배씩 추가 매수, 평단 +5% 매도·−20% 손절', spec: { set: MG, entries: DOWN_ENTRY, exits: [['avgPct', { dir: 'up', pct: 5 }], ['avgPct', { dir: 'down', pct: 20 }]] } },
+    { id: 'mg-stop', name: '물타기 + 하락·거래량 손절', note: '물타기 기본값에 “당일 3% 하락 + 거래량 2배” 손절을 더함', spec: { set: MG, entries: DOWN_ENTRY, exits: [['avgPct', { dir: 'up', pct: 5 }], ['avgPct', { dir: 'down', pct: 20 }], ['dropVol', { pct: 3, n: 20, x: 2 }]] } },
+    { id: 'mg-flow', name: '물타기 + 외국인·기관 동시 순매수', note: '직전 매수가 대비 10% 하락한 날 외국인과 기관이 같이 순매수일 때만 추가 매수', spec: { set: MG, entries: [['dropLast', { pct: 10, basis: 'last', first: 'yes' }], ['flow', { who: 'both', dir: 'buy', mode: 'day', v: 1, n: 3 }]], exits: [['avgPct', { dir: 'up', pct: 5 }], ['avgPct', { dir: 'down', pct: 20 }]] } },
+    { id: 'flow-below30', name: '수급 + 거래량 + 30일선 아래', note: '외국인·기관 동시 순매수, 거래량 전일보다 증가, 종가가 30일선 아래일 때 매수 (수급 신호)', spec: { set: MG, entries: [['flow', { who: 'both', dir: 'buy', mode: 'day', v: 1, n: 3 }], ['volPrev', { x: 1 }], ['priceMa', { ma: 'sma', n: 30, dir: 'below' }]], exits: [['avgPct', { dir: 'up', pct: 5 }], ['avgPct', { dir: 'down', pct: 20 }]] } },
+  ].map((e) => Object.assign(e, { mk: () => exampleCfg(e.spec) }));
+  // 측정값: 수집 데이터 전체 기간(2016~2026, 산일전기는 2024~)을 이 설정 그대로 돌린 최대 투입금 대비 수익률(매수 횟수). 과거 시험값이며 미래를 보장하지 않음
+  const EX_RES = {
+    'lowhigh': '한국전력 +19.9% (6회) · 대한항공 +19.1% (4회) · 삼성전자 +15.3% (8회) · 산일전기 +13.8% (10회)',
+    'lowhigh-stop3': '한국전력 +19.9% (6회) · 대한항공 +2.2% (5회) · 삼성전자 +1.1% (7회) · 산일전기 +13.8% (10회)',
+    'lowhigh-stop5': '한국전력 +19.9% (6회) · 대한항공 +9.0% (5회) · 삼성전자 +15.3% (8회) · 산일전기 +13.8% (10회)',
+    'mg-base': '한국전력 −14.8% (57회) · 대한항공 +35.5% (64회) · 삼성전자 +17.8% (75회) · 산일전기 −7.5% (51회)',
+    'mg-stop': '한국전력 −2.8% (74회) · 대한항공 +26.4% (70회) · 삼성전자 +27.6% (78회) · 산일전기 −9.3% (51회)',
+    'mg-flow': '한국전력 −10.3% (62회) · 대한항공 +24.2% (62회) · 삼성전자 +10.8% (66회) · 산일전기 +21.2% (40회)',
+    'flow-below30': '한국전력 +6.8% (68회) · 대한항공 +10.3% (64회) · 삼성전자 +5.6% (49회) · 산일전기 +2.1% (17회)' };
+  EXAMPLES.forEach((e) => { e.res = EX_RES[e.id] || ''; });
+  Object.assign(SM, { EXAMPLES });
+
   /* ---------- 액면분할·병합 보정(수정주가) ----------
      한국 주식은 하루 가격제한폭이 ±30%라서, 전일 대비 가격이 그 범위를 크게 벗어나면 정상 등락이 아니라 액면분할(병합)입니다.
      분할 비율(2·3·4·5·10·20·25·50·100배, 병합은 그 역수) 중 가장 가까운 것을 골라 그 전의 가격·거래량·수급(주 단위)을 현재 기준으로 맞춥니다. */

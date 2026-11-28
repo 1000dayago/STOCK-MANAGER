@@ -1004,3 +1004,8 @@ table.cyc > tbody > tr.cycrow td { word-break: keep-all; overflow-wrap: anywhere
 table.cyc > tbody > tr.cycdet > td { overflow-x: auto; max-width: none; }
 table.cyc > tbody > tr.cycrow td:first-child small { white-space: normal; text-align: left; overflow-wrap: anywhere; font-size: 10.5px; line-height: 1.25; }
 table.cyc > tbody > tr.cycrow td:first-child { overflow: hidden; }
+/* 예시 탭 */
+.excard h4 { margin: 0 0 4px; } .exsent { padding: 8px 10px; border-radius: 10px; margin: 6px 0; font-size: 13px; line-height: 1.55; }
+.exsent.buy { background: var(--buy-bg); } .exsent.sell { background: var(--sell-bg); } .exsent > b:first-child { margin-right: 6px; } .exsent.buy > b:first-child { color: var(--buy-fg); } .exsent.sell > b:first-child { color: var(--sell-fg); }
+.exset { margin: 4px 2px; font-size: 12px; color: var(--muted); } .exres { margin: 4px 2px 8px; font-size: 12.5px; }
+body.ios-sim .ios-seg button { font-size: 13.5px; padding: 9px 4px; }
