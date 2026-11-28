@@ -449,21 +449,78 @@
     const { data } = x, si = rpIdx(rp.start), ei = rpIdx(rp.end), ci = rpIdx(rp.cur);
     if (!rp.on) return `<div class="rp-off"><button type="button" class="btn primary" data-act="rpStart">▶ 재생</button>
       <span class="rp-rng"><input type="date" data-rp="start" value="${rp.start}" aria-label="재생 시작일"><i>~</i><input type="date" data-rp="end" value="${rp.end}" aria-label="재생 종료일"></span>
-      <span class="rp-hint">고른 구간을 실제 차트처럼 움직여 봅니다. 시작일 이전은 모두 보이고, 이후는 한 봉씩 나타납니다.</span></div>`;
+      <span class="rp-se"><button type="button" class="se s" data-act="rpSetS" title="차트에서 고른 날짜를 시작으로">S 지정</button><button type="button" class="se e" data-act="rpSetE" title="차트에서 고른 날짜를 끝으로">E 지정</button></span>
+      <canvas id="rpTimeline" class="rp-tl" aria-label="재생 구간 선택 막대"></canvas>
+      <span class="rp-hint">아래 막대의 <b>S</b>·<b>E</b> 손잡이를 끌거나, 차트를 눌러 날짜를 고른 뒤 S·E 지정을 누르세요.</span></div>`;
     return `<div class="rp-bar">
         <button type="button" class="rpb" data-act="rpRestart" title="처음으로" aria-label="처음으로">⏮</button><button type="button" class="rpb" data-act="rpStep" data-v="-1" title="뒤로" aria-label="한 봉 뒤로">◀</button>
         <button type="button" class="rpb play" data-act="rpPlay" id="rpPlayBtn" aria-label="${rp.playing ? '일시정지' : '재생'}">${rp.playing ? '⏸' : '▶'}</button><button type="button" class="rpb" data-act="rpStep" data-v="1" title="앞으로" aria-label="한 봉 앞으로">▶❘</button>
         <button type="button" class="rpb stop" data-act="rpEnd" title="재생 끝내고 전체 보기">■ 종료</button></div>
       <div class="rp-opts"><span class="chips" aria-label="배속">${[1, 2, 5, 10, 30].map((v) => `<button type="button" class="chip ${rp.speed === v ? 'on' : ''}" data-act="rpSpeed" data-v="${v}">${v}×</button>`).join('')}</span>
         <span class="chips" aria-label="한 번에 움직이는 단위">${[['day', '하루씩'], ['week', '한 주씩']].map(([k, l]) => `<button type="button" class="chip ${rp.unit === k ? 'on' : ''}" data-act="rpUnit" data-v="${k}">${l}</button>`).join('')}</span></div>
+      <canvas id="rpTimeline" class="rp-tl" aria-label="재생 구간과 진행 위치"></canvas>
       <input type="range" class="rp-slider" id="rpSlider" data-rp="slider" min="${si}" max="${ei}" value="${ci}" aria-label="재생 위치"><div class="rp-lbl"><span>${data.d[si]}</span><span>${data.d[ei]}</span></div>`;
   }
+  /* ---- 구간 선택 타임라인(영상 편집기처럼): 전체 기간의 종가 선 위에 S·E 손잡이를 끌어 재생 구간을 정함 ---- */
+  const TL = { L: 12, R: 12, H: 58 };
+  function rpDrawTL() {
+    const cv = document.getElementById('rpTimeline'), x = rpData(); if (!cv || !x) return;
+    const { r, data } = x, s0 = r.startIdx, e0 = r.endIdx, n = e0 - s0 + 1, dpr = window.devicePixelRatio || 1, w = Math.max(200, cv.clientWidth || 300), h = TL.H;
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.height = h + 'px';
+    const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+    const css = getComputedStyle(document.body), col = (k, d) => (css.getPropertyValue(k) || d).trim() || d, accent = col('--accent', '#007aff'), muted = col('--muted', '#888');
+    const X = (i) => TL.L + ((i - s0) / Math.max(1, n - 1)) * (w - TL.L - TL.R);
+    let lo = Infinity, hi = -Infinity; for (let i = s0; i <= e0; i++) { lo = Math.min(lo, data.c[i]); hi = Math.max(hi, data.c[i]); }
+    const Y = (v) => 10 + (1 - (v - lo) / Math.max(1e-9, hi - lo)) * (h - 26);
+    const iS = Math.max(s0, rpIdx(rp.start)), iE = Math.min(e0, rpIdx(rp.end));
+    g.fillStyle = 'rgba(120,120,128,0.10)'; g.beginPath(); if (g.roundRect) g.roundRect(0, 0, w, h, 10); else g.rect(0, 0, w, h); g.fill();
+    g.strokeStyle = muted; g.globalAlpha = 0.55; g.lineWidth = 1.2; g.beginPath(); for (let i = s0; i <= e0; i++) { const px = X(i), py = Y(data.c[i]); if (i === s0) g.moveTo(px, py); else g.lineTo(px, py); } g.stroke(); g.globalAlpha = 1;
+    // 선택 구간: 음영 + 위아래 굵은 테두리(영상 편집의 트림 막대처럼)
+    g.fillStyle = accent; g.globalAlpha = 0.18; g.fillRect(X(iS), 0, Math.max(2, X(iE) - X(iS)), h); g.globalAlpha = 1;
+    g.fillStyle = accent; g.fillRect(X(iS), 0, X(iE) - X(iS), 3); g.fillRect(X(iS), h - 3, X(iE) - X(iS), 3);
+    g.strokeStyle = accent; g.lineWidth = 1.6; g.beginPath(); for (let i = iS; i <= iE; i++) { const px = X(i), py = Y(data.c[i]); if (i === iS) g.moveTo(px, py); else g.lineTo(px, py); } g.stroke();
+    const handle = (xx, label, c) => { g.fillStyle = c; g.beginPath(); if (g.roundRect) g.roundRect(xx - 9, 0, 18, h, 6); else g.rect(xx - 9, 0, 18, h); g.fill(); g.fillStyle = '#fff'; g.font = 'bold 11px -apple-system, "Noto Sans KR", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(label, xx, h / 2); g.fillRect(xx - 1, 8, 2, 6); g.fillRect(xx - 1, h - 14, 2, 6); };
+    handle(X(iS), 'S', '#16a34a'); handle(X(iE), 'E', '#ea580c');
+    if (rp.on) { const ic = Math.min(iE, Math.max(iS, rpIdx(rp.cur))); g.strokeStyle = '#ff3b30'; g.lineWidth = 2; g.beginPath(); g.moveTo(X(ic), 0); g.lineTo(X(ic), h); g.stroke(); g.fillStyle = '#ff3b30'; g.beginPath(); g.arc(X(ic), 4, 4, 0, Math.PI * 2); g.fill(); }
+    g.textBaseline = 'alphabetic'; g.textAlign = 'left'; g.fillStyle = muted; g.font = '10px -apple-system, "Noto Sans KR", sans-serif';
+    g.fillText(data.d[iS].slice(2).replace(/-/g, '.'), Math.min(w - 120, X(iS) + 12), h - 5); g.textAlign = 'right'; g.fillText(data.d[iE].slice(2).replace(/-/g, '.'), Math.max(120, X(iE) - 12), h - 5);
+    cv._tl = { s0, e0, n, X }; if (!cv._bound) { cv._bound = true; rpBindTL(cv); }
+  }
+  function rpBindTL(cv) {
+    let drag = null;
+    const idxAt = (e) => { const t = cv._tl, rect = cv.getBoundingClientRect(), w = rect.width; return Math.max(t.s0, Math.min(t.e0, t.s0 + Math.round(((e.clientX - rect.left - TL.L) / Math.max(1, w - TL.L - TL.R)) * (t.n - 1)))); };
+    cv.addEventListener('pointerdown', (e) => {
+      if (rp.on || !cv._tl) return;
+      const t = cv._tl, rect = cv.getBoundingClientRect(), px = e.clientX - rect.left, xs = t.X(rpIdx(rp.start)), xe = t.X(rpIdx(rp.end));
+      const ds = Math.abs(px - xs), de = Math.abs(px - xe); drag = ds <= de ? 's' : 'e'; // 가까운 손잡이를 잡음(막대 아무 곳이나 눌러도 가까운 쪽이 이동)
+      try { cv.setPointerCapture(e.pointerId); } catch (x) { /* 무시 */ } cv.dispatchEvent(new PointerEvent('pointermove', { clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId }));
+    });
+    cv.addEventListener('pointermove', (e) => {
+      if (!drag || rp.on) return; const x = rpData(); if (!x) return; const i = idxAt(e), d = x.data.d, gap = 2;
+      if (drag === 's') rp.start = d[Math.min(i, rpIdx(rp.end) - gap)]; else rp.end = d[Math.max(i, rpIdx(rp.start) + gap)];
+      rp.cur = rp.start; rpRangeChanged();
+    });
+    const end = () => { drag = null; }; cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+  }
+  function rpRangeChanged() { // 구간이 바뀌면 입력칸·타임라인·차트 음영을 맞춤
+    const a = document.querySelector('[data-rp=start]'), b = document.querySelector('[data-rp=end]'); if (a) a.value = rp.start; if (b) b.value = rp.end;
+    rpDrawTL(); if (A.chartRange) A.chartRange(rp.start, rp.end);
+  }
+  function rpSetFromChart(which) {
+    const x = rpData(); if (!x) return; const date = A.chartCrossDate && A.chartCrossDate();
+    if (!date) return toast('차트를 눌러 날짜를 먼저 고르세요', true);
+    const { r, data } = x, i = Math.max(r.startIdx, Math.min(r.endIdx, rpIdx(date))), d = data.d;
+    if (which === 's') { rp.start = d[i]; if (rpIdx(rp.end) <= i + 1) rp.end = d[r.endIdx]; } else { rp.end = d[i]; if (rpIdx(rp.start) >= i - 1) rp.start = d[r.startIdx]; }
+    if (rpIdx(rp.end) - rpIdx(rp.start) < 2) { toast('구간이 너무 짧습니다', true); rp.start = d[Math.max(r.startIdx, rpIdx(rp.end) - 5)]; }
+    rp.cur = rp.start; rpRangeChanged();
+  }
   function rpHtml() { rpInit(); return `<div class="rp ${rp.on ? 'on' : ''}" id="rpPanel">${rpInner()}</div>`; }
-  function rpRefresh() { const el = document.getElementById('rpPanel'); if (!el) return; el.classList.toggle('on', rp.on); el.innerHTML = rpInner(); const st = document.getElementById('rpState'); if (st) { st.hidden = !rp.on; st.innerHTML = rp.on ? rpStateHtml() : ''; } }
+  function rpRefresh() { const el = document.getElementById('rpPanel'); if (!el) return; el.classList.toggle('on', rp.on); el.innerHTML = rpInner(); const st = document.getElementById('rpState'); if (st) { st.hidden = !rp.on; st.innerHTML = rp.on ? rpStateHtml() : ''; } rpDrawTL(); }
   function rpSync() { // 재생 중 한 칸: 차트·상태·슬라이더만 갱신(패널 전체를 다시 그리지 않음)
     if (A.chartReveal) A.chartReveal(rp.on ? rp.cur : null);
     const stEl = document.getElementById('rpState'); if (stEl) stEl.innerHTML = rpStateHtml();
     const sl = document.getElementById('rpSlider'); if (sl) sl.value = String(rpIdx(rp.cur));
+    rpDrawTL();
   }
   function rpStop() { if (rp.timer) clearInterval(rp.timer); rp.timer = null; rp.playing = false; const b = document.getElementById('rpPlayBtn'); if (b) { b.textContent = '▶'; b.setAttribute('aria-label', '재생'); } }
   function rpNext(dir) { // 다음(또는 이전) 위치의 인덱스
@@ -492,6 +549,7 @@
   A.rpReset = () => { rpStop(); rp.on = false; }; // 새 결과가 나오면 재생 상태 초기화
   A._rp = rp; // 테스트용
   Object.assign(A.handlers, {
+    rpSetS: () => rpSetFromChart('s'), rpSetE: () => rpSetFromChart('e'),
     rpStart: () => { rpInit(); rp.on = true; rp.cur = rp.start; rpRefresh(); rpSync(); },
     rpEnd: () => { rpStop(); rp.on = false; if (A.chartReveal) A.chartReveal(null); rpRefresh(); },
     rpPlay: () => { if (rp.playing) rpStop(); else rpPlay(); },
@@ -506,7 +564,7 @@
     if (!/^\d{4}-\d{2}-\d{2}$/.test(el.value)) return;
     if (k === 'start') rp.start = el.value; else rp.end = el.value;
     const { r, data } = x; if (rp.start < data.d[r.startIdx]) rp.start = data.d[r.startIdx]; if (rp.end > data.d[r.endIdx]) rp.end = data.d[r.endIdx]; if (rp.end <= rp.start) rp.end = data.d[r.endIdx];
-    rp.cur = rp.start;
+    rp.cur = rp.start; rpRangeChanged();
   }
 
   // 사이클(첫 매수 → 보유 순번 전부 매도) 요약: 청산까지 몇 번·얼마·몇 주를 샀는지(평균·최대)와 사이클별 목록(눌러서 펼침)
@@ -556,7 +614,7 @@
     if (A.mountChart && document.getElementById('chartHost')) {
       const dsId = String(bt.datasetId || ''), code = dsId.startsWith('repo:') ? dsId.slice(5) : '';
       const mounted = A.mountChart({ ds: { name: stored.name || '시뮬레이션 데이터', data }, code, onMarker: (h) => A.btOpenCycle(h), cycles: r.cycles.concat(r.openCycle ? [r.openCycle] : []), target: targetPct != null ? Number(targetPct) : 0 });
-      if (mounted && mounted.then) mounted.then(() => { if (rp.on && A.chartReveal) A.chartReveal(rp.cur); }); // 다시 그려져도 재생 위치 유지
+      if (mounted && mounted.then) mounted.then(() => { if (rp.on && A.chartReveal) A.chartReveal(rp.cur); if (A.chartRange && rp.start && rp.end) A.chartRange(rp.start, rp.end); rpDrawTL(); }); // 다시 그려져도 재생 위치·구간 유지
     }
     const canvas = document.getElementById('btCandle');
     if (canvas) SM.drawCandles(canvas, data, { from: r.startIdx, to: r.endIdx, lines: SM.overlayLines(data, cfg), buys: r.buys, sells: r.sells, volLine: vc ? num(vc.n) : 0, tip: document.getElementById('candleTip'), height: 360 });

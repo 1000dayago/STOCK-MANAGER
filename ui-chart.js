@@ -188,6 +188,8 @@
   });
   // 시뮬레이션 결과 등에서 차트를 특정 날짜(구간)로 옮김. scroll이면 차트가 화면에 보이게 스크롤
   A.chartFocus = (from, to, opt) => { if (!chart) return false; const ok = chart.focusRange(from, to, opt); if (ok && opt && opt.scroll) { const c = document.getElementById('chartCard'); if (c && c.scrollIntoView) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return ok; };
+  A.chartRange = (from, to) => { if (chart) chart.setRange(from, to); }; // 재생 구간(S~E) 음영
+  A.chartCrossDate = () => { if (!chart) return null; const st = chart.state; return st.cross != null && st.bars ? st.bars.d[st.cross] : st.lastCrossDate || null; }; // 십자선(없으면 마지막으로 가리킨 날짜)
   A.chartReveal = (date) => { if (chart) chart.setReveal(date); }; // 시뮬레이션 재생: date까지만 표시(null이면 전체)
   A.chartSetTf = (tf) => { if (!chart) return; prefs.tf = tf; savePrefs(); chart.setTf(tf); };
   A._chart = () => chart; // 테스트용

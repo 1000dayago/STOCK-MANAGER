@@ -171,7 +171,7 @@
     canvas.className = 'stockchart';
     canvas.style.touchAction = 'pan-y'; // 세로 스크롤은 페이지가, 가로 드래그·핀치는 차트가
     host.appendChild(canvas);
-    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, hits: [], events: [], reveal: null, rawFull: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, chg: false, chgScale: 'zero', cycles: null, cycleTarget: 0, sells: [], showEvents: true, earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
+    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, range: null, hits: [], events: [], reveal: null, rawFull: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, chg: false, chgScale: 'zero', cycles: null, cycleTarget: 0, sells: [], showEvents: true, earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
 
     function rebuild(keepWindow) {
       if (!S.raw) { S.bars = null; return; }
@@ -190,6 +190,7 @@
       if (S.cfg.vol && S.bars.hasVol !== false) P.push({ k: 'vol', h: sub });
       if (S.cfg.earn && S.earn && S.earn.length) P.push({ k: 'earn', h: sub + 34 });
       if (S.cfg.chg && S.earn && S.earn.length) P.push({ k: 'chg', h: sub + 54 });
+      if (P.length > 1) P.splice(1, 0, { k: 'dates', h: 16 }); // 캔들 바로 아래에 날짜 줄(그 아래로 수급·거래량 패널)
       let y = 0; for (const p of P) { p.y = y; y += p.h; }
       return { P, H: y + 22 };
     }
@@ -225,6 +226,7 @@
       for (const p of P) { ctx.strokeStyle = T.grid; ctx.beginPath(); ctx.moveTo(0, p.y + p.h - 0.5); ctx.lineTo(W, p.y + p.h - 0.5); ctx.stroke(); }
       ctx.fillStyle = T.text; ctx.textAlign = 'center';
       for (const i of xl) { const d = b.d[i]; ctx.fillText(S.tf === 'M' ? d.slice(2, 7).replace('-', '.') : d.slice(2).replace(/-/g, '.'), Math.min(W - 30, Math.max(30, X(i))), H - 10); }
+      { const dp = P.find((p) => p.k === 'dates'); if (dp) { ctx.fillStyle = T.text; ctx.textAlign = 'center'; for (const i of xl) { const d = b.d[i]; ctx.fillText(S.tf === 'M' ? d.slice(2, 7).replace('-', '.') : d.slice(2).replace(/-/g, '.'), Math.min(W - 30, Math.max(30, X(i))), dp.y + dp.h / 2 + 0.5); } ctx.textAlign = 'left'; } }
       const lastClose = b.c[to], prevClose = to > 0 ? b.c[to - 1] : b.c[to];
 
       /* ---- 메인: 캔들 + 지표 ---- */
@@ -248,6 +250,18 @@
         for (let i = to; i >= from; i--) if (S.ind.bb.lo[i] != null) ctx.lineTo(X(i), Y(S.ind.bb.lo[i]));
         ctx.closePath(); ctx.fill();
         line(S.ind.bb.up, 'rgba(148,163,184,0.9)', 1.6); line(S.ind.bb.lo, 'rgba(148,163,184,0.9)', 1.6); line(S.ind.bb.mid, 'rgba(148,163,184,0.7)', 1, [4, 3]);
+      }
+      // 재생 구간(S~E): 전체 높이에 옅은 음영 + 양 끝선, 위쪽에 S·E 깃발
+      if (S.range) {
+        const iS = firstIdxOnOrAfter(b.d, S.range.from), iE0 = firstIdxOnOrAfter(b.d, S.range.to), iE = iE0 < 0 ? n - 1 : iE0;
+        if (iS >= 0 && iE >= from && iS <= to) {
+          const x0 = Math.max(PL, X(Math.max(iS, from)) - bw / 2), x1 = Math.min(W - PR, X(Math.min(iE, to)) + bw / 2);
+          ctx.fillStyle = 'rgba(37,99,235,0.09)'; ctx.fillRect(x0, 0, Math.max(2, x1 - x0), H - 22);
+          ctx.lineWidth = 1.5;
+          const flag = (x, label, col, left) => { ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, 0); ctx.lineTo(Math.round(x) + 0.5, H - 22); ctx.stroke(); const fx = left ? x : x - 18; ctx.fillStyle = col; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(fx, m.y + 38, 18, 15, 3); else ctx.rect(fx, m.y + 38, 18, 15); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = 'bold 10px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'center'; ctx.fillText(label, fx + 9, m.y + 46); ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'left'; };
+          if (iS >= from) flag(X(iS) - bw / 2, 'S', '#16a34a', true);
+          if (iE <= to) flag(X(iE) + bw / 2, 'E', '#ea580c', false);
+        }
       }
       // 캔들(봉이 너무 촘촘하면 종가선)
       if (bw >= 1.3) {
@@ -491,6 +505,7 @@
         ctx.fillStyle = '#fff'; ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif'; ctx.fillText(dtxt, cx, 28); ctx.textAlign = 'left';
       }
       updateRead(S.cross != null && S.cross >= from && S.cross <= to ? S.cross : to, S.cross != null, from, to);
+      if (S.cross != null && b.d[S.cross]) S.lastCrossDate = b.d[S.cross]; // 마우스가 차트를 벗어나 선이 사라져도 마지막으로 가리킨 날짜는 기억(S·E 지정 버튼용)
       canvas.style.touchAction = S.cross != null ? 'none' : 'pan-y'; // 십자선이 있을 땐 터치를 모두 차트가 받아 끌기가 끊기지 않게, 없을 땐 세로 스크롤은 페이지가
     }
 
@@ -580,6 +595,7 @@
       },
       setMonths(months) { if (!S.bars) return; S.count = barsForMonths(S.tf, months, S.bars.d.length); S.end = S.bars.d.length - 1; const w = windowRange(S.bars.d.length, S.count, S.end); S.count = w.count; S.end = w.to; S.cross = null; draw(); },
       setConfig(c) { Object.assign(S.cfg, c); rebuild(true); draw(); },
+      setRange(from, to) { S.range = from && to ? { from, to } : null; draw(); },
       setEvents(list) { S.events = (list || []).filter((x) => x && /^\d{4}-\d{2}-\d{2}$/.test(x.date) && x.kind).slice().sort((a, b) => (a.date < b.date ? -1 : 1)); draw(); },
       // 날짜 구간(from~to)이 보이도록 창을 옮김(to가 없으면 그 날짜 하나를 가운데에 놓고 십자선 표시). 성공하면 true
       focusRange(from, to, opt) {

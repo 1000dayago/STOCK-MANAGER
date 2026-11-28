@@ -935,3 +935,9 @@ body.ios-sim .mgblock .segsel { background: rgba(118, 118, 128, .16); }
 .chartwrap canvas.stockchart { touch-action: pan-y; }
 @keyframes hlflash { 0%, 60% { background: color-mix(in srgb, var(--accent) 28%, transparent); } 100% { background: transparent; } }
 tr.hl > td { animation: hlflash 2.4s ease-out; }
+
+/* 재생 구간 선택 막대 + S/E 버튼 */
+.rp-tl { display: block; width: 100%; margin: 8px 0 2px; touch-action: none; cursor: ew-resize; border-radius: 10px; }
+.rp-se { display: inline-flex; gap: 6px; }
+.rp-se .se { border: 0; border-radius: 999px; padding: 6px 12px; font-size: 12.5px; font-weight: 700; color: #fff; cursor: pointer; }
+.rp-se .se.s { background: #16a34a; } .rp-se .se.e { background: #ea580c; }

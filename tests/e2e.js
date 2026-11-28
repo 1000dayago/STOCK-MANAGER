@@ -158,6 +158,28 @@ function fixtures() {
         const cb2 = await (await page.$('#chartHost canvas')).boundingBox(); await page.mouse.click(cb2.x + sh.x, cb2.y + sh.y); await page.waitForTimeout(500);
         ok('S 원을 누르면 그 사이클의 전량 매도 줄이 강조됨', await page.evaluate((no) => { const row = document.querySelector(`tr.cycrow[data-cd="${no}"]`), det = row.parentNode.querySelector(`tr.cycdet[data-cd="${no}"]`); return !det.hidden && !!det.querySelector('tr.cycsell.hl'); }, sh.no));
         await page.evaluate(() => document.querySelectorAll('tr.cycdet').forEach((d) => { d.hidden = true; })); }
+      { // 캔들 아래 날짜 줄 + 재생 구간 선택(타임라인 손잡이·S/E 지정·차트 음영)
+        ok('캔들 바로 아래에 날짜 줄이 있고 그 아래로 수급·거래량 패널이 이어짐', await page.evaluate(() => { const P = SM.app._chart().state.geom.P; return P[0].k === 'main' && P[1].k === 'dates' && P.length > 2; }));
+        await page.evaluate(() => { document.getElementById('rpTimeline').scrollIntoView({ block: 'center' }); }); await page.waitForTimeout(200);
+        const idxOf = (d) => page.evaluate((x) => SM.app._chart().state.rawFull.d.indexOf(x), d);
+        const tl0 = await page.evaluate(() => { const cv = document.getElementById('rpTimeline'), t = cv._tl, rp = SM.app._rp, d = SM.app._chart().state.rawFull.d; return { sx: t.X(d.indexOf(rp.start)), ex: t.X(d.indexOf(rp.end)), start: rp.start, end: rp.end }; });
+        ok('구간 선택 막대(S·E 손잡이)가 있음', tl0.ex > tl0.sx && (await page.$('#rpTimeline')) !== null, tl0);
+        const tb = await (await page.$('#rpTimeline')).boundingBox();
+        await page.mouse.move(tb.x + tl0.sx, tb.y + 30); await page.mouse.down(); await page.mouse.move(tb.x + tl0.sx - 60, tb.y + 30, { steps: 6 }); await page.mouse.up(); await page.waitForTimeout(150);
+        const after = await page.evaluate(() => ({ start: SM.app._rp.start, end: SM.app._rp.end, input: document.querySelector('[data-rp=start]').value, range: SM.app._chart().state.range }));
+        ok('S 손잡이를 왼쪽으로 끌면 시작일이 앞당겨지고 입력칸·차트 음영 구간도 같이 바뀜', after.start < tl0.start && after.end === tl0.end && after.input === after.start && after.range && after.range.from === after.start && after.range.to === after.end, after);
+        await page.mouse.move(tb.x + tl0.ex, tb.y + 30); await page.mouse.down(); await page.mouse.move(tb.x + tl0.ex - 50, tb.y + 30, { steps: 6 }); await page.mouse.up(); await page.waitForTimeout(150);
+        ok('E 손잡이를 왼쪽으로 끌면 끝일이 앞당겨짐', (await page.evaluate(() => SM.app._rp.end)) < tl0.end);
+        // 차트에서 날짜를 고른 뒤 S·E 지정
+        await page.evaluate(() => { document.querySelector('#chartHost canvas').scrollIntoView({ block: 'start' }); window.scrollBy(0, -80); }); await page.waitForTimeout(200);
+        const cvb = await (await page.$('#chartHost canvas')).boundingBox(), geo = await page.evaluate(() => { const g = SM.app._chart().state.geom; return { PL: g.PL, bw: g.bw, from: g.from, to: g.to }; });
+        await page.mouse.move(cvb.x + geo.PL + (geo.from + 20 - geo.from + 0.5) * geo.bw, cvb.y + 120); await page.waitForTimeout(120);
+        const cd = await page.evaluate(() => SM.app._chart().state.bars.d[SM.app._chart().state.cross]);
+        await page.evaluate(() => document.querySelector('[data-act=rpSetS]').scrollIntoView({ block: 'center' })); await page.click('[data-act=rpSetS]'); await page.waitForTimeout(120);
+        if (process.env.RNG_SHOT) { await page.evaluate(() => { document.querySelector('.chartfirst').scrollIntoView({ block: 'start' }); window.scrollBy(0, -70); }); await page.waitForTimeout(200); await (await page.$('.chartfirst')).screenshot({ path: process.env.RNG_SHOT }); }
+        const sset = await page.evaluate(() => SM.app._rp.start); ok('차트에서 고른 날짜(십자선)로 S 지정', sset === cd || sset <= cd && cd <= sset.replace(/\d$/, '9'), [sset, cd]);
+        await page.evaluate(() => { const r = SM.app.ui.bt.result, d = SM.app._chart().state.rawFull.d, set = (k, v) => { const el = document.querySelector('[data-rp=' + k + ']'); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }; set('end', d[r.endIdx]); set('start', d[Math.max(r.startIdx, r.endIdx - 15)]); }); // 뒤의 재생 검사를 위해 구간을 기본값으로 되돌림
+        await page.waitForTimeout(100); }
       { // 재생(리플레이): 시작일 이전은 모두 보이고 이후는 한 봉씩, 배속·주봉
         const nBars = () => page.evaluate(() => SM.app._chart().state.bars.d.length), full = await nBars();
         if (process.env.SIM_SHOT2) { await page.click('[data-act=rpStart]'); await page.waitForSelector('#rpSlider'); for (let i = 0; i < 4; i++) await page.click('[data-act=rpStep][data-v="1"]'); await page.waitForTimeout(200); await page.screenshot({ path: process.env.SIM_SHOT2, fullPage: false }); if (process.env.SIM_SHOT3) { await page.click('[data-act=chartMonths][data-v="3"]'); await page.waitForTimeout(200); await (await page.$('.chartfirst')).screenshot({ path: process.env.SIM_SHOT3 }); } await page.click('[data-act=rpEnd]'); }
