@@ -456,9 +456,9 @@
         <button type="button" class="rpb" data-act="rpRestart" title="처음으로" aria-label="처음으로">⏮</button><button type="button" class="rpb" data-act="rpStep" data-v="-1" title="뒤로" aria-label="한 봉 뒤로">◀</button>
         <button type="button" class="rpb play" data-act="rpPlay" id="rpPlayBtn" aria-label="${rp.playing ? '일시정지' : '재생'}">${rp.playing ? '⏸' : '▶'}</button><button type="button" class="rpb" data-act="rpStep" data-v="1" title="앞으로" aria-label="한 봉 앞으로">▶❘</button>
         <button type="button" class="rpb stop" data-act="rpEnd" title="재생 끝내고 전체 보기">■ 종료</button></div>
-      <div class="rp-opts"><span class="chips" aria-label="배속">${[1, 2, 5, 10, 30].map((v) => `<button type="button" class="chip ${rp.speed === v ? 'on' : ''}" data-act="rpSpeed" data-v="${v}">${v}×</button>`).join('')}</span>
+      <div class="rp-opts"><span class="rp-se"><button type="button" class="se s" data-act="rpSetS" title="차트에서 고른 날짜를 시작으로">S 지정</button><button type="button" class="se e" data-act="rpSetE" title="차트에서 고른 날짜를 끝으로">E 지정</button></span><span class="chips" aria-label="배속">${[1, 2, 5, 10, 30].map((v) => `<button type="button" class="chip ${rp.speed === v ? 'on' : ''}" data-act="rpSpeed" data-v="${v}">${v}×</button>`).join('')}</span>
         <span class="chips" aria-label="한 번에 움직이는 단위">${[['day', '하루씩'], ['week', '한 주씩']].map(([k, l]) => `<button type="button" class="chip ${rp.unit === k ? 'on' : ''}" data-act="rpUnit" data-v="${k}">${l}</button>`).join('')}</span></div>
-      <canvas id="rpTimeline" class="rp-tl" aria-label="재생 구간과 진행 위치"></canvas>
+      <canvas id="rpTimeline" class="rp-tl" aria-label="재생 구간과 진행 위치(S·E 손잡이를 끌어 구간 수정)"></canvas>
       <input type="range" class="rp-slider" id="rpSlider" data-rp="slider" min="${si}" max="${ei}" value="${ci}" aria-label="재생 위치"><div class="rp-lbl"><span>${data.d[si]}</span><span>${data.d[ei]}</span></div>`;
   }
   /* ---- 구간 선택 타임라인(영상 편집기처럼): 전체 기간의 종가 선 위에 S·E 손잡이를 끌어 재생 구간을 정함 ---- */
@@ -490,20 +490,28 @@
     let drag = null;
     const idxAt = (e) => { const t = cv._tl, rect = cv.getBoundingClientRect(), w = rect.width; return Math.max(t.s0, Math.min(t.e0, t.s0 + Math.round(((e.clientX - rect.left - TL.L) / Math.max(1, w - TL.L - TL.R)) * (t.n - 1)))); };
     cv.addEventListener('pointerdown', (e) => {
-      if (rp.on || !cv._tl) return;
+      if (!cv._tl) return;
       const t = cv._tl, rect = cv.getBoundingClientRect(), px = e.clientX - rect.left, xs = t.X(rpIdx(rp.start)), xe = t.X(rpIdx(rp.end));
       const ds = Math.abs(px - xs), de = Math.abs(px - xe); drag = ds <= de ? 's' : 'e'; // 가까운 손잡이를 잡음(막대 아무 곳이나 눌러도 가까운 쪽이 이동)
       try { cv.setPointerCapture(e.pointerId); } catch (x) { /* 무시 */ } cv.dispatchEvent(new PointerEvent('pointermove', { clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId }));
     });
     cv.addEventListener('pointermove', (e) => {
-      if (!drag || rp.on) return; const x = rpData(); if (!x) return; const i = idxAt(e), d = x.data.d, gap = 2;
+      if (!drag) return; const x = rpData(); if (!x) return; const i = idxAt(e), d = x.data.d, gap = 2;
       if (drag === 's') rp.start = d[Math.min(i, rpIdx(rp.end) - gap)]; else rp.end = d[Math.max(i, rpIdx(rp.start) + gap)];
-      rp.cur = rp.start; rpRangeChanged();
+      rpRangeChanged();
     });
     const end = () => { drag = null; }; cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
   }
-  function rpRangeChanged() { // 구간이 바뀌면 입력칸·타임라인·차트 음영을 맞춤
+  function rpRangeChanged() { // 구간이 바뀌면 입력칸·타임라인·슬라이더·차트 음영을 맞춤(재생 중에도 가능)
     const a = document.querySelector('[data-rp=start]'), b = document.querySelector('[data-rp=end]'); if (a) a.value = rp.start; if (b) b.value = rp.end;
+    const x = rpData();
+    if (rp.on && x) { // 재생 위치가 구간 밖으로 나가면 가장자리로 당김(끝 밖이면 거기서 멈춤)
+      const ci = rpIdx(rp.cur), si = rpIdx(rp.start), ei = rpIdx(rp.end);
+      if (ci > ei) { rp.cur = rp.end; rpStop(); } else if (ci < si) rp.cur = rp.start;
+      const sl = document.getElementById('rpSlider'); if (sl) { sl.min = String(si); sl.max = String(ei); }
+      const lb = document.querySelector('.rp-lbl'); if (lb) lb.innerHTML = `<span>${x.data.d[si]}</span><span>${x.data.d[ei]}</span>`;
+      rpSync();
+    } else if (!rp.on) rp.cur = rp.start;
     rpDrawTL(); if (A.chartRange) A.chartRange(rp.start, rp.end);
   }
   function rpSetFromChart(which) {
@@ -512,7 +520,7 @@
     const { r, data } = x, i = Math.max(r.startIdx, Math.min(r.endIdx, rpIdx(date))), d = data.d;
     if (which === 's') { rp.start = d[i]; if (rpIdx(rp.end) <= i + 1) rp.end = d[r.endIdx]; } else { rp.end = d[i]; if (rpIdx(rp.start) >= i - 1) rp.start = d[r.startIdx]; }
     if (rpIdx(rp.end) - rpIdx(rp.start) < 2) { toast('구간이 너무 짧습니다', true); rp.start = d[Math.max(r.startIdx, rpIdx(rp.end) - 5)]; }
-    rp.cur = rp.start; rpRangeChanged();
+    rpRangeChanged();
   }
   function rpHtml() { rpInit(); return `<div class="rp ${rp.on ? 'on' : ''}" id="rpPanel">${rpInner()}</div>`; }
   function rpRefresh() { const el = document.getElementById('rpPanel'); if (!el) return; el.classList.toggle('on', rp.on); el.innerHTML = rpInner(); const st = document.getElementById('rpState'); if (st) { st.hidden = !rp.on; st.innerHTML = rp.on ? rpStateHtml() : ''; } rpDrawTL(); }
@@ -564,7 +572,7 @@
     if (!/^\d{4}-\d{2}-\d{2}$/.test(el.value)) return;
     if (k === 'start') rp.start = el.value; else rp.end = el.value;
     const { r, data } = x; if (rp.start < data.d[r.startIdx]) rp.start = data.d[r.startIdx]; if (rp.end > data.d[r.endIdx]) rp.end = data.d[r.endIdx]; if (rp.end <= rp.start) rp.end = data.d[r.endIdx];
-    rp.cur = rp.start; rpRangeChanged();
+    rpRangeChanged();
   }
 
   // 사이클(첫 매수 → 보유 순번 전부 매도) 요약: 청산까지 몇 번·얼마·몇 주를 샀는지(평균·최대)와 사이클별 목록(눌러서 펼침)

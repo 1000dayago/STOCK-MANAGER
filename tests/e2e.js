@@ -195,6 +195,22 @@ function fixtures() {
         const w0 = await nBars(); await page.click('[data-act=rpUnit][data-v=week]'); await page.click('[data-act=rpStep][data-v="1"]'); await page.waitForTimeout(100);
         const d1 = await page.evaluate(() => SM.app._rp.cur); ok('주봉으로 재생: 한 주씩 앞으로', (await page.evaluate(() => SM.app._chart().state.bars.d.length)) >= w0 && d1 > rp0);
         await page.click('[data-act=chartTf][data-v=D]'); await page.click('[data-act=rpEnd]'); await page.waitForTimeout(150); ok('종료: 전체 봉이 다시 보임', (await nBars()) === full && (await page.$('[data-act=rpStart]')) !== null); }
+      { // 재생 중에도 S·E 구간 수정: E를 현재 위치보다 앞으로 끌면 현재 위치가 E로 당겨지고 재생이 멈춤, 슬라이더 범위도 갱신
+        await page.evaluate(() => { document.querySelector('[data-act=rpStart]').scrollIntoView({ block: 'center' }); });
+        await page.click('[data-act=rpStart]'); await page.waitForSelector('#rpSlider');
+        for (let k = 0; k < 6; k++) await page.click('[data-act=rpStep][data-v="1"]');
+        await page.evaluate(() => document.getElementById('rpTimeline').scrollIntoView({ block: 'center' })); await page.waitForTimeout(150);
+        const g0 = await page.evaluate(() => { const cv = document.getElementById('rpTimeline'), t = cv._tl, d = SM.app._chart().state.rawFull.d, rp = SM.app._rp; return { ex: t.X(d.indexOf(rp.end)), sx: t.X(d.indexOf(rp.start)), s2: t.X(d.indexOf(rp.start) + 3), end: rp.end, start: rp.start, cur: rp.cur }; });
+        const tl = await (await page.$('#rpTimeline')).boundingBox();
+        await page.mouse.move(tl.x + g0.ex, tl.y + 30); await page.mouse.down(); await page.mouse.move(tl.x + g0.s2, tl.y + 30, { steps: 8 }); await page.mouse.up(); await page.waitForTimeout(200);
+        const g1 = await page.evaluate(() => { const rp = SM.app._rp, sl = document.getElementById('rpSlider'), d = SM.app._chart().state.rawFull.d; return { end: rp.end, cur: rp.cur, playing: rp.playing, smax: +sl.max, eidx: d.indexOf(rp.end), on: rp.on, bars: SM.app._chart().state.bars.d.length }; });
+        ok('재생 중 E 손잡이를 현재 위치보다 앞으로 끌면 끝이 당겨지고 현재 위치도 E로 맞춰짐', g1.on && g1.end < g0.end && g1.cur === g1.end && !g1.playing, [g0, g1]);
+        ok('재생 중 구간을 바꾸면 슬라이더 범위도 새 구간으로 바뀜', g1.smax === g1.eidx, g1);
+        const g2s = await page.evaluate(() => { const cv = document.getElementById('rpTimeline'), t = cv._tl, d = SM.app._chart().state.rawFull.d, rp = SM.app._rp; return { sx: t.X(d.indexOf(rp.start)), to: t.X(d.indexOf(rp.start) - 4) }; });
+        await page.mouse.move(tl.x + g2s.sx, tl.y + 30); await page.mouse.down(); await page.mouse.move(tl.x + g2s.to, tl.y + 30, { steps: 6 }); await page.mouse.up(); await page.waitForTimeout(150);
+        ok('재생 중 S 손잡이를 앞으로 끌어 시작을 넓힐 수 있음', (await page.evaluate(() => SM.app._rp.start)) < g0.start);
+        await page.click('[data-act=rpEnd]'); await page.waitForTimeout(100);
+        await page.evaluate(() => { const r = SM.app.ui.bt.result, d = SM.app._chart().state.rawFull.d, set = (k, v) => { const el = document.querySelector('[data-rp=' + k + ']'); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }; set('end', d[r.endIdx]); set('start', d[Math.max(r.startIdx, r.endIdx - 15)]); }); }
       { // 추세 조건: 30일 이동평균선이 상승 중일 때만 매수
         await setSel(page, '[data-change=btMgTrend]', '1'); await page.waitForTimeout(200);
         ok('추세 조건 선택: 이동평균 기간·상승 판단 칸이 나타남(기본 30일·5일 전보다)', (await page.inputValue('[data-btmg=tn]')) === '30' && (await page.inputValue('[data-btmg=tk]')) === '5');
