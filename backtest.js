@@ -448,6 +448,10 @@
     change: { use: 'both', group: '지표', label: '전일 대비 등락률', params: [{ k: 'op', label: '조건', def: 'lte', opts: [['lte', '이하'], ['gte', '이상']] }, { k: 'v', label: '등락률 %', def: -3 }] },
     renkoFlip: { use: 'both', group: '렌코', label: '렌코 반전 벽돌', params: [{ k: 'dir', label: '방향', def: 'up', opts: [['up', '하락→상승'], ['down', '상승→하락']] }] },
     renkoRun: { use: 'both', group: '렌코', label: '렌코 상승 벽돌 N개 연속', params: [{ k: 'n', label: '연속 개수', def: 3 }] },
+    flowSum: { use: 'both', group: '수급', label: '수급 누적 순매수 (최근 N일 합)', params: [
+      { k: 'who', label: '투자자', def: 'combo', opts: [['frgn', '외국인'], ['inst', '기관'], ['indiv', '개인'], ['both', '외국인·기관 각각 모두 (누적 동시)'], ['combo', '외국인+기관 합산']] },
+      { k: 'dir', label: '방향', def: 'buy', opts: [['buy', '순매수'], ['sell', '순매도']] },
+      { k: 'n', label: '누적 일수', def: 5 }, { k: 'v', label: '누적 기준값 (수급 데이터 단위: 주 또는 원)', def: 1 }] },
     flow: { use: 'both', group: '수급', label: '투자자 수급(순매수/순매도)', params: [
       { k: 'who', label: '투자자', def: 'frgn', opts: FLOW_WHO },
       { k: 'dir', label: '방향', def: 'buy', opts: [['buy', '순매수'], ['sell', '순매도']] },
@@ -560,6 +564,16 @@
       }
       case 'renkoFlip': { const r = ctx.renko(); for (let i = 0; i < n; i++) out[i] = p.dir === 'down' ? r.flipDn[i] : r.flipUp[i]; break; }
       case 'renkoRun': { const r = ctx.renko(); const t = num(p.n, 3); for (let i = 0; i < n; i++) out[i] = r.newUp[i] && r.runUp[i] >= t; break; }
+      case 'flowSum': { // 최근 N일 누적 순매수(매도)가 기준값 이상. who: 외국인·기관·개인 / both=외국인과 기관이 각각(동시에) / combo=둘을 합산
+        const sell = p.dir === 'sell', k = Math.max(1, Math.floor(num(p.n, 5))), v = num(p.v, 0);
+        const whoList = p.who === 'combo' ? ['combo'] : p.who === 'both' ? ['frgn', 'inst'] : [p.who];
+        const arrOf = (w) => (w === 'combo' ? (data.frgn && data.inst ? data.frgn.map((x, i) => (x == null || data.inst[i] == null ? null : x + data.inst[i])) : null) : data[w]);
+        const per = whoList.map((w) => { const x = arrOf(w), o = new Array(n).fill(false); if (!x) return o;
+          for (let i = k - 1; i < n; i++) { let sum = 0, ok = true; for (let j = i - k + 1; j <= i; j++) { if (x[j] == null) { ok = false; break; } sum += x[j]; } o[i] = ok && (sell ? sum <= -v : sum >= v); }
+          return o; });
+        for (let i = 0; i < n; i++) out[i] = per.every((a) => a[i]);
+        break;
+      }
       case 'flow': {
         const who = p.who === 'both' ? ['frgn', 'inst'] : [p.who];
         const sell = p.dir === 'sell';
@@ -621,7 +635,10 @@
     return out;
   }
   const condArr = (data, c, ctx) => applyWithin(evalCond(data, c, ctx), c.within);
-  function needsFlow(cfg) { return [].concat(exprLeaves(exprOf(cfg.entries)), exprLeaves(exprOf(cfg.exits))).some((c) => c.type === 'flow'); }
+  // 수급 조건이 필요로 하는 투자자 열(외국인·기관·개인). ‘외국인·기관 각각 동시(both)’와 ‘합산(combo)’은 둘 다 필요
+  const isFlowType = (c) => !!c && (c.type === 'flow' || c.type === 'flowSum');
+  const flowWho = (c) => (c.who === 'both' || c.who === 'combo' ? ['frgn', 'inst'] : [c.who]);
+  function needsFlow(cfg) { return [].concat(exprLeaves(exprOf(cfg.entries)), exprLeaves(exprOf(cfg.exits))).some(isFlowType); }
 
   /* ---------- 엔진 ---------- */
   function runBacktest(data, cfg, settings) {
@@ -636,8 +653,8 @@
     const allConds = entryConds.concat(exitConds);
     if (!data.hasVol && allConds.some((c) => ['vol', 'volRatio'].includes(c.type) || (c.type === 'flow' && ['ratio'].includes(c.mode)))) errors.push('거래량 데이터가 없어 거래량 조건을 쓸 수 없습니다.');
     for (const c of allConds) {
-      if (c.type === 'flow') {
-        const who = c.who === 'both' ? ['frgn', 'inst'] : [c.who];
+      if (isFlowType(c)) {
+        const who = flowWho(c);
         for (const w of who) if (!data[w]) errors.push(`${{ frgn: '외국인', inst: '기관', indiv: '개인' }[w]} 수급 데이터가 없습니다. 선택한 데이터에 수급이 합쳐져 있지 않습니다. 시뮬레이션 › 1. 데이터 불러오기에서 “자동 수집 시세·수급 불러오기” 또는 수급 파일로 먼저 합치세요.`);
       }
     }
@@ -671,7 +688,7 @@
       if (cfg.qtyMode === 'amount') return Math.floor((qtyCfg * g) / price);
       return Math.max(1, Math.round(qtyCfg * g));
     }
-    function execBuy(i, price) {
+    function execBuy(i, price, wc) {
       const qty = buyQty(price);
       if (!(qty > 0)) return;
       const fee = qty * price * (rates.buyFee / 100);
@@ -686,9 +703,9 @@
       if (!cyc) cyc = { no: cycles.length + 1, buys: [], startIdx: i, startDate: data.d[i], lots: 0, maxLots: 0, peakInv: 0, qty: 0, realized: 0, worst: 0, firstPrice: price, lowPrice: price };
       cyc.lots++; cyc.qty += qty; cyc.maxLots = Math.max(cyc.maxLots, open.length); cyc.peakInv = Math.max(cyc.peakInv, invested()); cyc.lowPrice = Math.min(cyc.lowPrice, price);
       { const q = open.reduce((a, l) => a + l.qty, 0), cost = open.reduce((a, l) => a + l.qty * l.price, 0); // 이 매수 직후의 보유 수량·평단(수수료 제외)
-        cyc.buys.push({ lot: lotNo, i, date: data.d[i], seq, price, qty, cumQty: q, cost: invested(), avg: cost / q, close: data.c[i] }); }
+        cyc.buys.push({ lot: lotNo, i, date: data.d[i], seq, price, qty, cumQty: q, cost: invested(), avg: cost / q, close: data.c[i], why: wc || [] }); } // why: 이 매수가 나온 날 참이었던 매수 조건들
     }
-    function execSell(lot, i, price, reason) {
+    function execSell(lot, i, price, reason, wc) {
       const k = open.indexOf(lot);
       if (k < 0) return;
       open.splice(k, 1);
@@ -702,7 +719,7 @@
       if (!open.length) lastCloseIdx = i;
       if (cyc) {
         cyc.realized += pnl;
-        if (!open.length) { cyc.endIdx = i; cyc.endDate = data.d[i]; cyc.days = SM.daysBetween(cyc.startDate, data.d[i]); cyc.sellPrice = price; cyc.sellQty = cyc.qty; cyc.ret = cyc.peakInv > 0 ? cyc.realized / cyc.peakInv : null; cycles.push(cyc); cyc = null; }
+        if (!open.length) { cyc.sellWhy = { text: reason || '', conds: wc || [] }; cyc.endIdx = i; cyc.endDate = data.d[i]; cyc.days = SM.daysBetween(cyc.startDate, data.d[i]); cyc.sellPrice = price; cyc.sellQty = cyc.qty; cyc.ret = cyc.peakInv > 0 ? cyc.realized / cyc.peakInv : null; cycles.push(cyc); cyc = null; }
       }
     }
     function entryDyn(c, i) {
@@ -722,7 +739,7 @@
       if (d > to) break;
       if (!fillClose && pending.length) {
         const orders = pending; pending = [];
-        for (const o of orders) { if (o.t === 'buy') execBuy(i, data.o[i]); else execSell(o.lot, i, data.o[i], o.why); }
+        for (const o of orders) { if (o.t === 'buy') execBuy(i, data.o[i], o.wc); else execSell(o.lot, i, data.o[i], o.why, o.wc); }
       }
       if (!inP) continue;
       if (startIdx < 0) startIdx = i;
@@ -730,26 +747,26 @@
       const c = data.c[i];
       for (const l of open) if (c > l.peak) l.peak = c;
       const sellOrders = [];
-      let sellAll = false, allWhy = '신호 청산';
+      let sellAll = false, allWhy = '신호 청산', allWc = [];
       if (open.length) {
-        if (exitSig[i] && exitStaticConds.length) sellAll = true;
+        if (exitSig[i] && exitStaticConds.length) { sellAll = true; allWc = exitStaticConds.filter((c) => exitArr.get(c)[i]).map((c) => Object.assign({}, c)); }
         if (!sellAll && apC.length) {
           const q = open.reduce((a, l) => a + l.qty, 0), avg = open.reduce((a, l) => a + l.qty * l.price, 0) / q;
           for (const a of apC) {
             const pc = num(a.pct, 10) / 100;
-            if (a.dir === 'down' ? c <= avg * (1 - pc) : c >= avg * (1 + pc)) { sellAll = true; allWhy = a.dir === 'down' ? '평단 손절' : '평단 목표'; break; }
+            if (a.dir === 'down' ? c <= avg * (1 - pc) : c >= avg * (1 + pc)) { sellAll = true; allWhy = a.dir === 'down' ? '평단 손절' : '평단 목표'; allWc = [Object.assign({}, a)]; break; }
           }
         }
-        if (sellAll) open.forEach((l) => sellOrders.push({ t: 'sell', lot: l, why: allWhy }));
+        if (sellAll) open.forEach((l) => sellOrders.push({ t: 'sell', lot: l, why: allWhy, wc: allWc }));
         else {
           for (const l of open) {
             const ret = c / l.price - 1;
-            let why = null;
-            if (tpC.some((x) => ret >= num(x.pct) / 100)) why = '목표수익';
-            else if (slC.some((x) => ret <= -num(x.pct) / 100)) why = '손절';
-            else if (trC.some((x) => l.idx < i && c <= l.peak * (1 - num(x.pct) / 100))) why = '트레일링';
-            else if (hdC.some((x) => i - l.idx >= num(x.n))) why = '보유기간';
-            if (why) sellOrders.push({ t: 'sell', lot: l, why });
+            let why = null, wcond = null;
+            if ((wcond = tpC.find((x) => ret >= num(x.pct) / 100))) why = '목표수익';
+            else if ((wcond = slC.find((x) => ret <= -num(x.pct) / 100))) why = '손절';
+            else if ((wcond = trC.find((x) => l.idx < i && c <= l.peak * (1 - num(x.pct) / 100)))) why = '트레일링';
+            else if ((wcond = hdC.find((x) => i - l.idx >= num(x.n)))) why = '보유기간';
+            if (why) sellOrders.push({ t: 'sell', lot: l, why, wc: [Object.assign({}, wcond)] });
           }
         }
       }
@@ -759,8 +776,8 @@
       const rest = (cooldown > 0 && !holdNow && i - lastCloseIdx < cooldown) || (minGap > 0 && holdNow && i - lastBuyIdx < minGap);
       const canBuy = sig && !sellAll && !rest && (maxLots <= 0 || open.length - sellOrders.length + pendBuys < maxLots);
       const orders = sellOrders.slice();
-      if (canBuy) orders.push({ t: 'buy' });
-      if (fillClose) { for (const o of orders) { if (o.t === 'buy') execBuy(i, c); else execSell(o.lot, i, c, o.why); } }
+      if (canBuy) orders.push({ t: 'buy', wc: entryConds.filter((cd) => (entryArr.has(cd) ? entryArr.get(cd)[i] : entryDyn(cd, i))).map((cd) => Object.assign({}, cd)) });
+      if (fillClose) { for (const o of orders) { if (o.t === 'buy') execBuy(i, c, o.wc); else execSell(o.lot, i, c, o.why, o.wc); } }
       else if (i < n - 1 && data.d[i + 1] <= to) pending.push(...orders);
       let unrl = 0;
       for (const l of open) unrl += (c - l.price) * l.qty - l.fee;
@@ -876,7 +893,7 @@
     opt = opt || {}; const n = data.c.length, ex = exprOf(side);
     const leaves = exprLeaves(ex).filter((c) => COND_DEFS[c.type] && (opt.use === 'exit' ? COND_DEFS[c.type].use !== 'entry' : COND_DEFS[c.type].use !== 'exit'));
     const errors = [];
-    for (const c of leaves) if (c.type === 'flow') for (const w of (c.who === 'both' ? ['frgn', 'inst'] : [c.who])) if (!data[w]) errors.push('수급 데이터가 없습니다.');
+    for (const c of leaves) if (isFlowType(c)) for (const w of flowWho(c)) if (!data[w]) errors.push('수급 데이터가 없습니다.');
     if (!data.hasVol && leaves.some((c) => ['vol', 'volRatio', 'volPrev'].includes(c.type))) errors.push('거래량 데이터가 없습니다.');
     if (errors.length) return { error: [...new Set(errors)].join(' ') };
     if (!leaves.length) return { empty: true, days: 0, signalDays: 0, leaves: [], groups: [] };

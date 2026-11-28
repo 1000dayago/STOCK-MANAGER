@@ -125,6 +125,8 @@ function fixtures() {
       if (process.env.CYC_SHOT) await (await page.$('table.cyc')).screenshot({ path: process.env.CYC_SHOT });
       const det = await page.$eval('tr.cycdet', (e) => ({ hidden: e.hidden, t: e.textContent.replace(/\s+/g, ' ') })), row = await page.$eval('tr.cycrow', (e) => e.getAttribute('aria-expanded'));
       ok('사이클 줄을 누르면 매수마다의 평단·목표가·수익이 펼쳐짐(1, 1-2…, 매도 ✓)', dn === true && det.hidden === false && row === 'true' && /평단/.test(det.t) && /가격 × 수량/.test(det.t) && /최대 투입금/.test(det.t) && /✓ 매도|진행 중/.test(det.t), det.t.slice(0, 300));
+      { const w = await page.evaluate(() => { const det = document.querySelector('tr.cycdet:not([hidden])'); return { h: det ? [...det.querySelectorAll('thead th')].map((x) => x.textContent) : [], b: det ? det.querySelector('tbody tr td.c-why') && det.querySelector('tbody tr td.c-why').textContent : '', s: det && det.querySelector('tr.cycsell td.c-why') ? det.querySelector('tr.cycsell td.c-why').textContent : (det && det.querySelector('tr.muted') ? 'open' : '') }; });
+        ok('세부 사이클: 평단 옆에 매수·매도 조건 열(매수=하락 시 추가 매수, 매도=신호 청산·평단 손절 등)', w.h.includes('매수·매도 조건') && /하락 시 추가 매수/.test(w.b) && (w.s === 'open' || /신호 청산|평단|목표|손절|데드크로스/.test(w.s)), w); }
       await page.click('tr.cycrow'); ok('다시 누르면 접힘', (await page.$eval('tr.cycdet', (e) => e.hidden)) === true);
       { const cfgx = await page.evaluate(() => SM.app.ui.bt.result.cfg.exits.conds.map((x) => [x.type, x.ma, x.s, x.l, x.dir]));
         ok('매도 방식 데드크로스: 5일선이 15일선 아래로(단순 이동평균) + 30일선 하락 중(기본 켜짐)으로 실행', JSON.stringify(cfgx) === '[["maCross","sma",5,15,"down"],["maSlope","sma",null,null,"down"],["avgPct",null,null,null,"down"]]', cfgx);
@@ -249,6 +251,9 @@ function fixtures() {
       await page.click('.cndbox.buy [data-act=btPickOpen]'); await page.waitForSelector('.sheet.buy');
       const tabs = await page.$$eval('.sheet .pick-tabs .chip', (e) => e.map((x) => x.textContent));
       ok('조건 선택창: 분류 탭(거래량·이동평균·수급 …)으로 모아 보여 줌', ['거래량', '이동평균', '수급'].every((t) => tabs.includes(t)) && !tabs.includes('청산'), tabs);
+      await page.click('.sheet .pick-tabs .chip:has-text("수급")'); const flowRows = await page.$$eval('.sheet .pickrow', (e) => e.map((x) => x.textContent));
+      ok('수급 분류에 “수급 누적 순매수(N일 합)” 조건이 있음', flowRows.some((x) => /수급 누적 순매수/.test(x)) && flowRows.some((x) => /수급 \(외국인·기관·개인\)/.test(x)), flowRows);
+      ok('렌코 조건을 쓰지 않으면 렌코 설정은 보이지 않음', (await page.evaluate(() => [...document.querySelectorAll('details.box > summary')].some((x) => /렌코 차트 설정/.test(x.textContent)))) === false);
       await page.click('.sheet .pick-tabs .chip:has-text("분할매수")'); await page.click('.sheet .pickrow[data-t=dropLast]'); await page.waitForSelector('.cndbox.buy .tok');
       ok('조건을 고르면 선택창이 닫히고 문장에 조건이 들어가고 값 편집칸이 열림', (await page.$('.sheet')) === null && /하락 시 추가 매수/.test(await sentTxt('entries')) && /일 때 매수/.test(await sentTxt('entries')) && (await page.$('.cndbox.buy .tok-ed.show')) !== null);
       await page.click('.cndbox.buy [data-act=btPickOpen]'); await page.click('.sheet .pick-tabs .chip:has-text("거래량")'); await page.click('.sheet .pickrow[data-t=volPrev]'); await page.waitForSelector('.cndbox.buy .cn');

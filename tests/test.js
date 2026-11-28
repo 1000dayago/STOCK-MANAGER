@@ -232,6 +232,26 @@ t('새 조건 11종: 등락률·연속·갭·낙폭·반등·봉·이격도·정
   const r = SM.runBacktest(U, mk([{ type: 'riseLast', pct: 5, basis: 'last', first: 'yes' }], [], { fill: 'close', qty: 1, growth: 1 }), S); assert.deepEqual(r.buys.map((b) => b.i), [0, 2, 3, 4]);
   for (const k of ['retN', 'streakDays', 'gapOpen', 'fromHigh', 'fromLow', 'candle', 'stoch', 'bbWidth', 'maGap', 'maAlign', 'riseLast']) assert(SM.COND_DEFS[k] && SM.COND_DEFS[k].params.length, k);
 });
+t('수급 누적 순매수 조건(외국인·기관·합산·누적 동시)과 매수·매도 이유 기록', () => {
+  const px = [100, 101, 102, 103, 104, 105, 106, 107], d = { d: [], o: px.slice(), h: px.slice(), l: px.slice(), c: px.slice(), v: px.map(() => 1000), hasVol: true, hasHL: true, flowUnit: 'shares', frgn: [5, 5, 5, -20, 5, 5, 5, 5], inst: [-3, 2, 4, 20, 1, 1, 1, 1], indiv: px.map(() => 0) }, dt = new Date('2025-01-02'); px.forEach(() => { d.d.push(dt.toISOString().slice(0, 10)); dt.setDate(dt.getDate() + 1); });
+  const days = (cond) => SM.signalStats(d, { expr: { op: 'AND', items: [cond] } }).leaves[0].days;
+  // 외국인 3일 누적 ≥ 10: [5,5,5]=15(2번째 인덱스), [5,5,-20]=-10, [5,-20,5]=-10, [-20,5,5]=-10, [5,5,5]=15, 15, 15 → 인덱스 2,6,7 +? (4,5,6,7: [-20,5,5]=-10(4)? 인덱스4=[−20,5? ] 계산은 아래 기대값으로 검증
+  const sumN = (a, i, k) => { let s = 0; for (let j = i - k + 1; j <= i; j++) s += a[j]; return s; }, cnt = (arr, k, v) => { let c = 0; for (let i = k - 1; i < arr.length; i++) if (sumN(arr, i, k) >= v) c++; return c; };
+  const comb = d.frgn.map((x, i) => x + d.inst[i]);
+  assert.equal(days({ type: 'flowSum', who: 'frgn', dir: 'buy', n: 3, v: 10 }), cnt(d.frgn, 3, 10));
+  assert.equal(days({ type: 'flowSum', who: 'inst', dir: 'buy', n: 3, v: 5 }), cnt(d.inst, 3, 5));
+  assert.equal(days({ type: 'flowSum', who: 'combo', dir: 'buy', n: 3, v: 15 }), cnt(comb, 3, 15)); // 합산
+  const both = []; for (let i = 2; i < d.d.length; i++) if (sumN(d.frgn, i, 3) >= 10 && sumN(d.inst, i, 3) >= 5) both.push(i);
+  assert.equal(days({ type: 'flowSum', who: 'both', dir: 'buy', n: 3, v: 5 }), d.d.map((_, i) => (i >= 2 && sumN(d.frgn, i, 3) >= 5 && sumN(d.inst, i, 3) >= 5 ? 1 : 0)).reduce((a, b) => a + b, 0)); // 각각 모두(동시)
+  assert(days({ type: 'flowSum', who: 'both', dir: 'buy', n: 3, v: 5 }) <= Math.min(days({ type: 'flowSum', who: 'frgn', dir: 'buy', n: 3, v: 5 }), days({ type: 'flowSum', who: 'inst', dir: 'buy', n: 3, v: 5 })));
+  assert.equal(days({ type: 'flowSum', who: 'frgn', dir: 'sell', n: 1, v: 20 }), 1); // 순매도 20 이상은 4번째 날 하루
+  assert(SM.signalStats({ d: ['2025-01-01', '2025-01-02'], c: [1, 1], o: [1, 1], h: [1, 1], l: [1, 1], v: [1, 1], hasVol: true }, { expr: { op: 'AND', items: [{ type: 'flowSum', who: 'combo', n: 3, v: 1 }] } }).error); // 수급 없는 데이터
+  // 매수·매도 이유: 그 신호가 나온 날 참이었던 조건이 기록됨
+  const cfg = Object.assign(SM.blankCfg(), { fill: 'close', qty: 1, growth: 1, entries: { mode: 'AND', conds: [{ type: 'flowSum', who: 'frgn', dir: 'buy', n: 2, v: 10 }, { type: 'volPrev', x: 0.5 }] }, exits: { mode: 'OR', conds: [{ type: 'avgPct', dir: 'up', pct: 1 }] } });
+  const r = SM.runBacktest(d, cfg, S), cy = r.cycles.concat(r.openCycle ? [r.openCycle] : [])[0];
+  assert(cy.buys[0].why.length === 2 && cy.buys[0].why.map((x) => x.type).join() === 'flowSum,volPrev', JSON.stringify(cy.buys[0].why));
+  assert(r.cycles.length >= 1 && r.cycles[0].sellWhy.text === '평단 목표' && r.cycles[0].sellWhy.conds[0].type === 'avgPct' && r.cycles[0].sellWhy.conds[0].dir === 'up');
+});
 t('재생: cutRaw는 모든 배열을 같은 길이로 자름', () => {
   const raw = { d: ['2025-01-01', '2025-01-02', '2025-01-03'], o: [1, 2, 3], h: [1, 2, 3], l: [1, 2, 3], c: [1, 2, 3], v: [1, 1, 1], frgn: [5, null, 7], hasVol: true, flowUnit: 'shares' };
   const a = SM.cutRaw(raw, '2025-01-02'); assert.deepEqual(a.d, ['2025-01-01', '2025-01-02']); assert.deepEqual(a.frgn, [5, null]); assert.equal(a.hasVol, true); assert.equal(a.flowUnit, 'shares');

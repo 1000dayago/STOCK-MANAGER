@@ -128,8 +128,8 @@
 
   /* ---------- 화면 조각 ---------- */
   /* ---------- 조건 UI: 선택한 조건은 한 줄 요약으로 모아 보이고, 눌러서 펼쳐 값을 고침 · 추가는 아래에서 올라오는 선택창 ---------- */
-  const COND_SHORT = { vol: '거래량 N주 이상', volPrev: '거래량이 전일보다 높음', volRatio: '거래량이 평균 대비 급증', maCross: '이동평균 교차 (골든·데드)', maState: '단기·장기선 위치', maSlope: '이동평균선 방향 (상승·하락 중)', priceMa: '종가와 이동평균선 위치', bb: '볼린저밴드 터치', rsi: 'RSI', macd: 'MACD 시그널 교차', breakout: '신고가·신저가', change: '전일 대비 등락률', renkoFlip: '렌코 반전', renkoRun: '렌코 상승 연속', flow: '수급 (외국인·기관·개인)', riseLast: '상승 시 추가 매수 (불타기)', maGap: '이동평균 이격도', maAlign: '이동평균 정배열·역배열', retN: 'N일 전 대비 등락률', streakDays: 'N일 연속 상승·하락', gapOpen: '갭 상승·하락', fromHigh: '고점 대비 낙폭', fromLow: '저점 대비 반등', candle: '양봉·음봉', stoch: '스토캐스틱', bbWidth: '볼린저 밴드폭', dropLast: '하락 시 추가 매수', tp: '목표수익 도달 (순번별)', sl: '손절 (순번별)', trail: '고점 대비 하락 (순번별)', holdDays: 'N일 보유 후 (순번별)', avgPct: '평단 대비 ±N% (전량)' };
-  const WHO_TXT = { frgn: '외국인', inst: '기관', indiv: '개인', both: '외국인·기관 동시' };
+  const COND_SHORT = { vol: '거래량 N주 이상', volPrev: '거래량이 전일보다 높음', volRatio: '거래량이 평균 대비 급증', maCross: '이동평균 교차 (골든·데드)', maState: '단기·장기선 위치', maSlope: '이동평균선 방향 (상승·하락 중)', priceMa: '종가와 이동평균선 위치', bb: '볼린저밴드 터치', rsi: 'RSI', macd: 'MACD 시그널 교차', breakout: '신고가·신저가', change: '전일 대비 등락률', renkoFlip: '렌코 반전', renkoRun: '렌코 상승 연속', flow: '수급 (외국인·기관·개인)', flowSum: '수급 누적 순매수 (N일 합)', riseLast: '상승 시 추가 매수 (불타기)', maGap: '이동평균 이격도', maAlign: '이동평균 정배열·역배열', retN: 'N일 전 대비 등락률', streakDays: 'N일 연속 상승·하락', gapOpen: '갭 상승·하락', fromHigh: '고점 대비 낙폭', fromLow: '저점 대비 반등', candle: '양봉·음봉', stoch: '스토캐스틱', bbWidth: '볼린저 밴드폭', dropLast: '하락 시 추가 매수', tp: '목표수익 도달 (순번별)', sl: '손절 (순번별)', trail: '고점 대비 하락 (순번별)', holdDays: 'N일 보유 후 (순번별)', avgPct: '평단 대비 ±N% (전량)' };
+  const WHO_TXT = { frgn: '외국인', inst: '기관', indiv: '개인', both: '외국인·기관 동시', combo: '외국인+기관 합산' };
   function condSummary(c) {
     const base = condSummaryCore(c), w = Math.floor(Number(c.within)); return w > 1 && !(SM.COND_DEFS[c.type] || {}).dyn ? `${base} · 최근 ${w}일 이내` : base;
   }
@@ -151,6 +151,7 @@
       case 'renkoFlip': return `렌코 ${c.dir === 'down' ? '상승→하락' : '하락→상승'} 반전`;
       case 'renkoRun': return `렌코 상승 벽돌 ${n(c.n)}개 연속`;
       case 'flow': { const who = WHO_TXT[c.who] || '외국인', dir = c.dir === 'sell' ? '순매도' : '순매수', md = c.mode === 'streak' ? `${n(c.n)}일 연속` : c.mode === 'sum' ? `최근 ${n(c.n)}일 합 ${n(c.v)} 이상` : c.mode === 'ratio' ? `당일 거래량의 ${n(c.v)}% 이상` : `당일 ${n(c.v)} 이상`; return `${who} ${dir} · ${md}`; }
+      case 'flowSum': { const who = c.who === 'both' ? '외국인·기관 각각' : (WHO_TXT[c.who] || '외국인'), dir = c.dir === 'sell' ? '순매도' : '순매수'; return `${who} 최근 ${n(c.n)}일 누적 ${dir} ${n(c.v)} 이상${c.who === 'both' ? ' (누적 동시)' : ''}`; }
       case 'dropLast': return `${c.basis === 'avg' ? '전체 평단' : c.basis === 'low' ? '가장 낮은 매수가' : '직전 매수가'} 대비 ${n(c.pct)}% 하락 시 추가 매수`;
       case 'tp': return `순번 수익률 +${n(c.pct)}% 도달 시 그 순번 매도`;
       case 'sl': return `순번 손실 -${n(c.pct)}% 도달 시 그 순번 매도`;
@@ -286,7 +287,7 @@
   function dataInfoCard(ds) {
     if (!ds) return '';
     const inf = SM.dataInfo(ds.data, { from: bt.cfg.from, to: bt.cfg.to });
-    const eff = bt.cfg, usesFlow = [].concat(SM.exprLeaves(SM.exprOf(eff.entries)), SM.exprLeaves(SM.exprOf(eff.exits))).some((c) => c.type === 'flow');
+    const eff = bt.cfg, usesFlow = [].concat(SM.exprLeaves(SM.exprOf(eff.entries)), SM.exprLeaves(SM.exprOf(eff.exits))).some((c) => c.type === 'flow' || c.type === 'flowSum');
     const warn = [];
     if (!inf.anyFlow) warn.push(usesFlow ? '이 데이터에는 수급이 없는데 전략에 수급 조건이 있습니다. 시뮬레이션을 실행하면 오류가 납니다. 위 “자동 수집 시세·수급 불러오기”나 수급 파일로 먼저 합치세요.' : '수급이 없습니다. 외국인·기관 조건을 쓰려면 수급을 합쳐야 합니다.');
     else {
@@ -327,6 +328,7 @@
     return c;
   }
   // 수량·한도: 촘촘한 격자(한 줄에 여러 칸)
+  const renkoUsed = () => [].concat(SM.exprLeaves(SM.exprOf(bt.cfg.entries)), SM.exprLeaves(SM.exprOf(bt.cfg.exits))).some((c) => /^renko/.test(c.type)); // 렌코 조건을 쓸 때만 렌코 설정을 보임
   function sgrid(c, mg) {
     const f = (k, label, unit) => `<label class="sg"><span>${label}</span><span class="sgi"><input class="inp" data-btc="${k}" value="${esc(c[k] == null ? '' : c[k])}" inputmode="decimal">${unit ? `<i>${unit}</i>` : ''}</span></label>`;
     const noLimit = !(Number(c.maxLots) > 0) && !(Number(c.maxInvest) > 0);
@@ -372,8 +374,8 @@
       ${sgrid(c, !custom)}
       ${condBox('entries')}${condBox('exits')}
       ${custom ? '' : '<div class="btns"><button class="btn sm" data-act="btPreset">물타기 기본값으로 되돌리기</button></div>'}
-      ${`<details class="box"><summary>렌코 차트 설정</summary><div class="grid2"><label>벽돌 크기 기준<select data-change="btRenko" data-k="mode" data-seg>${opts([['pct', '첫 종가의 N%'], ['fixed', '고정 금액'], ['atr', 'ATR(평균변동폭) × 배수']], c.renko.mode)}</select></label>
-      <label>값 (%, 금액, 배수)<input data-btr="value" value="${esc(c.renko.value)}" inputmode="decimal"></label><label>ATR 기간<input data-btr="period" value="${esc(c.renko.period)}" inputmode="decimal"></label></div><p class="hint">일봉 종가로 만든 렌코라서 증권사 렌코 차트와 모양이 다를 수 있습니다.</p></details>`}
+      ${renkoUsed() ? `<details class="box"><summary>렌코 차트 설정 <small class="muted">(렌코 조건의 벽돌 크기)</small></summary><div class="grid2"><label>벽돌 크기 기준<select data-change="btRenko" data-k="mode" data-seg>${opts([['pct', '첫 종가의 N%'], ['fixed', '고정 금액'], ['atr', 'ATR(평균변동폭) × 배수']], c.renko.mode)}</select></label>
+      <label>값 (%, 금액, 배수)<input data-btr="value" value="${esc(c.renko.value)}" inputmode="decimal"></label><label>ATR 기간<input data-btr="period" value="${esc(c.renko.period)}" inputmode="decimal"></label></div><p class="hint">일봉 종가로 만든 렌코라서 증권사 렌코 차트와 모양이 다를 수 있습니다.</p></details>` : ''}
       <details class="box"><summary>고급 설정 <small class="muted">(체결 방식 · 수수료 · 전략 저장 · 기간 분할 검증)</small></summary>
         <div class="ios-list">
           <div class="ios-row stack"><span>체결 방식</span><span class="rowr">${seg('fill', [['nextOpen', '다음 날 시가'], ['close', '당일 종가']], c.fill)}</span></div>
@@ -684,14 +686,16 @@
       <div class="dist" aria-label="몇 번 매수하고 청산됐는지"><span class="dist-t">매수 횟수별 사이클 수 (총 ${done}번 청산)</span>${dist.map((k) => `<span class="dist-r"><i>${k}회</i><u style="width:${Math.max(4, Math.round((cs.dist[k] / dmax) * 100))}%"></u><b>${cs.dist[k]}</b></span>`).join('')}</div>` : '<p class="hint">이 기간에는 이익으로 전부 판 사이클이 없습니다.</p>';
     const prog = oc ? `<p class="hint prog">진행 중 1건(평균·최대 제외): ${md(oc.startDate)} 시작, ${oc.lots}회 매수·${fmtNum(oc.qty, 0)}주, 투입금 ${fmtMoney(oc.peakInv, cur)}, 평가손익 ${fmtMoney(oc.realized + oc.unrealized, cur)}.</p>` : '';
     const opt = bt.cycOpt || (bt.cycOpt = { target: false, pnl: false });
+    const whyHtml = (list) => ((list || []).length ? (list || []).map((cd) => condSummary(cd)).join(' <b>·</b> ') : '<span class="muted">-</span>'); // 이 매수가 나온 날 참이었던 매수 조건
+    const sellWhyHtml = (w) => (w && (w.text || (w.conds || []).length) ? `<b>${esc(w.text || '')}</b>${(w.conds || []).length ? ' · ' + w.conds.map((cd) => condSummary(cd)).join(' <b>·</b> ') : ''}` : '<span class="muted">-</span>');
     const trOf = (lot) => r.trades.find((t) => t.no === lot);
     const detail = (x) => {
       const rows = x.buys.map((bu) => { const t = trOf(bu.lot), tprice = tp != null ? bu.avg * (1 + tp / 100) : null;
-        return `<tr data-seq="${bu.seq}"><td>${SM.cycleLabel(x.no, bu.seq)}</td><td>${md(bu.date)}</td><td>${fmtNum(bu.price, 2)} × ${fmtNum(bu.qty, 0)}</td><td>${fmtNum(bu.cumQty, 0)}주</td><td>${fmtMoney(bu.cost, cur)}</td><td><b>${fmtNum(bu.avg, 2)}</b></td><td class="c-target">${tprice != null ? fmtNum(tprice, 2) : '-'}</td><td class="c-pnl ${t ? cls(t.pnl) : ''}">${t ? `${fmtNum(t.sellPrice, 2)} · ${pc(t.ret)}` : '-'}</td></tr>`; }).join('');
+        return `<tr data-seq="${bu.seq}"><td>${SM.cycleLabel(x.no, bu.seq)}</td><td>${md(bu.date)}</td><td>${fmtNum(bu.price, 2)} × ${fmtNum(bu.qty, 0)}</td><td>${fmtNum(bu.cumQty, 0)}주</td><td>${fmtMoney(bu.cost, cur)}</td><td><b>${fmtNum(bu.avg, 2)}</b></td><td class="c-why">${whyHtml(bu.why)}</td><td class="c-target">${tprice != null ? fmtNum(tprice, 2) : '-'}</td><td class="c-pnl ${t ? cls(t.pnl) : ''}">${t ? `${fmtNum(t.sellPrice, 2)} · ${pc(t.ret)}` : '-'}</td></tr>`; }).join('');
       const last = x.buys[x.buys.length - 1];
-      const end = x.open ? `<tr class="muted"><td colspan="8">진행 중 · ${md(x.endDate)} 종가 ${fmtNum(x.lastPrice, 2)} · 평가손익 ${fmtMoney(x.realized + x.unrealized, cur)} (${pc(x.ret)})</td></tr>`
-        : `<tr class="cycsell"><td>${x.no}✓ 매도</td><td>${md(x.endDate)}</td><td>${fmtNum(x.sellPrice, 2)} × ${fmtNum(x.sellQty, 0)}</td><td></td><td></td><td>평단 ${fmtNum(last.avg, 2)}</td><td class="c-target">${tp != null ? '+' + tp + '%' : ''}</td><td class="${cls(x.realized)}"><b>${fmtMoney(x.realized, cur)}</b> (${pc(x.ret)})</td></tr>`;
-      return `<tr class="cycdet" data-cd="${x.no}${x.open ? 'o' : ''}" hidden><td colspan="5"><p class="cycsum"><button type="button" class="btn sm" data-act="btCycChart" data-from="${x.startDate}" data-to="${x.endDate}">차트에서 보기</button> 최저 평가손익 ${fmtMoney(x.worst, cur)} · 최대 투입금 ${fmtMoney(x.peakInv, cur)} (수수료 포함)</p><div class="tablewrap"><table class="mini cycmini"><thead><tr><th>매수</th><th>날짜</th><th>가격 × 수량</th><th>누적</th><th>누적 투입금</th><th>평단</th><th class="c-target">목표가</th><th class="c-pnl">이 순번 매도·손익</th></tr></thead><tbody>${rows}${end}</tbody></table></div></td></tr>`;
+      const end = x.open ? `<tr class="muted"><td colspan="9">진행 중 · ${md(x.endDate)} 종가 ${fmtNum(x.lastPrice, 2)} · 평가손익 ${fmtMoney(x.realized + x.unrealized, cur)} (${pc(x.ret)})</td></tr>`
+        : `<tr class="cycsell"><td>${x.no}✓ 매도</td><td>${md(x.endDate)}</td><td>${fmtNum(x.sellPrice, 2)} × ${fmtNum(x.sellQty, 0)}</td><td></td><td></td><td>평단 ${fmtNum(last.avg, 2)}</td><td class="c-why">${sellWhyHtml(x.sellWhy)}</td><td class="c-target">${tp != null ? '+' + tp + '%' : ''}</td><td class="${cls(x.realized)}"><b>${fmtMoney(x.realized, cur)}</b> (${pc(x.ret)})</td></tr>`;
+      return `<tr class="cycdet" data-cd="${x.no}${x.open ? 'o' : ''}" hidden><td colspan="5"><p class="cycsum"><button type="button" class="btn sm" data-act="btCycChart" data-from="${x.startDate}" data-to="${x.endDate}">차트에서 보기</button> 최저 평가손익 ${fmtMoney(x.worst, cur)} · 최대 투입금 ${fmtMoney(x.peakInv, cur)} (수수료 포함)</p><div class="tablewrap"><table class="mini cycmini"><thead><tr><th>매수</th><th>날짜</th><th>가격 × 수량</th><th>누적</th><th>누적 투입금</th><th>평단</th><th class="c-why">매수·매도 조건</th><th class="c-target">목표가</th><th class="c-pnl">이 순번 매도·손익</th></tr></thead><tbody>${rows}${end}</tbody></table></div></td></tr>`;
     };
     const cumOf = new Map(); { let acc = 0; for (const x of r.cycles) { acc += x.realized; cumOf.set(x, acc); } if (oc) cumOf.set(oc, acc + oc.realized + oc.unrealized); } // 누적 손익: 청산된 사이클의 실현손익을 차례로 더함(진행 중 사이클은 평가손익까지 포함)
     const row = (x, k) => `<tr class="cycrow ${x.open ? 'muted' : ''}" data-act="btCycToggle" data-cd="${x.no}${x.open ? 'o' : ''}" data-from="${x.startDate}" data-to="${x.endDate}" tabindex="0" role="button" aria-expanded="false" title="눌러서 매수별 내역 보기"><td data-label="사이클"><span class="v"><i class="cycar">▸</i> ${x.no}${x.open ? ' (진행 중)' : ''}<small class="muted">${md(x.startDate)}~${x.open ? '…' : md(x.endDate)} · ${d(x.days)}</small></span></td><td data-label="매수"><span class="v">${x.lots}회 · ${fmtNum(x.qty, 0)}주</span></td><td data-label="투입금"><span class="v">${fmtMoney(x.peakInv, cur)}</span></td><td data-label="손익"><span class="v ${cls(x.open ? x.realized + x.unrealized : x.realized)}">${fmtMoney(x.open ? x.realized + x.unrealized : x.realized, cur)} <small>(${pc(x.ret)})</small></span></td><td data-label="누적 손익"><span class="v cumc ${cls(cumOf.get(x))}">${fmtMoney(cumOf.get(x), cur)}</span></td></tr>${detail(x)}`;
