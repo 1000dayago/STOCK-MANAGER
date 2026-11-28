@@ -14,7 +14,7 @@
     catch (e) { toast('가격 데이터를 저장할 공간이 부족합니다. 안 쓰는 데이터를 삭제하세요.', true); return false; }
   }
   const newImp = () => ({ stockId: '', autoNote: '', text: '', headerLine: '', an: null, fileNames: [], dest: 'new', destId: '', name: '', market: 'KR', useAdj: true, unit: '' });
-  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mode: 'mg', picker: null, condOpen: '', mgOpen: false, mg: { qty: 10, growth: 2, drop: 10, signal: 'drop', vx: 1, trend: false, tn: 30, tk: 5, pc: 'none', pn: 30, pv: 40, xtrend: true, xn: 30, xk: 5, exit: 'target', target: 5, s: 5, l: 15, maxLots: 0, maxInvest: 0 }, stockId: '', imp: newImp() });
+  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mode: 'mg', picker: null, condOpen: '', mgOpen: false, mg: { qty: 10, growth: 2, drop: 10, signal: 'drop', vx: 1, trend: true, tn: 30, tk: 5, sl: true, sln: 20, pc: 'none', pn: 30, pv: 40, xtrend: true, xn: 30, xk: 5, exit: 'target', target: 5, s: 5, l: 15, maxLots: 5, maxInvest: 0 }, stockId: '', imp: newImp() });
   const MAP_KEY = 'stockmgr.colmaps';
   const loadMaps = () => { try { return JSON.parse(localStorage.getItem(MAP_KEY) || '{}'); } catch (e) { return {}; } };
   function rememberCols(an) { try { const m = loadMaps(); m[an.signature] = an.cols; localStorage.setItem(MAP_KEY, JSON.stringify(m)); } catch (e) { /* ignore */ } }
@@ -60,7 +60,12 @@
     }
     return out;
   }
-  const allDS = () => Object.assign({}, loadDS(), repoEntries());
+  // 데이터 목록(내 기기 저장 + 자동 수집). 액면분할·병합이 감지되면 그 이전 가격·거래량·수급을 현재 기준으로 보정해서 돌려줌
+  const allDS = () => {
+    const o = Object.assign({}, loadDS(), repoEntries());
+    for (const k of Object.keys(o)) { const e = o[k]; if (e && e.data && !e.data.splitAdjusted) { const r = SM.adjustSplits(e.data); if (r.events.length) o[k] = Object.assign({}, e, { data: r.data }); } }
+    return o;
+  };
   A.btRepoInit = (force) => {
     if (repo.initP && !force) return repo.initP;
     repo.loading = true;
@@ -212,8 +217,9 @@
     const flowRows = WHO3.map(([k, l]) => { const f = inf.flow[k]; return `<tr><td>${l}</td><td>${f ? f.count + '일' : '<span class="muted">없음</span>'}</td><td>${f ? f.from + ' ~ ' + f.to : '-'}</td></tr>`; }).join('');
     const rec = inf.recent.slice().reverse();
     const sh = (inf.anyFlow ? `<th>외국인</th><th>기관</th><th>개인</th>` : '');
-    return `<details class="box datainfo" ${warn.length ? 'open' : ''}><summary><b>데이터 정보</b> <small class="muted">· 가격 ${inf.days}일${inf.anyFlow ? ` · 수급 ${inf.flowFrom} ~ ${inf.flowTo}` : ' · 수급 없음'}${warn.length ? ` · 확인할 점 ${warn.length}건` : ''}</small></summary>
+    return `<details class="box datainfo" ${warn.length ? 'open' : ''}><summary><b>데이터 정보</b> <small class="muted">· 가격 ${inf.days}일${ds.data.splits && ds.data.splits.length ? ` · 분할 보정 ${ds.data.splits.length}건` : ''}${inf.anyFlow ? ` · 수급 ${inf.flowFrom} ~ ${inf.flowTo}` : ' · 수급 없음'}${warn.length ? ` · 확인할 점 ${warn.length}건` : ''}</small></summary>
       ${warn.map((w) => `<p class="hint warn">${ic('alert')} ${esc(w)}</p>`).join('')}
+      ${ds.data.splits && ds.data.splits.length ? `<p class="hint">${ic('info')} 액면분할·병합 보정: ${ds.data.splits.map((e) => `${e.date} (${e.factor >= 1 ? e.factor + '분할' : Math.round(1 / e.factor) + '병합'})`).join(', ')} — 그 이전 가격·거래량·수급(주)을 현재 기준으로 맞췄습니다.</p>` : ''}
       <div class="stats-line"><b>가격</b> ${inf.from} ~ ${inf.to} (${inf.days}일) · 시가 ${inf.hasOpen ? '✓' : '✕(종가로 대체)'} · 고가/저가 ${inf.hasHL ? '✓' : '✕(종가로 대체)'} · 거래량 ${inf.hasVol ? '✓' : '✕'}</div>
       <div class="tablewrap"><table class="mini"><thead><tr><th>수급</th><th>값이 있는 날</th><th>구간</th></tr></thead><tbody>${flowRows}</tbody></table></div>
       ${inf.anyFlow ? `<div class="stats-line"><b>단위</b> ${inf.unit === 'krw' ? '금액(원) — 표는 백만 원 단위로 줄여 표시' : '수량(주)'}</div>` : ''}
@@ -236,16 +242,17 @@
     const buyRows = row('qty', '첫 매수', '주') + row('growth', '수량 배수', '배', '추가 매수마다 곱함 (2 = 10→20→40)')
       + sel('매수 신호', 'btMgSignal', [['drop', '하락 시'], ['flow', '수급 신호'], ['flowdrop', '수급 + 하락']], m.signal, m.signal !== 'drop' ? '외국인·기관 동시 순매수' : '')
       + (m.signal !== 'drop' ? row('vx', '거래량 조건', '배 초과', '전일 대비 (0 = 조건 없음)') : '') + (m.signal !== 'flow' ? row('drop', '하락 조건', '% 하락', '직전 매수가 대비') : '')
-      + sel('추세 조건', 'btMgTrend', [['0', '없음'], ['1', '이평선 상승 중']], m.trend ? '1' : '0')
-      + (m.trend ? row('tn', '이동평균 기간', '일') + row('tk', '상승 판단', '일 전보다') : '')
       + sel('가격 조건', 'btMgPrice', [['none', '없음'], ['ma', '이평선 아래'], ['rsi', 'RSI 낮음'], ['bb', '볼린저 하단']], m.pc)
       + (m.pc === 'ma' ? row('pn', '이동평균 기간', '일') : m.pc === 'rsi' ? row('pn', 'RSI 기간', '일') + row('pv', 'RSI 값', '이하') : m.pc === 'bb' ? row('pn', '볼린저 기간', '일') + row('pv', '볼린저 배수', '배') : '');
     const sellRows = sel('매도 방식', 'btMgExit', [['target', '평단 목표 수익'], ['cross', '데드크로스']], m.exit)
       + (cross ? row('s', '단기 이동평균', '일') + row('l', '장기 이동평균', '일') + sel('추세 확인', 'btMgXTrend', [['0', '없음'], ['1', '이평선 하락 중']], m.xtrend ? '1' : '0') + (m.xtrend ? row('xn', '이동평균 기간', '일') + row('xk', '하락 판단', '일 전보다') : '') : row('target', '목표 수익률', '%', '평단 대비'));
     return `<div class="mgblock buy"><div class="mgblock-h">매수</div><div class="ios-list">${buyRows}</div></div>
       <div class="mgblock sell"><div class="mgblock-h">매도</div><div class="ios-list">${sellRows}</div></div>
-      <div class="mgblock"><div class="mgblock-h">자금 한도</div><div class="ios-list">${row('maxInvest', '최대 투입금', '원', '0 = 제한 없음')}${row('maxLots', '최대 매수 횟수', '회', '0 = 제한 없음')}</div></div>
-      <p class="hint warn">하락이 이어지면 매수량이 빠르게 커집니다. 한도를 꼭 넣어 두세요.</p>`;
+      <div class="mgblock safe"><div class="mgblock-h">안전장치</div><div class="ios-list">
+        ${sel('하락 추세 매수 중단', 'btMgTrend', [['1', '켬'], ['0', '끔']], m.trend ? '1' : '0', '이동평균선이 내려가는 중이면 매수하지 않음')}${m.trend ? row('tn', '이동평균 기간', '일') + row('tk', '하락 판단', '일 전보다 낮으면') : ''}
+        ${sel('손절', 'btMgSL', [['1', '켬'], ['0', '끔']], m.sl ? '1' : '0', '평단 대비 손실이 이 값에 닿으면 전량 매도')}${m.sl ? row('sln', '손절 기준', '% 손실') : ''}
+        ${row('maxLots', '최대 매수 횟수', '회', '0 = 제한 없음')}${row('maxInvest', '최대 투입금', '원', '0 = 제한 없음')}</div>
+        ${Number(m.maxLots) <= 0 && Number(m.maxInvest) <= 0 ? '<p class="hint warn">한도가 없으면 하락 종목에서 투입금이 끝없이 커질 수 있습니다.</p>' : ''}</div>`;
   }
   A.renderers.btMain = function () {
     if (!repo.loaded && !repo.loading) setTimeout(() => A.btRepoInit(), 0);
@@ -614,7 +621,9 @@
     if (m.exit === 'cross') { const sh = Math.max(2, Math.round(nz(m.s, 5))), lg = Math.max(sh + 1, Math.round(nz(m.l, 15))); xc = newCond('maCross'); xc.ma = 'sma'; xc.s = sh; xc.l = lg; xc.dir = 'down'; } // 단기선이 장기선을 아래로 뚫음 = 데드크로스
     else { xc = newCond('avgPct'); xc.dir = 'up'; xc.pct = Math.max(0.1, nz(m.target, 5)); }
     c.entries = { mode: 'AND', conds: ec }; c.exits = { mode: 'OR', conds: [xc] };
-    if (m.exit === 'cross' && m.xtrend) { const xs = newCond('maSlope'); xs.ma = 'sma'; xs.n = Math.max(2, Math.round(nz(m.xn, 30))); xs.k = Math.max(1, Math.round(nz(m.xk, 5))); xs.dir = 'down'; c.exits = { mode: 'AND', conds: [xc, xs] }; } // 데드크로스 + 이동평균선이 하락 중일 때만 매도 c.fill = c.fill || 'nextOpen';
+    const slc = m.sl ? (() => { const x = newCond('avgPct'); x.dir = 'down'; x.pct = Math.max(1, nz(m.sln, 20)); return x; })() : null; // 안전장치: 평단 대비 손실이 N%에 닿으면 전량 매도
+    if (m.exit === 'cross' && m.xtrend) { const xs = newCond('maSlope'); xs.ma = 'sma'; xs.n = Math.max(2, Math.round(nz(m.xn, 30))); xs.k = Math.max(1, Math.round(nz(m.xk, 5))); xs.dir = 'down'; c.exits = { mode: 'AND', conds: [xc, xs] }; } // 데드크로스 + 이동평균선이 하락 중일 때만 매도
+    if (slc) c.exits.conds.push(slc); c.fill = c.fill || 'nextOpen';
     return c;
   }
   function cfgForRun() {
@@ -890,7 +899,7 @@
       }, true);
     },
   });
-  Object.assign(A.changeHandlers, { btMgPrice: (el) => { const v = ['ma', 'rsi', 'bb'].includes(el.value) ? el.value : 'none'; bt.mg.pc = v; if (v === 'ma') bt.mg.pn = 30; else if (v === 'rsi') { bt.mg.pn = 14; bt.mg.pv = 40; } else if (v === 'bb') { bt.mg.pn = 20; bt.mg.pv = 2; } A.render(); }, btMgXTrend: (el) => { bt.mg.xtrend = el.value === '1'; A.render(); }, btMgTrend: (el) => { bt.mg.trend = el.value === '1'; A.render(); }, btMgSignal: (el) => { bt.mg.signal = ['flow', 'flowdrop'].includes(el.value) ? el.value : 'drop'; A.render(); }, btMgExit: (el) => { bt.mg.exit = el.value === 'cross' ? 'cross' : 'target'; bt.mgOpen = true; A.render(); }, btStock: (el) => { A.btPickStock(el.value); A.render(); } });
+  Object.assign(A.changeHandlers, { btMgSL: (el) => { bt.mg.sl = el.value === '1'; A.render(); }, btMgPrice: (el) => { const v = ['ma', 'rsi', 'bb'].includes(el.value) ? el.value : 'none'; bt.mg.pc = v; if (v === 'ma') bt.mg.pn = 30; else if (v === 'rsi') { bt.mg.pn = 14; bt.mg.pv = 40; } else if (v === 'bb') { bt.mg.pn = 20; bt.mg.pv = 2; } A.render(); }, btMgXTrend: (el) => { bt.mg.xtrend = el.value === '1'; A.render(); }, btMgTrend: (el) => { bt.mg.trend = el.value === '1'; A.render(); }, btMgSignal: (el) => { bt.mg.signal = ['flow', 'flowdrop'].includes(el.value) ? el.value : 'drop'; A.render(); }, btMgExit: (el) => { bt.mg.exit = el.value === 'cross' ? 'cross' : 'target'; bt.mgOpen = true; A.render(); }, btStock: (el) => { A.btPickStock(el.value); A.render(); } });
 
   A.inputHandlers.bt = (el) => {
     if (el.dataset.btp) { const [g, i, k] = el.dataset.btp.split('.'); const c = bt.cfg[g].conds[+i]; if (c) { c[k] = el.value; condRefresh(g, i); } }

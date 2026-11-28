@@ -103,11 +103,16 @@ function fixtures() {
     const r = await page.evaluate(() => { const A = SM.app, d = A.ui.bt.repo.cache['003490'].data, cfg = Object.assign(SM.blankCfg(), { qty: 10, entries: { mode: 'AND', conds: [{ type: 'flow', who: 'frgn', dir: 'buy', mode: 'streak', n: 2, v: 0 }] } }); const o = SM.runBacktest(d, cfg, SM.DEFAULT_SETTINGS()); return o.error || o.summary.buyCount; });
     ok('수급(외국인 연속 순매수) 조건 시뮬레이션 실행', typeof r === 'number' && r > 0, r);
     { // 물타기 전략(간단 입력) → 실행 → 사이클 분석 → 재생
+      ok('안전장치 기본: 하락 추세 매수 중단 켬 · 손절 −20% 켬 · 최대 매수 5회', await page.evaluate(() => { const q = (k) => document.querySelector(`[data-btmg=${k}]`); const b = document.querySelector('.mgblock.safe'); return !!b && q('tn').value === '30' && q('sln').value === '20' && q('maxLots').value === '5' && /안전장치/.test(b.textContent); }));
+      await page.fill('[data-btmg=maxLots]', '0'); await page.dispatchEvent('[data-btmg=maxLots]', 'input'); await page.click('.mgblock.safe'); await page.evaluate(() => SM.app.render()); await page.waitForSelector('.mgblock.safe');
+      ok('한도가 모두 0이면 경고 문구', /한도가 없으면/.test(await page.textContent('.mgblock.safe')) || (await page.inputValue('[data-btmg=maxInvest]')) !== '0');
+      await page.fill('[data-btmg=maxLots]', '5'); await page.dispatchEvent('[data-btmg=maxLots]', 'input');
       if (process.env.SIM_SHOT1) await page.screenshot({ path: process.env.SIM_SHOT1, fullPage: true });
       await page.fill('[data-btmg=qty]', '10'); await page.fill('[data-btmg=growth]', '2'); await page.fill('[data-btmg=drop]', '3'); await page.fill('[data-btmg=target]', '2'); await page.fill('[data-btmg=maxInvest]', '50,000,000');
+      await setSel(page, '[data-change=btMgTrend]', '0'); // 이 검사는 사이클이 나와야 해서 추세 필터는 끔(기본은 켬)
       await page.click('[data-act=btRun]'); await page.waitForSelector('table.cyc', { timeout: 10000 });
-      const cf = await page.evaluate(() => { const c = SM.app.ui.bt.result.cfg; return { q: c.qty, g: c.growth, mi: c.maxInvest, e: c.entries.conds.map((x) => [x.type, x.pct, x.basis]), x: c.exits.conds.map((x) => [x.type, x.dir, x.pct]) }; });
-      ok('물타기 입력 → 실행: 10주·2배·3% 하락마다 추가·평단 +2% 전량 매도·투입금 한도', cf.q === 10 && cf.g === 2 && cf.mi === 50000000 && JSON.stringify(cf.e) === '[["dropLast",3,"last"]]' && JSON.stringify(cf.x) === '[["avgPct","up",2]]', cf);
+      const cf = await page.evaluate(() => { const c = SM.app.ui.bt.result.cfg; return { ml: c.maxLots, q: c.qty, g: c.growth, mi: c.maxInvest, e: c.entries.conds.map((x) => [x.type, x.pct, x.basis]), x: c.exits.conds.map((x) => [x.type, x.dir, x.pct]) }; });
+      ok('물타기 입력 → 실행: 10주·2배·3% 하락마다 추가·평단 +2% 전량 매도·손절 −20%·최대 5회·투입금 한도', cf.q === 10 && cf.g === 2 && cf.mi === 50000000 && JSON.stringify(cf.e) === '[["dropLast",3,"last"]]' && JSON.stringify(cf.x) === '[["avgPct","up",2],["avgPct","down",20]]' && cf.ml === 5, cf);
       await setSel(page, '[data-change=btMgExit]', 'cross'); await page.waitForTimeout(150);
       await page.fill('[data-btmg=s]', '5'); await page.fill('[data-btmg=l]', '15');
       await page.click('[data-act=btRun]'); await page.waitForSelector('table.cyc', { timeout: 10000 });
@@ -121,7 +126,7 @@ function fixtures() {
       ok('사이클 줄을 누르면 매수마다의 평단·목표가·수익이 펼쳐짐(1, 1-2…, 매도 ✓)', dn === true && det.hidden === false && row === 'true' && /평단/.test(det.t) && /가격 × 수량/.test(det.t) && /최대 투입금/.test(det.t) && /✓ 매도|진행 중/.test(det.t), det.t.slice(0, 300));
       await page.click('tr.cycrow'); ok('다시 누르면 접힘', (await page.$eval('tr.cycdet', (e) => e.hidden)) === true);
       { const cfgx = await page.evaluate(() => SM.app.ui.bt.result.cfg.exits.conds.map((x) => [x.type, x.ma, x.s, x.l, x.dir]));
-        ok('매도 방식 데드크로스: 5일선이 15일선 아래로(단순 이동평균) + 30일선 하락 중(기본 켜짐)으로 실행', JSON.stringify(cfgx) === '[["maCross","sma",5,15,"down"],["maSlope","sma",null,null,"down"]]', cfgx);
+        ok('매도 방식 데드크로스: 5일선이 15일선 아래로(단순 이동평균) + 30일선 하락 중(기본 켜짐)으로 실행', JSON.stringify(cfgx) === '[["maCross","sma",5,15,"down"],["maSlope","sma",null,null,"down"],["avgPct",null,null,null,"down"]]', cfgx);
         ok('결과 순서: 차트가 맨 위, 사이클 분석이 그 아래', await page.evaluate(() => { const c = document.getElementById('chartCard'), y = document.querySelector('table.cyc'); return !!(c.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING); }));
         const top = await page.evaluate(() => [...document.querySelectorAll('.cards4 .stat span')].map((e) => e.textContent).join('|'));
         ok('사이클 요약: 매수 횟수·쓴 돈·산 수량·청산까지(평균, 최대)와 횟수 분포', /매수 횟수\(평균\)/.test(top) && /쓴 돈\(평균\)/.test(top) && /산 수량\(평균\)/.test(top) && /청산까지\(평균\)/.test(top) && (await page.$$('.dist-r')).length >= 1, top);

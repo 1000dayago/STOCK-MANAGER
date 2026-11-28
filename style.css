@@ -930,3 +930,5 @@ body.ios-sim .segsel button { border-left: 0; min-height: 34px; border-radius: 7
 body.ios-sim .segsel button[aria-checked="true"] { background: var(--ios-seg-on); color: var(--fg); font-weight: 700; box-shadow: 0 1px 3px rgba(0, 0, 0, .18), 0 0 0 .5px rgba(0, 0, 0, .04); }
 body.ios-sim .mgblock .segsel { background: rgba(118, 118, 128, .16); }
 .cndbox-h b { white-space: nowrap; } .cndbox-h .segsel { flex: 0 1 190px; min-width: 0; }
+
+.mgblock.safe { background: color-mix(in srgb, var(--warn) 13%, transparent); } .mgblock.safe .mgblock-h { color: var(--warn); }

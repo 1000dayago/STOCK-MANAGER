@@ -821,6 +821,37 @@
     return { date: data.d[t], idx: t, close, qty, cost, avg, buyCount: open.length, cyc: open.length ? open[open.length - 1].cyc : null, unrealized, realized, total: realized + unrealized, today, cyclesDone: (r.cycles || []).filter((c) => c.endDate <= date).length };
   }
   Object.assign(SM, { cyclesAsOf, replayState });
+  /* ---------- 액면분할·병합 보정(수정주가) ----------
+     한국 주식은 하루 가격제한폭이 ±30%라서, 전일 대비 가격이 그 범위를 크게 벗어나면 정상 등락이 아니라 액면분할(병합)입니다.
+     분할 비율(2·3·4·5·10·20·25·50·100배, 병합은 그 역수) 중 가장 가까운 것을 골라 그 전의 가격·거래량·수급(주 단위)을 현재 기준으로 맞춥니다. */
+  const SPLIT_KS = [2, 3, 4, 5, 6, 8, 10, 20, 25, 50, 100];
+  function detectSplits(data) {
+    const ev = [], n = (data && data.d ? data.d.length : 0);
+    for (let i = 1; i < n; i++) {
+      const p = data.c[i - 1], c = data.c[i]; if (!(p > 0 && c > 0)) continue;
+      const r = c / p; if (r > 0.7 && r < 1.43) continue; // 제한폭(±30%) 안의 움직임은 정상
+      let best = null;
+      for (const k of SPLIT_KS) for (const f of [k, 1 / k]) { const dev = Math.abs(Math.log(r * f)); if (dev < 0.3 && (!best || dev < best.dev)) best = { f, dev }; }
+      if (!best) continue;
+      const v0 = data.v && data.v[i - 1], v1 = data.v && data.v[i];
+      if (v0 > 0 && v1 > 0) { const vr = v1 / v0; if (best.f > 1 ? vr < best.f * 0.3 : vr > best.f * 3) continue; } // 분할이면 거래량이 늘고 병합이면 줄어야 함
+      ev.push({ i, date: data.d[i], factor: best.f });
+    }
+    return ev;
+  }
+  function adjustSplits(data) {
+    if (!data || !data.d || data.splitAdjusted) return { data, events: (data && data.splits) || [] };
+    const ev = detectSplits(data); if (!ev.length) return { data, events: [] };
+    const n = data.d.length, m = new Array(n).fill(1);
+    for (const e of ev) for (let i = 0; i < e.i; i++) m[i] *= e.factor; // 이 날짜 이전 값에 적용할 누적 비율
+    const out = Object.assign({}, data), div = (a) => a.map((x, i) => (x == null ? x : x / m[i])), mul = (a) => a.map((x, i) => (x == null ? x : x * m[i]));
+    for (const k of ['o', 'h', 'l', 'c']) out[k] = div(data[k]);
+    if (data.v) out.v = mul(data.v);
+    if (data.flowUnit !== 'krw') for (const k of ['frgn', 'inst', 'indiv']) if (data[k]) out[k] = mul(data[k]);
+    out.splits = ev.map((e) => ({ date: e.date, factor: e.factor })); out.splitAdjusted = true;
+    return { data: out, events: out.splits };
+  }
+  Object.assign(SM, { detectSplits, adjustSplits });
   Object.assign(SM, { dataInfo, detectFlowUnit, parseOHLCV, parseTable, guessFlowCols, mergeFlow, parseDate, splitTable, guessCols, kindOf, analyzeTable, buildDataset, mergeDatasets, sameStockScore, sma, ema, rsi, macd, bollinger, buildRenko, COND_DEFS, runBacktest, runSplitValidation, overlayLines, blankCfg, closeOn, buyHoldFrom, needsFlow });
   if (typeof module !== 'undefined' && module.exports) module.exports = SM;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

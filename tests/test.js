@@ -142,6 +142,28 @@ t('매도: 데드크로스(5·15일)이면서 30일선이 하락 중일 때만(A
   assert(a.cycles.length > 0 && b.cycles.length > 0); assert(a.cycles.length >= b.cycles.length, '조건이 더 붙으면 청산이 같거나 줄어듦');
   for (const cy of b.cycles) { const i = cy.endIdx; assert(s5[i - 1] >= l15[i - 1] && s5[i] < l15[i], '데드크로스 날'); assert(m30[i] < m30[i - 5], '30일선이 5일 전보다 낮음'); }
 });
+t('액면분할·병합 보정: 감지·가격/거래량/수급(주) 보정, 정상 등락은 건드리지 않음', () => {
+  // 가격 100(1/2 분할 아님) → 3일째에 50:1 분할 → 1/50 가격, 거래량 50배
+  const mkd = (rows, unit) => { const d = { d: [], o: [], h: [], l: [], c: [], v: [], frgn: [], hasVol: true, hasHL: true, flowUnit: unit || 'shares' }, dt = new Date('2024-06-01'); rows.forEach(([c, v, f]) => { d.d.push(dt.toISOString().slice(0, 10)); dt.setDate(dt.getDate() + 1); d.o.push(c); d.h.push(c); d.l.push(c); d.c.push(c); d.v.push(v); d.frgn.push(f); }); return d; };
+  const d = mkd([[2500000, 100, 10], [2600000, 110, 20], [52000, 5500, 1000], [53000, 5000, 900]]);
+  const ev = SM.detectSplits(d); assert.deepEqual(ev.map((e) => [e.i, e.factor]), [[2, 50]]);
+  const r = SM.adjustSplits(d); assert.deepEqual(r.events, [{ date: d.d[2], factor: 50 }]);
+  assert.deepEqual(r.data.c.map((x) => Math.round(x)), [50000, 52000, 52000, 53000]); assert.deepEqual(r.data.v.map((x) => Math.round(x)), [5000, 5500, 5500, 5000]); assert.deepEqual(r.data.frgn, [500, 1000, 1000, 900]); // 분할 전 수급(주)은 50배
+  assert.equal(d.c[0], 2500000); assert.equal(r.data.splitAdjusted, true); assert.equal(SM.adjustSplits(r.data).data, r.data); // 원본 그대로, 이미 보정한 것은 다시 보정하지 않음
+  // 수급이 금액(원) 단위면 그대로, 병합(2:1 병합 = 가격 2배)도 감지, 정상 급등락(+29%)은 무시
+  const k2 = SM.adjustSplits(mkd([[10000, 100, 5], [1000, 1100, 5]], 'krw')); assert.equal(k2.events.length, 1); assert.deepEqual(k2.data.frgn, [5, 5]); assert.deepEqual(k2.data.c, [1000, 1000]); // 10배 분할: 가격은 보정, 수급이 금액(원) 단위면 그대로
+  const mg = SM.detectSplits(mkd([[1000, 1000, 1], [2050, 450, 1], [2100, 500, 1]])); assert.deepEqual(mg.map((e) => [e.i, +e.factor.toFixed(2)]), [[1, 0.5]]);
+  assert.equal(SM.detectSplits(mkd([[1000, 100, 1], [1290, 300, 1], [1000, 100, 1]])).length, 0); // 상한가(+29%)·하한가는 정상
+  assert.equal(SM.detectSplits(mkd([[1000, 100, 1], [100, 90, 1], [101, 95, 1]])).length, 0); // 거래량이 늘지 않은 90% 폭락은 분할이 아니라 이상 데이터로 보고 건드리지 않음
+});
+t('안전장치: 손절(평단 −N%)은 사이클을 손실로 청산하고 최대 매수 횟수가 매수를 막음', () => {
+  const px = [100, 100, 90, 80, 70, 60, 50, 50, 50]; // 계속 하락
+  const d = { d: [], o: px.slice(), h: px.slice(), l: px.slice(), c: px.slice(), v: px.map(() => 1000), hasVol: true, hasHL: true }, dt = new Date('2024-07-01'); px.forEach(() => { d.d.push(dt.toISOString().slice(0, 10)); dt.setDate(dt.getDate() + 1); });
+  const base = (x) => mk([{ type: 'dropLast', pct: 5, basis: 'last', first: 'yes' }], [{ type: 'avgPct', dir: 'up', pct: 5 }].concat(x), { fill: 'close', qty: 10, growth: 2 });
+  const free = SM.runBacktest(d, base([]), S), sl = SM.runBacktest(d, base([{ type: 'avgPct', dir: 'down', pct: 20 }]), S), lim = SM.runBacktest(d, Object.assign(base([]), { maxLots: 3 }), S);
+  assert(free.openCycle && free.openCycle.lots >= 5, '손절·한도 없이 하락장에서는 계속 사 들어감'); assert(sl.cycles.length >= 1 && sl.cycles[0].realized < 0, '손절로 손실 청산'); assert(sl.cycles[0].ret < 0);
+  assert(sl.cycleStats.maxInvest < free.cycleStats.maxInvest + free.openCycle.peakInv, '손절하면 투입이 더 커지기 전에 끊김'); assert(lim.cycleStats.maxLots <= 3 && (lim.openCycle ? lim.openCycle.lots : 0) <= 3, '최대 3회');
+});
 t('재생: cutRaw는 모든 배열을 같은 길이로 자름', () => {
   const raw = { d: ['2025-01-01', '2025-01-02', '2025-01-03'], o: [1, 2, 3], h: [1, 2, 3], l: [1, 2, 3], c: [1, 2, 3], v: [1, 1, 1], frgn: [5, null, 7], hasVol: true, flowUnit: 'shares' };
   const a = SM.cutRaw(raw, '2025-01-02'); assert.deepEqual(a.d, ['2025-01-01', '2025-01-02']); assert.deepEqual(a.frgn, [5, null]); assert.equal(a.hasVol, true); assert.equal(a.flowUnit, 'shares');

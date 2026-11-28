@@ -140,7 +140,7 @@
     renderEarnUi();
     const info = chart.state.bars, unit = ds.data.flowUnit === 'krw' ? '금액(원) 단위' : '수량(주) 단위';
     const hasFlow = ['frgn', 'inst', 'indiv'].some((k) => ds.data[k]);
-    msg.innerHTML = `<small class="muted">데이터: ${esc(ds.name)} · ${ds.data.d[0]} ~ ${ds.data.d[ds.data.d.length - 1]} (${ds.data.d.length}일)${hasFlow ? ' · 수급 ' + unit : ' · 수급 없음(수급 패널은 숨겨집니다)'}${quarters ? ` · 실적(DART) ${quarters[0].ym} ~ ${quarters[quarters.length - 1].ym} ${quarters.length}분기` : ' · 영업이익 패널 없음(DART 키로 재무가 수집된 종목만 표시)'}</small>`;
+    msg.innerHTML = `<small class="muted">데이터: ${esc(ds.name)} · ${ds.data.d[0]} ~ ${ds.data.d[ds.data.d.length - 1]} (${ds.data.d.length}일)${hasFlow ? ' · 수급 ' + unit : ' · 수급 없음(수급 패널은 숨겨집니다)'}${ds.data.splits && ds.data.splits.length ? ' · 액면분할 보정: ' + ds.data.splits.map((e) => e.date + ' ' + (e.factor >= 1 ? e.factor + '분할' : Math.round(1 / e.factor) + '병합')).join(', ') : ''}${quarters ? ` · 실적(DART) ${quarters[0].ym} ~ ${quarters[quarters.length - 1].ym} ${quarters.length}분기` : ' · 영업이익 패널 없음(DART 키로 재무가 수집된 종목만 표시)'}</small>`;
   };
 
   const setOn = (btn) => { btn.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn)); };
