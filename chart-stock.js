@@ -123,6 +123,8 @@
     const out = {}; for (const k of Object.keys(raw)) out[k] = Array.isArray(raw[k]) && raw[k].length === raw.d.length ? raw[k].slice(0, t + 1) : raw[k];
     return out;
   }
+  const EVENT_COLORS = { 유: '#f97316', 무: '#16a34a', 감: '#dc2626', 분: '#6b7280', 합: '#7c3aed', CB: '#0891b2' };
+  const escHtml = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   // 사이클 매수 표시 글자: 사이클의 첫 매수는 "1", 두 번째부터 "1-2", "1-3"…
   const cycleLabel = (no, seq) => (seq > 1 ? `${no}-${seq}` : String(no));
   // 증감 패널의 세로 눈금. 두 계열(각각 값 배열)을 한 패널에 그릴 때의 위치 계산.
@@ -169,7 +171,7 @@
     canvas.className = 'stockchart';
     canvas.style.touchAction = 'pan-y'; // 세로 스크롤은 페이지가, 가로 드래그·핀치는 차트가
     host.appendChild(canvas);
-    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, reveal: null, rawFull: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, chg: false, chgScale: 'zero', cycles: null, cycleTarget: 0, sells: [], earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
+    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, events: [], reveal: null, rawFull: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, chg: false, chgScale: 'zero', cycles: null, cycleTarget: 0, sells: [], showEvents: true, earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
 
     function rebuild(keepWindow) {
       if (!S.raw) { S.bars = null; return; }
@@ -462,11 +464,31 @@
       // 캔들 패널 아래쪽: 실적 공시일 표시(위를 향한 작은 삼각형). 영업이익 점과 같은 위치
       if (visEarn.length) for (const { e, i } of visEarn) { const x = X(i); ctx.fillStyle = e.filedEst ? 'rgba(148,163,184,0.9)' : (e.opEok >= 0 ? T.up : T.down); ctx.beginPath(); ctx.moveTo(x - 4, m.y + m.h - 2); ctx.lineTo(x + 4, m.y + m.h - 2); ctx.lineTo(x, m.y + m.h - 9); ctx.closePath(); ctx.fill(); }
 
+      // 이슈 표시(유상증자 유 · 무상증자 무 · 감자 감 · 분할/병합 분 · 합병/분할 합 · CB/BW): 캔들 패널 아래쪽에 작은 글자 상자
+      if (S.cfg.showEvents !== false && (S.events || []).length) {
+        const byBar = new Map();
+        for (const ev of S.events) { const i = firstIdxOnOrAfter(b.d, ev.date); if (i < from || i > to) continue; if (!byBar.has(i)) byBar.set(i, []); byBar.get(i).push(ev); }
+        ctx.font = 'bold 10px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'center';
+        for (const [i, list] of byBar) list.forEach((ev, k) => {
+          const w = ev.kind.length > 1 ? 24 : 17, x = Math.min(W - PR - w / 2, Math.max(PL + w / 2, X(i))), y = m.y + m.h - 30 - k * 17;
+          ctx.fillStyle = EVENT_COLORS[ev.kind] || '#6b7280'; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x - w / 2, y - 7, w, 14, 3); else ctx.rect(x - w / 2, y - 7, w, 14); ctx.fill();
+          ctx.fillStyle = '#fff'; ctx.fillText(ev.kind, x, y + 0.5);
+        });
+        ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'left';
+      }
+
       /* ---- 십자선 ---- */
       if (S.cross != null && S.cross >= from && S.cross <= to) {
         const x = Math.round(X(S.cross)) + 0.5; ctx.strokeStyle = T.fg; ctx.globalAlpha = 0.55; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H - 22); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+        // 끌어서 옮기는 손잡이(위쪽 원)와 날짜 칩: 이 선 근처를 잡고 좌우로 끌면 선이 따라 움직임
+        const dtxt = b.d[S.cross].slice(2).replace(/-/g, '.'), cw = ctx.measureText(dtxt).width + 12, cx = Math.min(W - PR - cw / 2, Math.max(PL + cw / 2, x));
+        ctx.fillStyle = '#2563eb'; ctx.beginPath(); ctx.arc(x, 9, 8, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = 'bold 10px -apple-system, "Noto Sans KR", sans-serif'; ctx.fillText('◂▸', x, 9.5);
+        ctx.fillStyle = '#2563eb'; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(cx - cw / 2, 20, cw, 15, 4); else ctx.rect(cx - cw / 2, 20, cw, 15); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif'; ctx.fillText(dtxt, cx, 28); ctx.textAlign = 'left';
       }
       updateRead(S.cross != null && S.cross >= from && S.cross <= to ? S.cross : to, S.cross != null, from, to);
+      canvas.style.touchAction = S.cross != null ? 'none' : 'pan-y'; // 십자선이 있을 땐 터치를 모두 차트가 받아 끌기가 끊기지 않게, 없을 땐 세로 스크롤은 페이지가
     }
 
     function updateRead(i, pinned, from, to) {
@@ -489,22 +511,31 @@
         const e = earningsAsOf(S.earn, b.d[i]), sg = (v) => (v == null ? '-' : (v > 0 ? '+' : v < 0 ? '−' : '') + fmtEok(Math.abs(v)));
         if (e) h += '<br>' + `<span class="cr-who" style="--c:#7c3aed">증감</span> 영업이익 <b class="${e.dOpEok > 0 ? 'cr-up' : e.dOpEok < 0 ? 'cr-down' : ''}">${sg(e.dOpEok)}</b>` + (e.dLiabEok != null ? ` · 부채 <b>${sg(e.dLiabEok)}</b>${e.liabPct != null ? ` (${e.liabPct > 0 ? '+' : ''}${e.liabPct.toFixed(1)}%)` : ''}${e.debtRatio != null ? ' · 부채비율 ' + e.debtRatio.toFixed(0) + '%' : ''}` : ' <small class="muted">· 부채 자료 없음</small>') + ` <small>(${e.label || e.ym} · 전년 동기 대비)</small>`;
       }
+      if (S.cfg.showEvents !== false && (S.events || []).length) {
+        const evs = S.events.filter((ev) => firstIdxOnOrAfter(b.d, ev.date) === i);
+        if (evs.length) h += '<br>' + evs.map((ev) => `<span class="cr-who" style="--c:${EVENT_COLORS[ev.kind] || '#6b7280'}">${escHtml(ev.label || ev.kind)}</span> ${escHtml(ev.date)} <small>${escHtml(ev.title || '')}</small>`).join(' · ');
+      }
       readEl.innerHTML = h;
     }
 
     /* ---- 조작: 드래그 이동 · 핀치/휠 확대 · 탭(터치)·호버(마우스) 십자선 ---- */
-    const ptrs = new Map(); let pan = null, pinch = null, moved = false;
+    const ptrs = new Map(); let pan = null, pinch = null, moved = false, dragCross = false;
     const xToIdx = (clientX) => { const r = canvas.getBoundingClientRect(), g = S.geom; if (!g) return null; return Math.max(g.from, Math.min(g.to, g.from + Math.floor((clientX - r.left - g.PL) / g.bw))); };
     const setWindow = (count, end) => { const n = S.bars.d.length, w = windowRange(n, count, end); S.count = w.count; S.end = w.to; draw(); if (S.cfg.onChange) S.cfg.onChange(); };
     canvas.addEventListener('pointerdown', (e) => {
       if (!S.bars) return;
       canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); moved = false;
       if (ptrs.size === 1) pan = { x: e.clientX, end: S.end, count: S.count };
+      if (ptrs.size === 1 && S.cross != null && S.geom && S.cross >= S.geom.from && S.cross <= S.geom.to) { // 십자선 근처를 잡으면 차트 이동 대신 선을 끌어 옮김
+        const r = canvas.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top, mouse = e.pointerType === 'mouse'; // 마우스는 선이 호버를 따라다니므로 위쪽 손잡이를 잡을 때만, 터치는 선 근처 어디든
+        if (Math.abs(px - idxToX(S.geom, S.cross)) <= (mouse ? 12 : 30) && (!mouse || py <= 28)) { dragCross = true; pan = null; moved = true; const i = xToIdx(e.clientX); if (i !== S.cross) { S.cross = i; draw(); } }
+      }
       if (ptrs.size === 2) { const [a, c] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - c.x, a.y - c.y), count: S.count, end: S.end }; pan = null; }
     });
     canvas.addEventListener('pointermove', (e) => {
       if (!S.bars || !S.geom) return;
       if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (dragCross && ptrs.size === 1) { const i = xToIdx(e.clientX); if (i !== S.cross) { S.cross = i; draw(); } return; }
       if (pinch && ptrs.size === 2) { const [a, c] = [...ptrs.values()], d = Math.hypot(a.x - c.x, a.y - c.y); moved = true; if (pinch.d > 0) setWindow(pinch.count * (pinch.d / Math.max(1, d)), pinch.end); return; }
       if (pan && ptrs.size === 1) {
         const dx = e.clientX - pan.x;
@@ -517,7 +548,7 @@
     const up = (e) => {
       if (!ptrs.has(e.pointerId)) return;
       if (ptrs.size === 1 && !moved && S.bars) { const i = xToIdx(e.clientX); S.cross = S.cross === i && e.pointerType !== 'mouse' ? null : i; draw(); }
-      ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (!ptrs.size) pan = null;
+      ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (!ptrs.size) { pan = null; dragCross = false; }
     };
     canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
     canvas.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && S.cross != null && !ptrs.size) { S.cross = null; draw(); } });
@@ -541,6 +572,16 @@
       },
       setMonths(months) { if (!S.bars) return; S.count = barsForMonths(S.tf, months, S.bars.d.length); S.end = S.bars.d.length - 1; const w = windowRange(S.bars.d.length, S.count, S.end); S.count = w.count; S.end = w.to; S.cross = null; draw(); },
       setConfig(c) { Object.assign(S.cfg, c); rebuild(true); draw(); },
+      setEvents(list) { S.events = (list || []).filter((x) => x && /^\d{4}-\d{2}-\d{2}$/.test(x.date) && x.kind).slice().sort((a, b) => (a.date < b.date ? -1 : 1)); draw(); },
+      // 날짜 구간(from~to)이 보이도록 창을 옮김(to가 없으면 그 날짜 하나를 가운데에 놓고 십자선 표시). 성공하면 true
+      focusRange(from, to, opt) {
+        if (!S.bars) return false;
+        const b = S.bars, n = b.d.length; let iS = firstIdxOnOrAfter(b.d, from); if (iS < 0) iS = n - 1;
+        let iE = to ? firstIdxOnOrAfter(b.d, to) : iS; if (iE < 0) iE = n - 1; if (iE < iS) iE = iS;
+        const span = iE - iS + 1, want = to ? Math.round(span * 1.5) + 12 : Math.max(S.count, 40), count = Math.max(30, Math.min(n, (opt && opt.count) || want));
+        const w = windowRange(n, count, Math.min(n - 1, Math.round((iS + iE) / 2 + count / 2)));
+        S.count = w.count; S.end = w.to; S.cross = to ? null : iS; draw(); return true;
+      },
       setEarnings(quarters) { S.earn = earningsSeries(quarters); draw(); },
       redraw() { draw(); },
       destroy() { if (ro) ro.disconnect(); canvas.remove(); },

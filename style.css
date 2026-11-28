@@ -932,3 +932,4 @@ body.ios-sim .mgblock .segsel { background: rgba(118, 118, 128, .16); }
 .cndbox-h b { white-space: nowrap; } .cndbox-h .segsel { flex: 0 1 190px; min-width: 0; }
 
 .mgblock.safe { background: color-mix(in srgb, var(--warn) 13%, transparent); } .mgblock.safe .mgblock-h { color: var(--warn); }
+.chartwrap canvas.stockchart { touch-action: pan-y; }

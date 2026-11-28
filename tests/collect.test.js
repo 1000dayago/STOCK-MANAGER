@@ -86,6 +86,17 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'collect-'));
 const KEYS = { DATA_GO_KR_KEY: 'pub+key/with=chars', DART_API_KEY: 'dartSecret123', NAVER_CLIENT_ID: 'nid', NAVER_CLIENT_SECRET: 'nsecret' };
 
 (async () => {
+  await t('이슈 분류: 유상증자·무상증자·감자·분할/병합·합병/분할·CB, 정정공시 중복 제거', () => {
+    assert.deepEqual(C.classifyEvent('주요사항보고서(유상증자결정)').map((x) => x.kind), ['유']);
+    assert.deepEqual(C.classifyEvent('[기재정정]주요사항보고서(무상증자결정)').map((x) => x.kind), ['무']);
+    assert.deepEqual(C.classifyEvent('주요사항보고서(유무상증자결정)').map((x) => x.kind), ['유', '무']);
+    assert.deepEqual(C.classifyEvent('주요사항보고서(감자결정)').map((x) => x.kind), ['감']); assert.deepEqual(C.classifyEvent('주요사항보고서(주식분할결정)').map((x) => x.kind), ['분']);
+    assert.deepEqual(C.classifyEvent('주요사항보고서(회사합병결정)').map((x) => x.kind), ['합']); assert.deepEqual(C.classifyEvent('주요사항보고서(전환사채권발행결정)').map((x) => x.kind), ['CB']);
+    assert.deepEqual(C.classifyEvent('주요사항보고서(자기주식취득결정)'), []); assert.deepEqual(C.classifyEvent(null), []);
+    const ev = C.buildEvents([{ report_nm: '주요사항보고서(유상증자결정)', rcept_dt: '20240305' }, { report_nm: '[기재정정]주요사항보고서(유상증자결정)', rcept_dt: '20240312' }, { report_nm: '주요사항보고서(유상증자결정)', rcept_dt: '20250110' }, { report_nm: '주요사항보고서(감자결정)', rcept_dt: '20240601' }, { report_nm: '이상한', rcept_dt: 'x' }]);
+    assert.deepEqual(ev.map((e) => [e.date, e.kind]), [['2024-03-05', '유'], ['2024-06-01', '감'], ['2025-01-10', '유']]); // 정정(7일 뒤)은 제외, 1년 뒤는 별개
+    assert.equal(ev[0].label, '유상증자'); assert(ev[0].title.includes('유상증자결정'));
+  });
   await t('ZIP 풀기 + 고유번호 XML 파싱(상장사만)', () => {
     const xml = C.unzipFirst(makeZip('CORPCODE.xml', CORP_XML)).toString('utf8');
     assert.equal(xml, CORP_XML);

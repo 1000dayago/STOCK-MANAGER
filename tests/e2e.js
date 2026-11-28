@@ -61,6 +61,7 @@ function fixtures() {
       await page.route('**/data/flow/003490.csv*', (r) => r.fulfill({ body: F.fl, contentType: 'text/csv' }));
       await page.route('**/data/stocks.json*', (r) => r.fulfill({ json: F.stocks }));
       await page.route('**/data/fin/003490.json*', (r) => r.fulfill({ json: F.fin }));
+      await page.route('**/data/events/003490.json*', (r) => r.fulfill({ json: { v: 1, updatedAt: '2026-11-27T00:00:00Z', items: [{ date: '2026-03-10', kind: '유', label: '유상증자', title: '주요사항보고서(유상증자결정)' }, { date: '2026-06-15', kind: '감', label: '감자', title: '주요사항보고서(감자결정) <b>x</b>' }, { date: '2026-06-15', kind: 'CB', label: 'CB·BW', title: '주요사항보고서(전환사채권발행결정)' }] } }));
     }
     await page.goto(base); await page.waitForSelector('.empty');
     return { ctx, page, errs, dlg };
@@ -131,6 +132,20 @@ function fixtures() {
         const top = await page.evaluate(() => [...document.querySelectorAll('.cards4 .stat span')].map((e) => e.textContent).join('|'));
         ok('사이클 요약: 매수 횟수·쓴 돈·산 수량·청산까지(평균, 최대)와 횟수 분포', /매수 횟수\(평균\)/.test(top) && /쓴 돈\(평균\)/.test(top) && /산 수량\(평균\)/.test(top) && /청산까지\(평균\)/.test(top) && (await page.$$('.dist-r')).length >= 1, top);
         ok('청산된 순번 표는 사이클이 있으면 기본으로 접혀 있음', await page.evaluate(() => { const d = [...document.querySelectorAll('details.box')].find((x) => /청산된 순번/.test(x.textContent.slice(0, 40))); return !!d && !d.open; })); }
+      { // 누적 손익 곡선을 누르면 그 날짜로 차트 이동, 사이클을 누르면 그 구간으로 이동
+        await page.evaluate(() => { document.getElementById('btEquity').scrollIntoView({ block: 'center' }); }); await page.waitForTimeout(150);
+        const eqb = await (await page.$('#btEquity')).boundingBox(), n = await page.evaluate(() => SM.app.ui.bt.result.equity.length);
+        await page.evaluate(() => { SM.app._chart().state.cross = null; SM.app._chart().focusRange(SM.app.ui.bt.result.equity[0].d, null); });
+        await page.mouse.click(eqb.x + 56 + (eqb.width - 64) * 0.8, eqb.y + 60); await page.waitForTimeout(150);
+        const f = await page.evaluate(() => { const s = SM.app._chart().state, r = SM.app.ui.bt.result; return { cross: s.cross, date: s.cross != null ? s.bars.d[s.cross] : null, eq: r.equity.map((e) => e.d) }; });
+        const want = f.eq[Math.round((n - 1) * 0.8)];
+        ok('누적 손익 곡선(80% 지점)을 누르면 차트에 그 날짜 십자선이 표시되고 그 날짜가 보임', f.cross != null && Math.abs(f.eq.indexOf(f.date) - f.eq.indexOf(want)) <= 3, [f.date, want]);
+        const cy = await page.evaluate(() => { const c = SM.app.ui.bt.result.cycles[8]; return { from: c.startDate, to: c.endDate }; });
+        await page.evaluate(() => SM.app._chart().focusRange(SM.app.ui.bt.result.equity[0].d, null));
+        await page.click('tr.cycrow[data-from="' + cy.from + '"]'); await page.waitForTimeout(150);
+        const vis = await page.evaluate(() => { const s = SM.app._chart().state, d = s.bars.d, w = s.geom; return [d[w.from], d[w.to]]; });
+        ok('사이클 줄을 누르면 차트가 그 사이클 구간(시작~종료)을 보여줌', vis[0] <= cy.from && vis[1] >= cy.to, [vis, cy]);
+        await page.click('tr.cycrow[data-from="' + cy.from + '"]'); }
       { // 재생(리플레이): 시작일 이전은 모두 보이고 이후는 한 봉씩, 배속·주봉
         const nBars = () => page.evaluate(() => SM.app._chart().state.bars.d.length), full = await nBars();
         if (process.env.SIM_SHOT2) { await page.click('[data-act=rpStart]'); await page.waitForSelector('#rpSlider'); for (let i = 0; i < 4; i++) await page.click('[data-act=rpStep][data-v="1"]'); await page.waitForTimeout(200); await page.screenshot({ path: process.env.SIM_SHOT2, fullPage: false }); if (process.env.SIM_SHOT3) { await page.click('[data-act=chartMonths][data-v="3"]'); await page.waitForTimeout(200); await (await page.$('.chartfirst')).screenshot({ path: process.env.SIM_SHOT3 }); } await page.click('[data-act=rpEnd]'); }
@@ -225,6 +240,24 @@ function fixtures() {
     ok('종목 차트에 매도 기록이 전달됨(매도일·가격·손익)', sl.length === 1 && sl[0].date === '2026-10-20' && sl[0].price === 26000 && sl[0].qty === 4 && sl[0].pnl > 0 && sl[0].cost > 0, sl);
     if (process.env.STK_SHOT) { await page.click('[data-act=chartMonths][data-v="6"]'); await page.waitForTimeout(300); await (await page.$('#chartHost')).screenshot({ path: process.env.STK_SHOT }); }
     const px = await page.evaluate(() => { const c = document.querySelector('canvas.stockchart'); const g = c.getContext('2d'), d = SM.app._chart().state.geom; return !!d; }); ok('매도 S 원이 그려져도 차트가 정상(오류 없음)', px && errs.length === 0, errs);
+    { // 이슈(증자·감자 등) 표시 + 십자선 끌기
+      await page.click('[data-act=chartMonths][data-v="12"]'); await page.waitForTimeout(300);
+      const evs = await page.evaluate(() => SM.app._chart().state.events.map((x) => x.kind + ':' + x.date));
+      ok('이슈 표시: DART 주요사항보고(유·감·CB)가 차트에 전달됨', evs.includes('유:2026-03-10') && evs.includes('감:2026-06-15') && evs.includes('CB:2026-06-15'), evs);
+      await page.evaluate(() => { document.querySelector('canvas.stockchart').scrollIntoView({ block: 'start' }); window.scrollBy(0, -90); }); await page.waitForTimeout(150);
+      const box = await (await page.$('canvas.stockchart')).boundingBox(), g = await page.evaluate(() => { const s = SM.app._chart().state, gm = s.geom, i = s.bars.d.findIndex((d) => d >= '2026-06-15'); return { PL: gm.PL, bw: gm.bw, from: gm.from, i }; });
+      await page.mouse.move(box.x + g.PL + (g.i - g.from + 0.5) * g.bw, box.y + 120); await page.waitForTimeout(150);
+      const rd = await page.textContent('#chartRead'); ok('십자선을 이슈 날짜에 두면 읽기 상자에 이슈 이름이 표시(HTML은 글자로)', /감자/.test(rd) && /CB·BW/.test(rd) && /<b>x<\/b>/.test(rd), rd.slice(-200));
+      // 십자선 끌기: 탭으로 십자선을 두고, 그 선을 잡고 오른쪽으로 끌면 선이 따라가고 차트(창)는 그대로
+      const st0 = await page.evaluate(() => { const s = SM.app._chart().state; return { cross: s.cross, end: s.end, count: s.count }; }); const x0 = box.x + g.PL + (st0.cross - g.from + 0.5) * g.bw;
+      await page.mouse.move(x0, box.y + 150); await page.waitForTimeout(120); const bx2 = await (await page.$('canvas.stockchart')).boundingBox(); await page.mouse.move(x0, bx2.y + 9); await page.mouse.down(); await page.mouse.move(x0 + 40, bx2.y + 9, { steps: 6 }); await page.mouse.up(); await page.waitForTimeout(100);
+      const st1 = await page.evaluate(() => { const s = SM.app._chart().state; return { cross: s.cross, end: s.end, count: s.count }; });
+      ok('십자선 손잡이(위쪽 원)를 잡고 끌면 선만 움직이고 차트는 이동하지 않음', st1.cross > st0.cross && st1.end === st0.end && st1.count === st0.count, [st0, st1]);
+      await page.mouse.move(x0 + 60, box.y + 150); await page.mouse.move(box.x + 12, box.y + 150); await page.waitForTimeout(100);
+      const bx3 = await (await page.$('canvas.stockchart')).boundingBox(); await page.mouse.move(box.x + 20, bx3.y + 60); await page.mouse.down(); await page.mouse.move(box.x + 120, bx3.y + 60, { steps: 6 }); await page.mouse.up(); await page.waitForTimeout(100);
+      ok('선에서 떨어진 곳을 끌면 기존처럼 차트가 이동함', (await page.evaluate(() => SM.app._chart().state.end)) !== st0.end);
+      if (process.env.EV_SHOT) { await page.mouse.move(x0, bx2.y + 120); await page.waitForTimeout(150); await (await page.$('#chartHost')).screenshot({ path: process.env.EV_SHOT }); }
+      await page.click('[data-chartopt=events]').catch(() => {}); }
     ok('7-1) 오류 없음', errs.length === 0, errs); await ctx.close(); }
   { const { ctx, page, errs } = await open(); await addStocks(page); // 영업이익 패널(DART 분기 실적)
     await page.evaluate(() => { const A = SM.app; A.ui.view = 'stocks'; A.ui.stockTab = 'held'; A.ui.stockId = A.getState().stocks[0].id; A.render(); });

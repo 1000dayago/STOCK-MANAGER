@@ -27,6 +27,7 @@
   D.news = (c, force) => memo('news' + c, () => get(`data/news/${c}.json`), force);
   D.dart = (c, force) => memo('dart' + c, () => get(`data/dart/${c}.json`), force);
   D.fin = (c, force) => memo('fin' + c, () => get(`data/fin/${c}.json`), force);
+  D.events = (c, force) => memo('events' + c, () => get(`data/events/${c}.json`), force);
   D.pricesCsv = (c, force) => memo('px' + c, () => get(`data/prices/${c}.csv`, true), force);
   D.flowCsv = (c, force) => memo('fl' + c, () => get(`data/flow/${c}.csv`, true), force);
   // 수집 대상이 아니면 다른 파일은 요청하지 않습니다(404 방지). 상태 파일에 성공으로 기록된 항목만 읽습니다.

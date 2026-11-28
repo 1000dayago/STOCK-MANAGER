@@ -288,6 +288,35 @@ function filingDates(list) {
   }
   return out;
 }
+// 주요사항보고서 이름으로 이슈 종류를 나눔(유상증자·무상증자·감자·분할/병합·합병/분할·CB/BW). “유무상증자”는 둘 다.
+const EVENT_KINDS = [['유', /유상증자|유무상증자/, '유상증자'], ['무', /무상증자|유무상증자/, '무상증자'], ['감', /감자/, '감자'], ['분', /주식분할|주식병합|액면/, '분할·병합'], ['합', /합병|회사분할/, '합병·분할'], ['CB', /전환사채|신주인수권부사채|교환사채/, 'CB·BW']];
+function classifyEvent(name) { const t = String(name || ''); return EVENT_KINDS.filter(([, re]) => re.test(t)).map(([kind, , label]) => ({ kind, label })); }
+// list: [{report_nm, rcept_dt}] → [{date, kind, label, title}] (정정공시 등으로 같은 종류가 45일 안에 또 나오면 처음 것만)
+function buildEvents(list) {
+  const out = [], last = {};
+  for (const x of (list || []).slice().sort((a, b) => String(a.rcept_dt).localeCompare(String(b.rcept_dt)))) {
+    const date = dash(String(x.rcept_dt || ''));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const title = String(x.report_nm || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    for (const { kind, label } of classifyEvent(title)) {
+      if (last[kind] && Date.parse(date) - Date.parse(last[kind]) < 45 * 86400000) continue;
+      last[kind] = date; out.push({ date, kind, label, title });
+    }
+  }
+  return out;
+}
+async function fetchEventList(corpCode, fromYear, key, fetchFn, today) { // 주요사항보고서(유상증자결정 등)만
+  const out = [];
+  for (let page = 1; page <= 10; page++) {
+    const j = await dartJson(fetchFn, 'list', { corp_code: corpCode, bgn_de: `${fromYear}0101`, end_de: compact(ymd(today)), pblntf_ty: 'B', page_no: page, page_count: 100 }, key);
+    if (j.status === '013') break;
+    if (j.status !== '000') throw new Error(`DART 오류 ${j.status}: ${j.message || ''}`);
+    for (const x of j.list || []) out.push({ report_nm: x.report_nm, rcept_dt: x.rcept_dt });
+    if (page >= (num(j.total_page) || 1)) break;
+    await sleep(250);
+  }
+  return out;
+}
 async function fetchFilings(corpCode, fromYear, key, fetchFn, today) {
   const out = [];
   for (let page = 1; page <= 10; page++) {
@@ -406,7 +435,7 @@ async function run(opt = {}) {
   };
 
   let corpMap = {};
-  if (keys.dart && (want('dart') || want('fin')) && wl.stocks.length) {
+  if (keys.dart && (want('dart') || want('fin') || want('events')) && wl.stocks.length) {
     try { corpMap = await loadCorpMap(dir, wl.stocks.map((s) => s.code), keys.dart, fetchFn); }
     catch (e) { for (const s of wl.stocks) status.stocks[s.code] = { dart: { ok: false, error: mask(e.message) }, fin: { ok: false, error: mask(e.message) } }; failures++; log('DART 고유번호 오류: ' + mask(e.message)); }
   }
@@ -504,6 +533,16 @@ async function run(opt = {}) {
       if (writeJSON(finFile, { v: 2, updatedAt: new Date().toISOString(), periods, quarters })) changed++;
       return { count: periods.length, quarters: quarters.length, last: quarters.length ? quarters[quarters.length - 1].ym : null, msg: `(${periods.length}개 기간, 분기 ${quarters.length}개${quarters.length ? ', 마지막 ' + quarters[quarters.length - 1].ym : ''})` };
     });
+    // 이슈(유상증자·무상증자·감자 등, 6일에 한 번)
+    const evFile = path.join(dir, 'events', `${s.code}.json`), evOld = readJSON(evFile, null);
+    const evFresh = evOld && evOld.updatedAt && Date.now() - Date.parse(evOld.updatedAt) < 6 * 86400000 && !env.FORCE_FIN;
+    await step(s.code, 'events', !!keys.dart && !evFresh, evFresh ? '최근에 수집함(6일에 한 번)' : 'DART 키(DART_API_KEY) 없음', async () => {
+      if (!corpMap[s.code]) throw new Error('DART에서 이 종목의 고유번호를 찾지 못했습니다');
+      const y = today.getUTCFullYear(), evYears = Math.max(3, Math.min(10, env.COLLECT_FIN_YEARS ? clampYears(env.COLLECT_FIN_YEARS) : years));
+      const items = buildEvents(await fetchEventList(corpMap[s.code], y - evYears, keys.dart, fetchFn, today));
+      if (writeJSON(evFile, { v: 1, updatedAt: new Date().toISOString(), items })) changed++;
+      return { count: items.length, msg: `(${items.length}건)` };
+    });
   }
   writeJSON(path.join(dir, 'status.json'), status);
   const summary = `수집 완료: 종목 ${wl.stocks.length}개, 변경된 파일 ${changed}개, 실패 ${failures}건`;
@@ -514,4 +553,4 @@ async function run(opt = {}) {
 if (require.main === module) {
   run().then((r) => { if (r.attempts > 0 && r.failures === r.attempts) process.exitCode = 2; }).catch((e) => { console.error('수집 중 예기치 않은 오류:', e.message); process.exitCode = 1; });
 }
-module.exports = { buildQuarters, filingDates, parseFilingName, parseFinancials, run, isYmd, fetchNaverPrices, clampYears, fetchFlow, mergeFlowRows, parseFlowCsv, fetchPrices, mergePrices, parseCsvRows, fetchNews, cleanText, unzipFirst, parseCorpXml, fetchDisclosures, fetchFinancials, parseFinancials, readWatchlist, encKey, makeMask, mergeList, apiErrorFromText };
+module.exports = { classifyEvent, buildEvents, fetchEventList, buildQuarters, filingDates, parseFilingName, parseFinancials, run, isYmd, fetchNaverPrices, clampYears, fetchFlow, mergeFlowRows, parseFlowCsv, fetchPrices, mergePrices, parseCsvRows, fetchNews, cleanText, unzipFirst, parseCorpXml, fetchDisclosures, fetchFinancials, parseFinancials, readWatchlist, encKey, makeMask, mergeList, apiErrorFromText };

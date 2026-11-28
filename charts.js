@@ -54,7 +54,7 @@
   }
 
   /* 선 차트 (자산 곡선) */
-  function drawLine(canvas, xs, ys, h = 160) {
+  function drawLine(canvas, xs, ys, h = 160, opt = {}) {
     const T = theme();
     const { ctx, w } = setup(canvas, h);
     const L = 56, R = 8, Tp = 8, B = 22;
@@ -74,7 +74,15 @@
     ctx.stroke();
     ctx.fillStyle = T.text; ctx.textAlign = 'left'; ctx.fillText(xs[0], L, h - 6);
     ctx.textAlign = 'right'; ctx.fillText(xs[xs.length - 1], w - R, h - 6);
+    if (opt.mark != null && opt.mark >= 0 && opt.mark < ys.length) { // 고른 위치: 세로선 + 점 + 날짜
+      const mx = x(opt.mark), my = y(ys[opt.mark]);
+      ctx.strokeStyle = T.accent; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(mx, Tp); ctx.lineTo(mx, h - B); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = T.accent; ctx.beginPath(); ctx.arc(mx, my, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = T.text; ctx.textAlign = mx > w / 2 ? 'right' : 'left'; ctx.fillText(`${xs[opt.mark]} · ${fmt(ys[opt.mark])}`, mx > w / 2 ? mx - 6 : mx + 6, Tp + 10);
+    }
   }
+  // 캔버스의 x 좌표(가로 위치)가 몇 번째 점인지(drawLine과 같은 여백 기준)
+  function lineIndexAt(canvas, clientX, count) { const r = canvas.getBoundingClientRect(), L = 56, R = 8, w = r.width; return Math.max(0, Math.min(count - 1, Math.round(((clientX - r.left - L) / Math.max(1, w - L - R)) * Math.max(1, count - 1)))); }
 
   /* 캔들 차트 + 오버레이 + 매수/매도 마커 */
   function drawCandles(canvas, data, opt) {
@@ -195,5 +203,5 @@
     ctx.fillText(`벽돌 ${bricks.length}개 · 크기 ${fmt(renko.size)}` + (first ? ' (최근만 표시)' : ''), L + 4, h - 4);
   }
 
-  Object.assign(SM, { drawBars, drawLine, drawCandles, drawRenko });
+  Object.assign(SM, { drawBars, lineIndexAt, drawLine, drawCandles, drawRenko });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

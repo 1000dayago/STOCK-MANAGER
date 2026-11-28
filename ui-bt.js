@@ -525,9 +525,9 @@
       const last = x.buys[x.buys.length - 1];
       const end = x.open ? `<tr class="muted"><td colspan="8">진행 중 · ${md(x.endDate)} 종가 ${fmtNum(x.lastPrice, 2)} · 평가손익 ${fmtMoney(x.realized + x.unrealized, cur)} (${pc(x.ret)})</td></tr>`
         : `<tr class="cycsell"><td>${x.no}✓ 매도</td><td>${md(x.endDate)}</td><td>${fmtNum(x.sellPrice, 2)} × ${fmtNum(x.sellQty, 0)}</td><td></td><td></td><td>평단 ${fmtNum(last.avg, 2)}</td><td class="c-target">${tp != null ? '+' + tp + '%' : ''}</td><td class="${cls(x.realized)}"><b>${fmtMoney(x.realized, cur)}</b> (${pc(x.ret)})</td></tr>`;
-      return `<tr class="cycdet" data-cd="${x.no}${x.open ? 'o' : ''}" hidden><td colspan="4"><p class="cycsum">최저 평가손익 ${fmtMoney(x.worst, cur)} · 최대 투입금 ${fmtMoney(x.peakInv, cur)} (수수료 포함)</p><div class="tablewrap"><table class="mini cycmini"><thead><tr><th>매수</th><th>날짜</th><th>가격 × 수량</th><th>누적</th><th>누적 투입금</th><th>평단</th><th class="c-target">목표가</th><th class="c-pnl">이 순번 매도·손익</th></tr></thead><tbody>${rows}${end}</tbody></table></div></td></tr>`;
+      return `<tr class="cycdet" data-cd="${x.no}${x.open ? 'o' : ''}" hidden><td colspan="4"><p class="cycsum"><button type="button" class="btn sm" data-act="btCycChart" data-from="${x.startDate}" data-to="${x.endDate}">차트에서 보기</button> 최저 평가손익 ${fmtMoney(x.worst, cur)} · 최대 투입금 ${fmtMoney(x.peakInv, cur)} (수수료 포함)</p><div class="tablewrap"><table class="mini cycmini"><thead><tr><th>매수</th><th>날짜</th><th>가격 × 수량</th><th>누적</th><th>누적 투입금</th><th>평단</th><th class="c-target">목표가</th><th class="c-pnl">이 순번 매도·손익</th></tr></thead><tbody>${rows}${end}</tbody></table></div></td></tr>`;
     };
-    const row = (x, k) => `<tr class="cycrow ${x.open ? 'muted' : ''}" data-act="btCycToggle" data-cd="${x.no}${x.open ? 'o' : ''}" tabindex="0" role="button" aria-expanded="false" title="눌러서 매수별 내역 보기"><td data-label="사이클"><span class="v"><i class="cycar">▸</i> ${x.no}${x.open ? ' (진행 중)' : ''}<small class="muted">${md(x.startDate)}~${x.open ? '…' : md(x.endDate)} · ${d(x.days)}</small></span></td><td data-label="매수"><span class="v">${x.lots}회 · ${fmtNum(x.qty, 0)}주</span></td><td data-label="투입금"><span class="v">${fmtMoney(x.peakInv, cur)}</span></td><td data-label="손익"><span class="v ${cls(x.open ? x.realized + x.unrealized : x.realized)}">${fmtMoney(x.open ? x.realized + x.unrealized : x.realized, cur)} <small>(${pc(x.ret)})</small></span></td></tr>${detail(x)}`;
+    const row = (x, k) => `<tr class="cycrow ${x.open ? 'muted' : ''}" data-act="btCycToggle" data-cd="${x.no}${x.open ? 'o' : ''}" data-from="${x.startDate}" data-to="${x.endDate}" tabindex="0" role="button" aria-expanded="false" title="눌러서 매수별 내역 보기"><td data-label="사이클"><span class="v"><i class="cycar">▸</i> ${x.no}${x.open ? ' (진행 중)' : ''}<small class="muted">${md(x.startDate)}~${x.open ? '…' : md(x.endDate)} · ${d(x.days)}</small></span></td><td data-label="매수"><span class="v">${x.lots}회 · ${fmtNum(x.qty, 0)}주</span></td><td data-label="투입금"><span class="v">${fmtMoney(x.peakInv, cur)}</span></td><td data-label="손익"><span class="v ${cls(x.open ? x.realized + x.unrealized : x.realized)}">${fmtMoney(x.open ? x.realized + x.unrealized : x.realized, cur)} <small>(${pc(x.ret)})</small></span></td></tr>${detail(x)}`;
     return `<h4>사이클 분석 <small class="muted">(첫 매수 → 보유 순번 전부 매도)</small></h4>${summary}${prog}
       <div class="cycopt"><span class="muted">펼쳤을 때 추가로 보기</span><button type="button" class="chip ${opt.target ? 'on' : ''}" data-act="btCycOpt" data-k="target">목표가</button><button type="button" class="chip ${opt.pnl ? 'on' : ''}" data-act="btCycOpt" data-k="pnl">순번별 매도·손익</button></div>
       <div class="cycwrap ${opt.target ? 'show-target' : ''} ${opt.pnl ? 'show-pnl' : ''}"><div class="tablewrap"><table class="cyc cmp"><thead><tr><th>사이클</th><th>매수</th><th>투입금</th><th>손익</th></tr></thead><tbody>${r.cycles.map((x, k) => row(x, k + 1)).join('')}${oc ? row(oc, 0) : ''}</tbody></table></div></div>
@@ -550,7 +550,16 @@
     const canvas = document.getElementById('btCandle');
     if (canvas) SM.drawCandles(canvas, data, { from: r.startIdx, to: r.endIdx, lines: SM.overlayLines(data, cfg), buys: r.buys, sells: r.sells, volLine: vc ? num(vc.n) : 0, tip: document.getElementById('candleTip'), height: 360 });
     const eq = document.getElementById('btEquity');
-    if (eq) SM.drawLine(eq, r.equity.map((e) => e.d), r.equity.map((e) => e.v));
+    if (eq) {
+      const xs = r.equity.map((e) => e.d), ys = r.equity.map((e) => e.v), draw = (mark) => SM.drawLine(eq, xs, ys, 160, { mark });
+      draw(null);
+      let down = false; // 누적 손익 곡선을 누르거나 끌면 그 날짜로 차트가 이동(십자선 표시)
+      const at = (e) => { const i = SM.lineIndexAt(eq, e.clientX, xs.length); draw(i); if (A.chartFocus) A.chartFocus(xs[i], null); };
+      eq.style.cursor = 'pointer';
+      eq.addEventListener('pointerdown', (e) => { down = true; try { eq.setPointerCapture(e.pointerId); } catch (x) { /* 무시 */ } at(e); });
+      eq.addEventListener('pointermove', (e) => { if (down) at(e); });
+      const end = () => { down = false; }; eq.addEventListener('pointerup', end); eq.addEventListener('pointercancel', end);
+    }
     const rk = document.getElementById('btRenko');
     if (rk && r.renko) SM.drawRenko(rk, r.renko);
   };
@@ -727,9 +736,12 @@
       list.splice(i, 1); bt.strategyId = ''; A.save(); A.render();
     },
     btStratNew: () => { const keep = { from: bt.cfg.from, to: bt.cfg.to, market: bt.cfg.market }; bt.cfg = Object.assign(SM.blankCfg(), keep); bt.strategyId = ''; bt.result = null; bt.val = null; A.render(); },
+    btCycChart: (el) => { if (A.chartFocus) A.chartFocus(el.dataset.from, el.dataset.to, { scroll: true }); },
     btCycOpt: (el) => { const o = bt.cycOpt || (bt.cycOpt = { target: false, pnl: false }), k = el.dataset.k; o[k] = !o[k]; el.classList.toggle('on', o[k]); const w = el.closest('section, .card') && el.closest('section, .card').querySelector('.cycwrap'); if (w) w.classList.toggle('show-' + k, o[k]); },
     btCycToggle: (el) => {
-      const row = el.closest('tr'); if (!row) return; const det = row.parentNode.querySelector(`tr.cycdet[data-cd="${row.dataset.cd}"]`); if (!det) return;
+      const row = el.closest('tr'); if (!row) return;
+      if (row.dataset.from && A.chartFocus) A.chartFocus(row.dataset.from, row.dataset.to); // 눌러서 펼칠 때 차트도 그 사이클 구간으로 이동
+      const det = row.parentNode.querySelector(`tr.cycdet[data-cd="${row.dataset.cd}"]`); if (!det) return;
       const open = det.hidden; det.hidden = !open; row.setAttribute('aria-expanded', String(open)); const ar = row.querySelector('.cycar'); if (ar) ar.textContent = open ? '▾' : '▸';
     },
     btMode2: (el) => { const to = el.dataset.v === 'custom' ? 'custom' : 'mg'; if (to === 'custom' && bt.mode !== 'custom') applyMgTo(bt.cfg); bt.mode = to; bt.result = null; bt.val = null; A.render(); }, // 직접 조건으로 넘어갈 때 지금 물타기 설정이 조건으로 채워짐

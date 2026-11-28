@@ -6,7 +6,7 @@
   const ic = SM.ic;
   const ui = A.ui;
   const KEY = 'stockmgr.chartcfg';
-  const DEF = { tf: 'D', months: 6, ma: [5, 20, 60, 120], bbOn: true, bbN: 20, bbK: 2, flow: true, vol: true, earnView: 'line', earnStep: false, chg: true, chgScale: 'zero' }; // chg: 증감 패널 · chgScale: 'zero'(0 맞춘 분리) | 'same'(같은 눈금) // earnView: 'line'(선그래프) | 'table'(표) | 'off'
+  const DEF = { tf: 'D', months: 6, ma: [5, 20, 60, 120], bbOn: true, bbN: 20, bbK: 2, flow: true, vol: true, earnView: 'line', earnStep: false, chg: true, chgScale: 'zero', events: true }; // chg: 증감 패널 · chgScale: 'zero'(0 맞춘 분리) | 'same'(같은 눈금) // earnView: 'line'(선그래프) | 'table'(표) | 'off'
   const MONTHS = [[3, '3개월'], [6, '6개월'], [12, '1년'], [36, '3년'], [0, '전체']];
 
   // 보기 설정은 이 기기에만 기억합니다(편의 기능)
@@ -16,7 +16,7 @@
       if (o && o.earn === false && !o.earnView) p.earnView = 'off'; // 예전 설정(영업이익 패널 끔) 이어받기
       if (!['line', 'table', 'off'].includes(p.earnView)) p.earnView = 'line';
       if (!['zero', 'same'].includes(p.chgScale)) p.chgScale = 'zero';
-      p.chg = p.chg !== false;
+      p.chg = p.chg !== false; p.events = p.events !== false;
       return p;
     } catch (e) { return Object.assign({}, DEF); }
   }
@@ -51,16 +51,16 @@
           <label class="chk"><input type="checkbox" data-chartopt="bbOn" ${prefs.bbOn ? 'checked' : ''}> 볼린저밴드</label>
           <div class="grid2"><label>볼린저 기간<input class="inp" data-chartopt="bbN" value="${prefs.bbN}" inputmode="numeric"></label><label>볼린저 배수<input class="inp" data-chartopt="bbK" value="${prefs.bbK}" inputmode="decimal"></label></div>
           <label>이동평균 기간 <small class="muted">(쉼표로 구분, 최대 6개)</small><input class="inp" data-chartopt="ma" value="${esc(prefs.ma.join(', '))}" inputmode="numeric" placeholder="예: 5, 20, 60, 120, 200"></label>
-          <div class="row gap wrap"><label class="chk"><input type="checkbox" data-chartopt="flow" ${prefs.flow ? 'checked' : ''}> 외국인·기관·개인 수급</label><label class="chk"><input type="checkbox" data-chartopt="vol" ${prefs.vol ? 'checked' : ''}> 거래량</label><label class="chk"><input type="checkbox" data-chartopt="earnStep" ${prefs.earnStep ? 'checked' : ''}> 영업이익 선을 계단형으로(다음 공시 전까지 직전 값 유지)</label></div>
+          <div class="row gap wrap"><label class="chk"><input type="checkbox" data-chartopt="flow" ${prefs.flow ? 'checked' : ''}> 외국인·기관·개인 수급</label><label class="chk"><input type="checkbox" data-chartopt="vol" ${prefs.vol ? 'checked' : ''}> 거래량</label><label class="chk"><input type="checkbox" data-chartopt="events" ${prefs.events ? 'checked' : ''}> 이슈 표시(증자·감자 등)</label><label class="chk"><input type="checkbox" data-chartopt="earnStep" ${prefs.earnStep ? 'checked' : ''}> 영업이익 선을 계단형으로(다음 공시 전까지 직전 값 유지)</label></div>
           <p class="hint">설정은 이 기기에만 저장됩니다. 주·월봉에서는 이동평균·볼린저가 주·월 단위로 계산됩니다.</p>
         </div></details>
-      <p class="hint chartguide">좌우로 <b>드래그</b>하면 이동, <b>두 손가락 벌리기</b>(PC는 마우스 휠)로 확대·축소, <b>탭</b>(PC는 마우스 올리기)하면 그 날의 시세와 수급이 위에 표시됩니다. 수급 누적선은 화면에 보이는 구간의 첫 날부터 합산합니다. 영업이익 선은 <b>공시일</b> 위치의 점을 잇습니다. 맨 아래 <b>증감</b> 패널은 전년 동기 대비 영업이익·부채 증감액을 모든 분기에서 이어 보여 주며, “0 맞춘 분리”는 두 선의 0 높이를 같게 하고 각자의 눈금(영업이익 왼쪽·부채 오른쪽)을 쓰며 “같은 눈금”은 실제 크기를 그대로 비교합니다(빨강 흑자·파랑 적자, 공시일을 모르면 속이 빈 점으로 분기 말 + 45일 추정). <b>*</b>는 연간 실적에서 앞 3분기를 뺀 4분기 값이고, 차트 아래 “표”로 바꿔 분기별 숫자를 볼 수 있습니다.</p>
+      <p class="hint chartguide">좌우로 <b>드래그</b>하면 이동, <b>두 손가락 벌리기</b>(PC는 마우스 휠)로 확대·축소, <b>탭</b>(PC는 마우스 올리기)하면 그 날의 시세와 수급이 위에 표시됩니다. 수급 누적선은 화면에 보이는 구간의 첫 날부터 합산합니다. 맨 위 파란 손잡이(◂▸)나 선 근처를 잡고 좌우로 끌면 날짜선이 움직입니다. 캔들 아래 글자 상자는 이슈(유 유상증자·무 무상증자·감 감자·분 분할/병합·합 합병/분할)입니다. 영업이익 선은 <b>공시일</b> 위치의 점을 잇습니다. 맨 아래 <b>증감</b> 패널은 전년 동기 대비 영업이익·부채 증감액을 모든 분기에서 이어 보여 주며, “0 맞춘 분리”는 두 선의 0 높이를 같게 하고 각자의 눈금(영업이익 왼쪽·부채 오른쪽)을 쓰며 “같은 눈금”은 실제 크기를 그대로 비교합니다(빨강 흑자·파랑 적자, 공시일을 모르면 속이 빈 점으로 분기 말 + 45일 추정). <b>*</b>는 연간 실적에서 앞 3분기를 뺀 4분기 값이고, 차트 아래 “표”로 바꿔 분기별 숫자를 볼 수 있습니다.</p>
     </div></details>`;
   };
 
   function stockOf() { return A.curStock && A.curStock(); }
   let btCtx = null; // 시뮬레이션 결과 화면에서 쓸 때: { ds:{name,data}, code, cycles, target }
-  function btOpts(c) { return { ma: prefs.ma, bb: { on: prefs.bbOn, n: Math.max(2, Math.min(200, Math.round(+prefs.bbN) || 20)), k: Math.max(0.5, Math.min(5, +prefs.bbK || 2)) }, flow: prefs.flow, vol: prefs.vol, earn: prefs.earnView === 'line', chg: prefs.chg, chgScale: prefs.chgScale, earnStep: !!prefs.earnStep, avg: null, lots: [], cycles: c.cycles || [], cycleTarget: c.target || 0 }; }
+  function btOpts(c) { return { ma: prefs.ma, bb: { on: prefs.bbOn, n: Math.max(2, Math.min(200, Math.round(+prefs.bbN) || 20)), k: Math.max(0.5, Math.min(5, +prefs.bbK || 2)) }, flow: prefs.flow, vol: prefs.vol, earn: prefs.earnView === 'line', chg: prefs.chg, chgScale: prefs.chgScale, earnStep: !!prefs.earnStep, showEvents: prefs.events, avg: null, lots: [], cycles: c.cycles || [], cycleTarget: c.target || 0 }; }
   function curOpts() { if (btCtx) return btOpts(btCtx); const st = stockOf(); return st ? optsFor(st) : null; }
   function optsFor(st) {
     const sm = SM.stockSummary(st, A.getState().settings);
@@ -68,7 +68,7 @@
     const lots = st.lots.filter((l) => SM.lotRem(st, l) > 0).map((l) => ({ date: l.date, no: l.no }));
     // 매도 기록: 날짜별로 합쳐 S 원으로 표시(손익률 = 손익 ÷ 원가, 현지 통화 기준)
     const sells = (st.sales || []).map((x) => ({ date: x.date, price: x.price, qty: x.qty, pnl: x.pnlLocal, cost: (x.lines || []).reduce((a, l) => a + (l.costLocal || 0), 0), lots: (x.lines || []).map((l) => l.lotNo) })).filter((x) => x.date);
-    return { sells, ma: prefs.ma, bb: { on: prefs.bbOn, n: Math.max(2, Math.min(200, Math.round(+prefs.bbN) || 20)), k: Math.max(0.5, Math.min(5, +prefs.bbK || 2)) }, flow: prefs.flow, vol: prefs.vol, earn: prefs.earnView === 'line', chg: prefs.chg, chgScale: prefs.chgScale, earnStep: !!prefs.earnStep, avg: sm && sm.qty > 0 && avg ? avg : null, lots };
+    return { showEvents: prefs.events, sells, ma: prefs.ma, bb: { on: prefs.bbOn, n: Math.max(2, Math.min(200, Math.round(+prefs.bbN) || 20)), k: Math.max(0.5, Math.min(5, +prefs.bbK || 2)) }, flow: prefs.flow, vol: prefs.vol, earn: prefs.earnView === 'line', chg: prefs.chg, chgScale: prefs.chgScale, earnStep: !!prefs.earnStep, avg: sm && sm.qty > 0 && avg ? avg : null, lots };
   }
 
   // 분기 실적 표(최근 분기부터): 매출·영업이익·전년 동기 대비·영업이익률·순이익(억원)
@@ -109,6 +109,13 @@
     if (c && c.loaded && c.status && !(info && info.fin && info.fin.ok)) return null; // 재무 수집이 안 된 종목은 요청하지 않음(404 방지)
     try { const d = await SM.data.fin(code); return d && Array.isArray(d.quarters) && d.quarters.length ? d.quarters : null; } catch (e) { return null; }
   }
+  // 이슈(유상증자·무상증자·감자·분할/병합·합병/분할·CB): 수집된 DART 주요사항보고 + 가격에서 감지한 액면분할(보정) 내역
+  async function loadEvents(st, ds) {
+    const out = [], code = String(st.code || '').trim();
+    if (st.market === 'KR' && /^[0-9A-Z]{6}$/.test(code)) { try { const d = await SM.data.events(code); if (d && Array.isArray(d.items)) for (const x of d.items) if (x && x.date && x.kind) out.push({ date: x.date, kind: String(x.kind), label: x.label || x.kind, title: x.title || '' }); } catch (e) { /* 없음 */ } }
+    for (const sp of (ds && ds.data && ds.data.splits) || []) out.push({ date: sp.date, kind: '분', label: sp.factor >= 1 ? `액면분할 ${sp.factor}:1` : `액면병합 1:${Math.round(1 / sp.factor)}`, title: '가격 흐름에서 감지(이전 가격·거래량 보정)' });
+    return out;
+  }
   // 종목 화면이 그려진 뒤 호출: 차트 영역이 있으면 데이터를 읽어 그립니다
   A.mountChart = async (bt) => {
     const host = document.getElementById('chartHost'), card = document.getElementById('chartCard');
@@ -137,6 +144,7 @@
     if (my !== loadSeq || !chart) return;
     curQuarters = quarters || null;
     chart.setEarnings(curQuarters || []);
+    try { const ev = await loadEvents(st, ds); if (my === loadSeq && chart) chart.setEvents(ev); } catch (e) { /* 이슈 없이 표시 */ }
     renderEarnUi();
     const info = chart.state.bars, unit = ds.data.flowUnit === 'krw' ? '금액(원) 단위' : '수량(주) 단위';
     const hasFlow = ['frgn', 'inst', 'indiv'].some((k) => ds.data[k]);
@@ -170,7 +178,7 @@
   document.addEventListener('change', (e) => {
     const el = e.target, k = el && el.dataset && el.dataset.chartopt;
     if (!k) return;
-    if (k === 'bbOn' || k === 'flow' || k === 'vol' || k === 'earnStep') prefs[k] = el.checked;
+    if (k === 'bbOn' || k === 'flow' || k === 'vol' || k === 'earnStep' || k === 'events') prefs[k] = el.checked;
     else if (k === 'ma') { const v = parseMa(el.value); prefs.ma = v.length ? v : DEF.ma; el.value = prefs.ma.join(', '); }
     else if (k === 'bbN') { prefs.bbN = Math.max(2, Math.min(200, Math.round(+el.value) || DEF.bbN)); el.value = prefs.bbN; }
     else if (k === 'bbK') { prefs.bbK = Math.max(0.5, Math.min(5, +el.value || DEF.bbK)); el.value = prefs.bbK; }
@@ -178,6 +186,8 @@
     const o = curOpts();
     if (chart && o) chart.setConfig(o);
   });
+  // 시뮬레이션 결과 등에서 차트를 특정 날짜(구간)로 옮김. scroll이면 차트가 화면에 보이게 스크롤
+  A.chartFocus = (from, to, opt) => { if (!chart) return false; const ok = chart.focusRange(from, to, opt); if (ok && opt && opt.scroll) { const c = document.getElementById('chartCard'); if (c && c.scrollIntoView) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return ok; };
   A.chartReveal = (date) => { if (chart) chart.setReveal(date); }; // 시뮬레이션 재생: date까지만 표시(null이면 전체)
   A.chartSetTf = (tf) => { if (!chart) return; prefs.tf = tf; savePrefs(); chart.setTf(tf); };
   A._chart = () => chart; // 테스트용
