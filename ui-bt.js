@@ -14,8 +14,7 @@
     catch (e) { toast('가격 데이터를 저장할 공간이 부족합니다. 안 쓰는 데이터를 삭제하세요.', true); return false; }
   }
   const newImp = () => ({ stockId: '', autoNote: '', text: '', headerLine: '', an: null, fileNames: [], dest: 'new', destId: '', name: '', market: 'KR', useAdj: true, unit: '' });
-  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mode: 'mg', exFrom: 'mg', picker: null, pickGroup: '', all: null, allBusy: false, wrap: null, condOpen: '', modeCfg: { mg: null, custom: null }, stockId: '', imp: newImp() });
-  bt.modeCfg.mg = bt.cfg = presetCfg(); bt.modeCfg.custom = SM.blankCfg(); // 물타기 전략은 기본 문장이 채워진 상태, 직접 조건 만들기는 비어 있는 상태로 시작
+  const bt = (A.ui.bt = { datasetId: null, cfg: presetCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', picker: null, pickGroup: '', all: null, allBusy: false, wrap: null, condOpen: '', stockId: '', imp: newImp() });
   const MAP_KEY = 'stockmgr.colmaps';
   const loadMaps = () => { try { return JSON.parse(localStorage.getItem(MAP_KEY) || '{}'); } catch (e) { return {}; } };
   function rememberCols(an) { try { const m = loadMaps(); m[an.signature] = an.cols; localStorage.setItem(MAP_KEY, JSON.stringify(m)); } catch (e) { /* ignore */ } }
@@ -349,31 +348,23 @@
       ${f('growth', '수량 배수', '배')}${f('maxLots', '최대 횟수', '회')}${f('maxInvest', '최대 투입금', '원')}${f('cooldown', '청산 후 쉬는 날', '일')}${f('minGap', '매수 간격', '일')}
     </div>${Number(c.growth) > 1 && noLimit ? '<p class="hint warn">배수가 1보다 큰데 최대 횟수·투입금이 모두 0입니다. 하락이 이어지면 투입금이 끝없이 커집니다.</p>' : ''}`;
   }
-  /* ---------- 예시 탭: 시험해 본 전략을 조건 문장 그대로 보여 주고, 불러와서 수정 ---------- */
-  function exSentence(g, side) {
-    const ex = SM.exprOf(side), root = ex, list = []; // 식 안의 조건(문장) + 식 밖의 독립 조건
-    const walk = (node) => node.items.filter((it) => !(g === 'exits' && isLeaf(it) && isDynC(it))).map((it) => (isLeaf(it) ? condSummary(it) : `( ${walk(it)} )`)).join(` <b>${node.op === 'OR' ? '또는' : '그리고'}</b> `);
-    const main = walk(root), indep = root.items.filter((it) => g === 'exits' && isLeaf(it) && isDynC(it)).map((it) => condSummary(it));
-    return `${main}${main && indep.length ? ' <b>그리고 별개로</b> ' : ''}${indep.join(' <b>/</b> ')}`;
+  /* ---------- 기본 제공 전략: 물타기 기본값과 한국전력 탐색 예시 5가지를 ‘저장된 전략’에 한 번만 넣어 둠(지워도 다시 들어오지 않음) ---------- */
+  function seedStrategies() {
+    const stt = A.getState(); if (!stt || !Array.isArray(stt.strategies)) return;
+    if (!Array.isArray(stt.seeded)) stt.seeded = [];
+    const defs = [{ id: 'mg', name: '물타기 기본값', note: '30일선 상승 중일 때 직전 매수가보다 10% 하락하면 2배씩 추가 매수(10 → 20 → 40…, 최대 5회). 평단 +5%에서 전량 매도, −20%면 손절.', cfg: presetCfg() }]
+      .concat(SM.EXAMPLES.map((e) => ({ id: e.id, name: '예시 · ' + e.name, note: e.note + (e.res ? ' ｜ 시험값(최대 투입금 대비): ' + e.res : '') + ' ｜ 과거 시험값이며 앞으로를 보장하지 않습니다.', cfg: e.mk() })));
+    let changed = false;
+    for (const d of defs) {
+      if (stt.seeded.includes(d.id)) continue;
+      stt.seeded.push(d.id); changed = true;
+      if (!stt.strategies.some((x) => x.id === 'seed-' + d.id)) stt.strategies.push({ id: 'seed-' + d.id, name: d.name, note: d.note, cfg: Object.assign(d.cfg, { from: '', to: '' }) });
+    }
+    if (changed) A.save();
   }
-  function exampleCards() {
-    return SM.EXAMPLES.map((ex) => { const c = ex.mk(); return `<section class="card excard" data-ex="${ex.id}">
-      <h4>${esc(ex.name)}</h4><p class="hint">${esc(ex.note)}</p>
-      <div class="exsent buy"><b>매수${(c.rules || []).length ? ` · ${c.qtyMode === 'amount' ? '금액' : esc(c.qty) + '주'}` : ''}</b> ${exSentence('entries', c.entries)}</div>
-      ${(c.rules || []).map((r, k) => `<div class="exsent buy"><b>매수 규칙 ${k + 2} · ${esc(r.qty)}${c.qtyMode === 'amount' ? '원' : '주'}</b> ${exSentence('entries', r)}</div>`).join('')}
-      <div class="exsent sell"><b>매도</b> ${exSentence('exits', c.exits)}</div>
-      <p class="exset">${(c.rules || []).length ? '규칙이 겹치면 큰 수량 하나만' : (c.qtyMode === 'amount' ? '금액' : esc(c.qty) + '주')} · 수량 배수 ${esc(c.growth)}배 · 최대 ${esc(c.maxLots)}회${Number(c.minGap) > 0 ? ' · 매수 간격 ' + esc(c.minGap) + '일' : ''}</p>
-      ${ex.res ? `<p class="exres"><b>시험값</b> (최대 투입금 대비 수익률) ${esc(ex.res)}</p>` : ''}
-      <div class="btns"><button class="btn primary sm" data-act="btExLoad" data-id="${ex.id}">불러와서 수정하기</button><button class="btn sm" data-act="btExRun" data-id="${ex.id}">이 데이터로 바로 실행</button></div></section>`; }).join('');
-  }
-  // 예시를 직접 조건 만들기로 불러옴(문장 그대로, 바로 고칠 수 있음). quiet이면 안내 문구 생략
-  function loadExample(id, quiet) {
-    const ex = SM.EXAMPLES.find((x) => x.id === id); if (!ex) return false;
-    const keep = { from: bt.cfg.from, to: bt.cfg.to, market: bt.cfg.market, fill: bt.cfg.fill }, cur = bt.mode === 'example' ? bt.exFrom : bt.mode;
-    bt.modeCfg[cur] = bt.cfg; bt.cfg = Object.assign(ex.mk(), keep); bt.modeCfg.custom = bt.cfg; bt.mode = 'custom'; bt.strategyId = ''; bt.condOpen = ''; bt.wrap = null; bt.result = null; bt.val = null;
-    A.render(); if (!quiet) toast(`“${ex.name}”을 직접 조건 만들기로 불러왔습니다. 조건을 눌러 수정하세요`); window.scrollTo(0, 0); return true;
-  }
+  const stratNote = (list) => { const x = list.find((q) => q.id === bt.strategyId); return x && x.note ? `<p class="hint stratnote">${esc(x.note)}</p>` : ''; };
   A.renderers.btMain = function () {
+    seedStrategies();
     if (!repo.loaded && !repo.loading) setTimeout(() => A.btRepoInit(), 0);
     const ds = allDS(), keys = Object.keys(ds), cur = curDS(), c = bt.cfg;
     const rangeTxt = cur ? `${cur.data.d[0]} ~ ${cur.data.d[cur.data.d.length - 1]} (${cur.data.d.length}일)` : '';
@@ -387,10 +378,7 @@
       ${imp.an ? impPanel() : ''}
       <div id="dsWarn">${bt.warn.map((w) => `<p class="hint warn">${ic('alert')} ${esc(w)}</p>`).join('')}</div>`;
     const seg = (k, items, v) => `<select data-change="btTop" data-k="${k}" data-seg>${opts(items, v)}</select>`;
-    const custom = bt.mode === 'custom';
     return `<div class="sim">
-    <div class="ios-seg" role="tablist">${`<button class="${bt.mode === 'mg' ? 'on' : ''}" data-act="btMode2" data-v="mg">물타기 전략</button><button class="${custom ? 'on' : ''}" data-act="btMode2" data-v="custom">직접 조건 만들기</button><button class="${bt.mode === 'example' ? 'on' : ''}" data-act="btMode2" data-v="example">예시</button>`}</div>
-    ${bt.mode === 'example' ? `<h3 class="sim-h">예시 전략 <small>시험해 본 조건 · 불러와서 수정</small></h3><p class="hint">불러오면 직접 조건 만들기에서 문장의 조건을 눌러 바로 고칠 수 있습니다. 시험값은 과거 4개 종목 결과라 앞으로를 보장하지 않습니다.</p>${exampleCards()}` : ''}
     <h3 class="sim-h">① 종목과 기간</h3>
     <section class="card">
       ${keys.length ? `<div class="ios-list">
@@ -406,17 +394,16 @@
         ${keys.length ? `<div class="row gap wrap">${cur && cur.repo ? '' : '<button class="btn sm danger" data-act="btDSDel">선택한 데이터 삭제</button>'}${repo.list.length ? `<button class="btn sm" type="button" data-act="btRepoRefresh">${ic('download')}저장소 새로고침</button>` : ''}</div>` : ''}
       </details>
     </section>
-    ${bt.mode !== 'example' ? `
-    <h3 class="sim-h">② 전략 <small>${custom ? '조건을 직접 조합 (비어 있음)' : '물타기 기본값 · 조건은 바꿔 쓰세요'}</small></h3>
+    <h3 class="sim-h">② 전략 <small>저장된 전략을 불러오거나 조건을 직접 조합</small></h3>
     <section class="card">
       <div class="stratsave" aria-label="전략 저장·불러오기">
         <div class="stratbar"><select class="inp" data-change="btStratPick"><option value="">저장된 전략 불러오기…</option>${st.map((x) => `<option value="${x.id}" ${bt.strategyId === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
           <input id="stratName" class="inp" placeholder="전략 이름" value="${esc((st.find((x) => x.id === bt.strategyId) || {}).name || '')}">
           <button class="btn sm primary" data-act="btStratSave">저장</button>${bt.strategyId ? '<button class="btn sm danger" data-act="btStratDel">삭제</button>' : ''}<button class="btn sm" data-act="btStratNew">새로 만들기</button></div>
       </div>
-      ${sgrid(c, !custom)}
+      ${stratNote(st)}
+      ${sgrid(c, false)}
       ${condBox('entries')}${rulesOf().map((_, k) => condBox('r' + (k + 1))).join('')}${rulesHint()}${condBox('exits')}
-      <div class="btns">${custom ? '' : '<button class="btn sm" data-act="btPreset">물타기 기본값으로 되돌리기</button>'}</div>
       <details class="box"><summary>고급 설정 <small class="muted">(체결 방식 · 수수료 · 기간 분할 검증)</small></summary>
         <div class="ios-list">
           <div class="ios-row stack"><span>체결 방식</span><span class="rowr">${seg('fill', [['nextOpen', '다음 날 시가'], ['close', '당일 종가']], c.fill)}</span></div>
@@ -428,7 +415,7 @@
         ${bt.validate ? `<div class="row gap wrap"><label class="mini">앞 구간 비율 %<input class="inp" data-btsplit="1" value="${bt.splitPct}" inputmode="numeric" style="width:90px"></label><span class="hint">전체 기간의 앞 ${bt.splitPct}%를 “설정용”, 나머지를 “검증용”으로 나눠 각각 돌립니다.</span></div>` : '<p class="hint">조건과 숫자를 마음껏 바꾸다 보면 과거에만 딱 맞는 설정이 만들어지기 쉽습니다. 이 옵션을 켜면 설정하지 않은 구간에서의 결과를 함께 보여줍니다.</p>'}</div>
       </details>
     </section>
-    <div class="btns runrow"><button class="btn primary runbtn" data-act="btRun" ${cur ? '' : 'disabled'}>시뮬레이션 실행</button>${st.length ? `<button class="btn" data-act="btCmp" ${cur ? '' : 'disabled'}>저장된 전략 모두 비교 (${st.length}개)</button>` : ''}${Object.keys(ds).length > 1 ? `<button class="btn" data-act="btAll" ${bt.allBusy ? 'disabled' : ''}>${bt.allBusy ? '돌리는 중…' : `모든 데이터에 같은 전략 비교 (${Object.keys(ds).length}개)`}</button>` : ''}</div>` : ''}
+    <div class="btns runrow"><button class="btn primary runbtn" data-act="btRun" ${cur ? '' : 'disabled'}>시뮬레이션 실행</button>${st.length ? `<button class="btn" data-act="btCmp" ${cur ? '' : 'disabled'}>저장된 전략 모두 비교 (${st.length}개)</button>` : ''}${Object.keys(ds).length > 1 ? `<button class="btn" data-act="btAll" ${bt.allBusy ? 'disabled' : ''}>${bt.allBusy ? '돌리는 중…' : `모든 데이터에 같은 전략 비교 (${Object.keys(ds).length}개)`}</button>` : ''}</div>
     ${bt.all ? allHtml() : ''}${bt.cmp ? cmpHtml() : ''}${bt.val ? valHtml() : ''}${bt.result ? resultHtml() : ''}${pickerHtml()}</div>`;
   };
 
@@ -938,9 +925,10 @@
       if (!name) return toast('전략 이름을 입력하세요', true);
       const body = clone(bt.cfg); body.from = ''; body.to = '';
       const list = strategies();
-      const ex = list.find((x) => x.id === bt.strategyId) || list.find((x) => x.name === name);
+      const mine = (x) => x && !String(x.id).startsWith('seed-'); // 기본 제공 전략은 덮어쓰지 않고 새 전략으로 저장
+      const sel = list.find((x) => x.id === bt.strategyId), ex = mine(sel) ? sel : list.find((x) => mine(x) && x.name === name);
       if (ex) { ex.name = name; ex.cfg = body; bt.strategyId = ex.id; }
-      else { const n = { id: SM.uid(), name, cfg: body }; list.push(n); bt.strategyId = n.id; }
+      else { const n = { id: SM.uid(), name: list.some((x) => x.name === name) ? name + ' (내 전략)' : name, cfg: body }; list.push(n); bt.strategyId = n.id; }
       A.save(); A.render(); toast('전략을 저장했습니다');
     },
     btStratDel: () => {
@@ -948,7 +936,7 @@
       if (i < 0 || !confirm(`“${list[i].name}” 전략을 삭제할까요?`)) return;
       list.splice(i, 1); bt.strategyId = ''; A.save(); A.render();
     },
-    btStratNew: () => { const keep = { from: bt.cfg.from, to: bt.cfg.to, market: bt.cfg.market }; bt.cfg = Object.assign(bt.mode === 'mg' ? presetCfg() : SM.blankCfg(), keep); bt.modeCfg[bt.mode] = bt.cfg; bt.strategyId = ''; bt.result = null; bt.val = null; A.render(); },
+    btStratNew: () => { const keep = { from: bt.cfg.from, to: bt.cfg.to, market: bt.cfg.market }; bt.cfg = Object.assign(SM.blankCfg(), keep); bt.strategyId = ''; bt.result = null; bt.val = null; A.render(); },
     btCycChart: (el) => { if (A.chartFocus) A.chartFocus(el.dataset.from, el.dataset.to, { scroll: true }); },
     btCycOpt: (el) => { const o = bt.cycOpt || (bt.cycOpt = { target: false, pnl: false }), k = el.dataset.k; o[k] = !o[k]; el.classList.toggle('on', o[k]); const w = el.closest('section, .card') && el.closest('section, .card').querySelector('.cycwrap'); if (w) w.classList.toggle('show-' + k, o[k]); },
     btCycToggle: (el) => {
@@ -957,18 +945,6 @@
       const det = row.parentNode.querySelector(`tr.cycdet[data-cd="${row.dataset.cd}"]`); if (!det) return;
       const open = det.hidden; det.hidden = !open; row.setAttribute('aria-expanded', String(open)); const ar = row.querySelector('.cycar'); if (ar) ar.textContent = open ? '▾' : '▸';
     },
-    btMode2: (el) => { // 물타기 전략 ↔ 직접 조건 만들기 ↔ 예시: 물타기·직접은 각자 설정을 따로 기억(기간·시장·체결 방식은 공유). 예시 탭은 보기만(설정을 바꾸지 않음)
-      const to = el.dataset.v === 'custom' ? 'custom' : el.dataset.v === 'example' ? 'example' : 'mg'; if (to === bt.mode) return;
-      const cur = bt.mode === 'example' ? bt.exFrom : bt.mode;
-      if (to === 'example') { bt.modeCfg[cur] = bt.cfg; bt.exFrom = cur; bt.mode = 'example'; bt.condOpen = ''; bt.wrap = null; A.render(); return; }
-      if (to === cur) { bt.mode = to; A.render(); return; } // 예시에서 원래 탭으로 돌아옴
-      bt.modeCfg[cur] = bt.cfg; const next = bt.modeCfg[to] || (to === 'mg' ? presetCfg() : SM.blankCfg());
-      for (const k of ['from', 'to', 'market', 'fill']) next[k] = bt.cfg[k];
-      bt.modeCfg[to] = next; bt.cfg = next; bt.mode = to; bt.condOpen = ''; bt.wrap = null; bt.result = null; bt.val = null; A.render();
-    },
-    btExLoad: (el) => loadExample(el.dataset.id),
-    btExRun: (el) => { if (loadExample(el.dataset.id, true) && A.handlers.btRun) A.handlers.btRun(); },
-    btPreset: () => { const keep = { from: bt.cfg.from, to: bt.cfg.to, market: bt.cfg.market, fill: bt.cfg.fill }; bt.cfg = Object.assign(presetCfg(), keep); bt.modeCfg.mg = bt.cfg; bt.strategyId = ''; bt.condOpen = ''; bt.wrap = null; bt.result = null; bt.val = null; A.render(); },
     btRange: (el) => {
       const ds = curDS(); if (!ds) return; const d = ds.data.d, last = d[d.length - 1], m = +el.dataset.v;
       bt.cfg.from = m ? (addMonthsStr(last, -m) < d[0] ? d[0] : addMonthsStr(last, -m)) : ''; bt.cfg.to = ''; bt.result = null; bt.val = null; A.render();
@@ -1045,7 +1021,7 @@
       const s = strategies().find((x) => x.id === el.value);
       if (!s) { bt.strategyId = ''; return A.render(); }
       const keep = { from: bt.cfg.from, to: bt.cfg.to };
-      bt.modeCfg[bt.mode] = bt.cfg; bt.cfg = Object.assign(clone(s.cfg), keep); bt.mode = 'custom'; bt.modeCfg.custom = bt.cfg; bt.strategyId = s.id; bt.result = null; bt.val = null;
+      bt.cfg = Object.assign(clone(s.cfg), keep); bt.condOpen = ''; bt.wrap = null; bt.strategyId = s.id; bt.result = null; bt.val = null;
       A.render(); toast(`“${s.name}” 전략을 불러왔습니다`);
     },
   });

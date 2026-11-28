@@ -107,30 +107,31 @@ function fixtures() {
       ok('물타기 전략 기본 문장: 30일선 상승 AND 하락 시 추가 매수 / 매도: 평단 +5%·−20%(별개로) · 최대 5회', await page.evaluate(() => { const c = SM.app.ui.bt.cfg, e = SM.exprLeaves(SM.exprOf(c.entries)).map((x) => x.type), x = SM.exprLeaves(SM.exprOf(c.exits)).map((y) => y.type + ':' + y.dir + ':' + y.pct); return e.join() === 'maSlope,dropLast' && x.join() === 'avgPct:up:5,avgPct:down:20' && String(c.maxLots) === '5' && Number(c.growth) === 2 && Number(c.qty) === 10; }));
       ok('수량·한도 입력칸이 촘촘한 격자(한 줄에 여러 칸)', await page.evaluate(() => { const ins = [...document.querySelectorAll('.sgrid input')], tops = ins.map((i) => Math.round(i.getBoundingClientRect().top)); void tops; const cells = [...document.querySelectorAll('.sgrid .sg')].map((e) => Math.round(e.getBoundingClientRect().top)); return ins.length >= 6 && cells.length >= 6 && new Set(cells).size <= 2; }));
       if (process.env.SIM_SHOT1) await page.screenshot({ path: process.env.SIM_SHOT1, fullPage: true });
-      { // 예시 탭: 시험해 본 전략을 조건 문장 그대로 보여 주고, 불러와서 수정
-        await page.click('[data-act=btMode2][data-v=example]'); await page.waitForSelector('.excard');
-        const cards = await page.$$eval('.excard', (e) => e.map((x) => x.textContent.replace(/\s+/g, ' ')));
-        ok('예시 탭: 새 한국전력 전략 5가지가 카드로 나오고 규칙별 수량·조건 문장·시험값이 보임', cards.length === 5 && /5일 급락 \+ 양봉/.test(cards[0]) && /매수 · 10주/.test(cards[0]) && /매수 규칙 2 · 20주/.test(cards[0]) && /평단 대비 \+5% 도달/.test(cards[0]) && /한국전력 앞 \+27\.0%/.test(cards[0]) && /고정 10주/.test(cards[0]) && /매수 규칙 2 · 30주/.test(cards[1]) && /볼린저/.test(cards[2]) && !cards.some((c) => /물타기 기본값|저점 매수 · 목표 매도/.test(c)), cards.map((c) => c.slice(0, 60)));
+      { // 기본 제공 전략: 탭 없이 하나의 전략 화면, 물타기 기본값·예시 5가지는 ‘저장된 전략’으로 들어 있음
+        ok('탭(물타기 전략·직접 조건 만들기·예시)이 없고 처음 화면은 물타기 기본값이 채워진 전략 화면', (await page.$('.ios-seg')) === null && (await page.$('[data-act=btMode2]')) === null && (await page.$('.excard')) === null && (await page.$('.cndbox.buy')) !== null && Number(await page.evaluate(() => SM.app.ui.bt.cfg.growth)) === 2);
+        const names = await page.$$eval('[data-change=btStratPick] option', (e) => e.map((x) => x.textContent.trim()));
+        ok('불러오기 목록에 물타기 기본값과 예시 5가지가 들어 있음', names.includes('물타기 기본값') && names.filter((x) => /^예시 · /.test(x)).length === 5 && names.some((x) => /5일 급락 \+ 양봉/.test(x)), names);
         if (process.env.EXT_SHOT) await page.screenshot({ path: process.env.EXT_SHOT, fullPage: false });
-        ok('예시 탭에서는 전략 입력·실행 줄이 숨겨짐', (await page.$('.cndbox')) === null && (await page.$('[data-act=btRun]')) === null);
-        await page.click('[data-act=btExLoad][data-id=k-rsi]'); await page.waitForSelector('#cnd-r1');
-        const ex = await page.evaluate(() => { const c = SM.app.ui.bt.cfg; return { mode: SM.app.ui.bt.mode, e: SM.exprLeaves(SM.exprOf(c.entries)).map((x) => [x.type, x.op, x.v].join(':')), r: c.rules.map((r) => [r.qty, SM.exprLeaves(SM.exprOf(r)).map((x) => x.type).join('+')].join('/')), x: SM.exprLeaves(SM.exprOf(c.exits)).map((x) => x.type).join(), q: Number(c.qty), ml: Number(c.maxLots), mg: Number(c.minGap) }; });
-        ok('불러와서 수정하기: 직접 조건 만들기로 이동해 기본 규칙(RSI≤30+양봉, 10주)과 규칙 2(5일 −10%+양봉, 30주)·매도(+5%, 거래량 손절)가 그대로 채워짐', ex.mode === 'custom' && ex.e.join('|') === 'rsi:lte:30|candle::' && ex.r.join() === '30/retN+candle' && ex.x === 'avgPct,dropVol' && ex.q === 10 && ex.ml === 4 && ex.mg === 3 && /매수 규칙 2/.test(await page.textContent('#cnd-r1 .cndbox-h')), ex);
+        const pick = (id) => page.evaluate((v) => { const sel = document.querySelector('[data-change=btStratPick]'); sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); }, id);
+        await pick('seed-k-rsi'); await page.waitForSelector('#cnd-r1');
+        const ex = await page.evaluate(() => { const c = SM.app.ui.bt.cfg; return { e: SM.exprLeaves(SM.exprOf(c.entries)).map((x) => [x.type, x.op, x.v].join(':')), r: c.rules.map((r) => [r.qty, SM.exprLeaves(SM.exprOf(r)).map((x) => x.type).join('+')].join('/')), x: SM.exprLeaves(SM.exprOf(c.exits)).map((x) => x.type).join(), q: Number(c.qty), ml: Number(c.maxLots), mg: Number(c.minGap) }; });
+        ok('예시 불러오기: 기본 규칙(RSI≤30+양봉, 10주)과 규칙 2(5일 −10%+양봉, 30주)·매도(+5%, 거래량 손절)가 그대로 채워짐', ex.e.join('|') === 'rsi:lte:30|candle::' && ex.r.join() === '30/retN+candle' && ex.x === 'avgPct,dropVol' && ex.q === 10 && ex.ml === 4 && ex.mg === 3 && /매수 규칙 2/.test(await page.textContent('#cnd-r1 .cndbox-h')), ex);
+        ok('불러온 전략의 설명·시험값이 전략 카드에 보임', /시험값/.test(await page.textContent('.stratnote')) && /보장하지 않/.test(await page.textContent('.stratnote')));
         await page.click('.cndbox.buy .tok-b'); ok('불러온 조건을 눌러 바로 값을 수정할 수 있음', (await page.$('.cndbox.buy .tok-ed.show')) !== null);
-        await page.click('[data-act=btMode2][data-v=mg]'); await page.waitForSelector('.sgrid');
-        await page.evaluate(() => { SM.app.ui.bt.modeCfg.custom = SM.blankCfg(); }); } // 뒤의 검사는 비어 있는 직접 조건에서 시작
+        await pick('seed-mg'); await page.waitForSelector('.cndbox.buy'); ok('물타기 기본값을 불러오면 규칙 2가 사라지고 배수 2·최대 5회', (await page.$('#cnd-r1')) === null && Number(await page.evaluate(() => SM.app.ui.bt.cfg.growth)) === 2 && Number(await page.evaluate(() => SM.app.ui.bt.cfg.maxLots)) === 5);
+        await page.evaluate(() => { SM.app.ui.bt.strategyId = ''; }); } // 기본 제공 전략을 덮어쓰지 않도록 새 이름으로 저장하는 상황에서 시작
       { // 전략 저장·불러오기: 고급 설정을 열지 않아도 항상 보임
         ok('전략 저장·불러오기 줄이 전략 카드 맨 위에 항상 보임(고급 설정을 열지 않아도)', (await page.isVisible('#stratName')) && (await page.isVisible('[data-act=btStratSave]')) && (await page.isVisible('[data-change=btStratPick]')) && (await page.evaluate(() => !document.querySelector('details.box:has(summary)') || ![...document.querySelectorAll('details.box')].some((d) => /고급 설정/.test(d.textContent.slice(0, 12)) && d.open))));
         await page.fill('#stratName', '저장 시험 전략'); await page.click('[data-act=btStratSave]'); await page.waitForTimeout(150);
-        const sv = await page.evaluate(() => { const l = SM.app.getState().strategies; return { n: l.length, name: l[0] && l[0].name, e: l[0] && SM.exprLeaves(SM.exprOf(l[0].cfg.entries)).map((x) => x.type).join(), from: l[0] && l[0].cfg.from }; });
-        ok('저장: 이름·조건 문장이 전략 목록에 들어가고 기간은 저장하지 않음', sv.n === 1 && sv.name === '저장 시험 전략' && sv.e === 'maSlope,dropLast' && sv.from === '', sv);
+        const sv = await page.evaluate(() => { const l = SM.app.getState().strategies; return { n: l.length, name: l[l.length - 1] && l[l.length - 1].name, e: l[l.length - 1] && SM.exprLeaves(SM.exprOf(l[l.length - 1].cfg.entries)).map((x) => x.type).join(), from: l[l.length - 1] && l[l.length - 1].cfg.from }; });
+        ok('저장: 이름·조건 문장이 전략 목록에 들어가고 기간은 저장하지 않음', sv.n === 7 && sv.name === '저장 시험 전략' && sv.e === 'maSlope,dropLast' && sv.from === '', sv);
         ok('저장한 전략이 불러오기 목록에 나타남', (await page.$$eval('[data-change=btStratPick] option', (e) => e.map((x) => x.textContent))).includes('저장 시험 전략'));
-        await page.evaluate(() => { const id = SM.app.getState().strategies[0].id; const sel = document.querySelector('[data-change=btStratPick]'); sel.value = id; sel.dispatchEvent(new Event('change', { bubbles: true })); }); await page.waitForSelector('[data-act=btStratDel]');
-        ok('불러오기: 직접 조건 만들기로 열리고 삭제 버튼이 나타남', (await page.evaluate(() => SM.app.ui.bt.mode)) === 'custom' && /하락 시 추가 매수/.test(await page.textContent('#sent-entries')));
+        await page.evaluate(() => { const l = SM.app.getState().strategies, id = l[l.length - 1].id; const sel = document.querySelector('[data-change=btStratPick]'); sel.value = id; sel.dispatchEvent(new Event('change', { bubbles: true })); }); await page.waitForSelector('[data-act=btStratDel]');
+        ok('불러오기: 저장한 전략이 열리고 삭제 버튼이 나타남', /하락 시 추가 매수/.test(await page.textContent('#sent-entries')));
         await page.evaluate(() => { SM.app.getState().strategies.length = 0; SM.app.ui.bt.strategyId = ''; SM.app.save(); }); // 뒤의 검사에 영향이 없게 정리
-        await page.click('[data-act=btMode2][data-v=mg]'); await page.waitForSelector('.sgrid'); await page.evaluate(() => { SM.app.ui.bt.modeCfg.custom = SM.blankCfg(); }); }
+        await page.click('[data-act=btStratNew]'); await page.waitForSelector('.sgrid'); }
 
-      await page.fill('[data-btc=qty]', '10'); await page.fill('[data-btc=growth]', '2'); await page.fill('[data-btc=maxInvest]', '50,000,000');
+      await page.fill('[data-btc=qty]', '10'); await page.fill('[data-btc=growth]', '2'); await page.fill('[data-btc=maxLots]', '5'); await page.fill('[data-btc=maxInvest]', '50,000,000');
       await page.evaluate(() => { const b = SM.app.ui.bt.cfg, mk = (t, o) => Object.assign(SM.app.ui.bt.cfg && { type: t }, o); b.entries.expr = { op: 'AND', items: [mk('dropLast', { pct: 3, basis: 'last', first: 'yes' })] }; b.entries.conds = SM.exprLeaves(b.entries.expr); b.exits.expr = { op: 'OR', items: [mk('avgPct', { dir: 'up', pct: 2 }), mk('avgPct', { dir: 'down', pct: 20 })] }; b.exits.conds = SM.exprLeaves(b.exits.expr); SM.app.render(); });
       await page.click('[data-act=btRun]'); await page.waitForSelector('table.cyc', { timeout: 10000 });
       const cf = await page.evaluate(() => { const c = SM.app.ui.bt.result.cfg; return { ml: c.maxLots, q: c.qty, g: c.growth, mi: c.maxInvest, e: SM.exprLeaves(SM.exprOf(c.entries)).map((x) => [x.type, x.pct, x.basis]), x: SM.exprLeaves(SM.exprOf(c.exits)).map((x) => [x.type, x.dir, x.pct]) }; });
@@ -287,7 +288,7 @@ function fixtures() {
       await page.click('[data-act=chartMonths][data-v="0"]'); await page.waitForTimeout(300); await (await page.$('#chartCard')).screenshot({ path: process.env.BT_SHOT || '/tmp/bt_chart.png' });
     }
     { // 직접 조건(문장 빌더): 매수(분홍)·매도(하늘), 선택창에서 분류→조건, 문장으로 이어 붙이고 AND/OR·괄호·신호 진단
-      await page.click('[data-act=btMode2][data-v=custom]'); await page.waitForSelector('.cndbox.buy');
+      await page.click('[data-act=btStratNew]'); await page.waitForSelector('.cndbox.buy');
       ok('직접 조건: 매수 조건·매도 조건 상자가 따로 있음', (await page.$('.cndbox.buy')) !== null && (await page.$('.cndbox.sell')) !== null && /매수 조건/.test(await page.textContent('.cndbox.buy .cndbox-h')) && /매도 조건/.test(await page.textContent('.cndbox.sell .cndbox-h')));
       const bg = await page.evaluate(() => [getComputedStyle(document.querySelector('.cndbox.buy')).backgroundColor, getComputedStyle(document.querySelector('.cndbox.sell')).backgroundColor]);
       ok('매수는 연한 분홍·매도는 연한 하늘 배경(서로 다른 색)', bg[0] !== bg[1] && /rgba\(255, 45, 85/.test(bg[0]) && /rgba\(50, 173, 230/.test(bg[1]), bg);
@@ -346,9 +347,9 @@ function fixtures() {
         ok('규칙이 있는 전략으로 시뮬레이션 실행(오류 없음, 규칙이 결과 설정에 포함)', await page.evaluate(() => { const r = SM.app.ui.bt.result; return !!r && !r.error && r.cfg.rules.length === 1; }));
         await page.click('#cnd-r1 [data-act=btRuleDel]'); await page.waitForTimeout(100);
         ok('규칙 삭제: 상자가 사라지고 기본 상자가 다시 “매수 조건”', (await page.$('#cnd-r1')) === null && /매수 조건/.test(await page.textContent('#cnd-entries .cndbox-h')) && (await page.evaluate(() => SM.app.ui.bt.cfg.rules.length)) === 0); }
-      await page.click('[data-act=btMode2][data-v=mg]'); }
+      }
       { // 종목 일괄 비교: 데이터가 둘 이상이면 표 한 장(이익 종목 수·중앙값·뒤 구간·단순 보유)
-        await page.click('[data-act=btMode2][data-v=mg]'); await page.waitForSelector('.cndbox.buy');
+        await page.waitForSelector('.cndbox.buy');
         await page.evaluate(() => { const o = SM.app.ui.bt.cfg, r = SM.app.ui.bt.repo && SM.app.ui.bt.repo.cache['003490']; const d = JSON.parse(JSON.stringify(r.data)); const ds = JSON.parse(localStorage.getItem('stockmgr.datasets') || '{}'); ds.extra1 = { name: '추가 종목(테스트)', market: 'KR', added: Date.now(), data: d }; localStorage.setItem('stockmgr.datasets', JSON.stringify(ds)); SM.app.render(); void o; });
         await page.waitForSelector('[data-act=btAll]'); await page.evaluate(() => { const b = SM.app.ui.bt.cfg; b.entries.expr = { op: 'AND', items: [{ type: 'dropLast', pct: 5, basis: 'last', first: 'yes' }] }; b.entries.conds = SM.exprLeaves(b.entries.expr); });
         await page.click('[data-act=btAll]'); await page.waitForSelector('.cmp tbody tr', { timeout: 20000 });

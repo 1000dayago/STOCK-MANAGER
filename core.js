@@ -56,7 +56,7 @@
 
   /* ---------- 상태 ---------- */
   function newState() {
-    return { v: 2, updatedAt: 0, settings: DEFAULT_SETTINGS(), stocks: [], strategies: [], noteIdx: {}, lastBackupAt: 0 };
+    return { v: 2, updatedAt: 0, settings: DEFAULT_SETTINGS(), stocks: [], strategies: [], seeded: [], noteIdx: {}, lastBackupAt: 0 };
   }
   function normalizeState(obj) {
     const s = newState();
@@ -77,6 +77,7 @@
       links: Array.isArray(o.links) ? o.links : d.links,
     };
     s.strategies = Array.isArray(obj.strategies) ? obj.strategies : [];
+    s.seeded = Array.isArray(obj.seeded) ? obj.seeded.filter((x) => typeof x === 'string') : [];
     s.noteIdx = obj.noteIdx && typeof obj.noteIdx === 'object' ? obj.noteIdx : {};
     s.lastBackupAt = obj.lastBackupAt || 0;
     s.stocks = (obj.stocks || []).map((st) =>
