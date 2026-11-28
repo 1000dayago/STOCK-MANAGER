@@ -697,8 +697,7 @@
   // 사이클(첫 매수 → 보유 순번 전부 매도) 요약: 청산까지 몇 번·얼마·몇 주를 샀는지(평균·최대)와 사이클별 목록(눌러서 펼침)
   function cycleSection(r, cur) {
     const cs = r.cycleStats, oc = r.openCycle, cfg = r.cfg;
-    const multi = Number(cfg.growth) > 1 || SM.exprLeaves(SM.exprOf(cfg.entries)).some((x) => x.type === 'dropLast');
-    if (!multi || (!r.cycles.length && !oc)) return '';
+    if (!r.cycles.length && !oc) return ''; // 물타기가 아닌 전략(배수 1·하락 시 추가 매수 없음)에서도 사이클 목록·차트 연동을 보여 줌
     const tgt = (SM.exprLeaves(SM.exprOf(cfg.exits)).find((c) => c.type === 'avgPct' && c.dir !== 'down') || {}).pct, tp = tgt != null ? Number(tgt) : null;
     const d = (v) => (v == null ? '-' : Math.round(v).toLocaleString('ko-KR') + '일'), n1 = (v) => (v == null ? '-' : (Math.round(v * 10) / 10).toLocaleString('ko-KR')), md = (dt) => dt.slice(2);
     const sgn = (v) => (v > 0 ? '+' : '') + v.toFixed(1) + '%', pc = (v) => (v == null ? '-' : sgn(v * 100)), cls = (v) => (v >= 0 ? 'pos' : 'neg');

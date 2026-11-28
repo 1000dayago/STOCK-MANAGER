@@ -111,6 +111,12 @@ function fixtures() {
         ok('탭(물타기 전략·직접 조건 만들기·예시)이 없고 처음 화면은 물타기 기본값이 채워진 전략 화면', (await page.$('.ios-seg')) === null && (await page.$('[data-act=btMode2]')) === null && (await page.$('.excard')) === null && (await page.$('.cndbox.buy')) !== null && Number(await page.evaluate(() => SM.app.ui.bt.cfg.growth)) === 2);
         const names = await page.$$eval('[data-change=btStratPick] option', (e) => e.map((x) => x.textContent.trim()));
         ok('기본 제공 목록 맨 위는 볼린저 하단 전략', /볼린저 하단/.test(names[1]), names.slice(0, 3));
+        { // 물타기가 아닌 기본 제공 전략(배수 1·하락 시 추가 매수 없음)에서도 사이클 목록과 차트 연동이 나옴
+          await page.evaluate(() => { const b = SM.app.ui.bt, mk = (t, o) => Object.assign({ type: t }, o); Object.assign(b.cfg, { qtyMode: 'shares', qty: 10, growth: 1, maxLots: 1, maxInvest: 0, minGap: 0, rules: [] }); b.cfg.entries.expr = { op: 'AND', items: [mk('vol', { n: 1 })] }; b.cfg.entries.conds = SM.exprLeaves(b.cfg.entries.expr); b.cfg.exits.expr = { op: 'OR', items: [mk('holdDays', { n: 3 })] }; b.cfg.exits.conds = SM.exprLeaves(b.cfg.exits.expr); SM.app.render(); }); // 배수 1·하락 시 추가 매수 없음
+          await page.waitForSelector('[data-act=btRun]'); await page.click('[data-act=btRun]'); await page.waitForSelector('#chartHost canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(300);
+          const nr = await page.$$eval('tr.cycrow', (e) => e.length);
+          ok('배수 1·하락 시 추가 매수 없는 전략에서도 사이클 목록이 나옴', nr > 0 && (await page.$('table.cyc')) !== null, nr);
+          if (nr) { await page.click('tr.cycrow'); await page.waitForTimeout(100); ok('사이클 줄을 누르면 세부(매수별 평단·수익)가 펼쳐짐', (await page.$eval('tr.cycdet:not([hidden])', (e) => /평단/.test(e.textContent))) === true); } }
         await page.evaluate(() => { const x = SM.app.getState().strategies.find((q) => q.id === 'seed-k-bb'); x.seedVer = 1; x.cfg.qtyMode = 'shares'; x.cfg.qty = 10; SM.app.render(); });
         ok('예전 버전의 기본 제공 전략은 열 때 새 버전(금액 단위)으로 갱신됨', await page.evaluate(() => { const x = SM.app.getState().strategies.find((q) => q.id === 'seed-k-bb'); return x.seedVer === 2 && x.cfg.qtyMode === 'amount' && Number(x.cfg.qty) === 200000; }));
         ok('불러오기 목록에 물타기 기본값과 예시 6가지(볼린저 합친 고정 포함)가 들어 있음', names.includes('물타기 기본값') && names.filter((x) => /^예시 · /.test(x)).length === 6 && names.some((x) => /합친 고정/.test(x)) && names.some((x) => /5일 급락 \+ 양봉/.test(x)), names);
