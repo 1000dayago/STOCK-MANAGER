@@ -234,11 +234,21 @@ function fixtures() {
         const dateAt = (x) => page.evaluate((cx) => { const c = document.querySelector('#chartHost canvas'), r = c.getBoundingClientRect(), st = SM.app._chart().state, g = st.geom, i = Math.floor(g.from + (cx - r.left - g.PL) / g.bw); return { d: st.bars.d[Math.max(0, Math.min(st.bars.d.length - 1, i))], count: st.count }; }, x);
         for (const frac of [0.25, 0.6]) {
           const x = cb.x + cb.width * frac; await page.mouse.move(x, cb.y + 120); await page.waitForTimeout(80);
-          const b0 = await dateAt(x); await page.mouse.wheel(0, -300); await page.waitForTimeout(150); const b1 = await dateAt(x); await page.mouse.wheel(0, 300); await page.mouse.wheel(0, 300); await page.waitForTimeout(150); const b2 = await dateAt(x);
+          const b0 = await dateAt(x); await page.mouse.wheel(0, 300); await page.waitForTimeout(150); const b1 = await dateAt(x); await page.mouse.wheel(0, -300); await page.mouse.wheel(0, -300); await page.waitForTimeout(150); const b2 = await dateAt(x);
           const di = (a, b) => Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 86400000;
-          ok(`휠 확대(커서 ${Math.round(frac * 100)}% 지점): 봉 수가 줄었는데도 커서 아래 날짜가 그대로(±3일)`, b1.count < b0.count && di(b0.d, b1.d) <= 3, [b0, b1]);
-          ok(`휠 축소(커서 ${Math.round(frac * 100)}% 지점): 봉 수가 늘었는데도 커서 아래 날짜가 그대로(±5일)`, b2.count > b1.count && di(b0.d, b2.d) <= 5, [b0, b2]);
+          ok(`휠을 아래로 굴리면 확대(커서 ${Math.round(frac * 100)}% 지점): 봉 수가 줄었는데도 커서 아래 날짜가 그대로(±3일)`, b1.count < b0.count && di(b0.d, b1.d) <= 3, [b0, b1]);
+          ok(`휠을 위로 굴리면 축소(커서 ${Math.round(frac * 100)}% 지점): 봉 수가 늘었는데도 커서 아래 날짜가 그대로(±5일)`, b2.count > b1.count && di(b0.d, b2.d) <= 5, [b0, b2]);
         }
+        // 마우스 우클릭을 누른 채 드래그: 왼쪽→오른쪽 확대, 오른쪽→왼쪽 축소(누른 자리 기준)
+        await page.evaluate(() => SM.app._chart().resetZoom()); await page.waitForTimeout(80);
+        const cnt = () => page.evaluate(() => SM.app._chart().state.count), x0 = cb.x + cb.width * 0.5, y0 = cb.y + 120, c0 = await cnt(), d0 = await dateAt(x0);
+        await page.mouse.move(x0, y0); await page.mouse.down({ button: 'right' }); await page.mouse.move(x0 + 160, y0, { steps: 8 }); await page.mouse.up({ button: 'right' }); await page.waitForTimeout(120);
+        const c1 = await cnt(), d1 = await dateAt(x0); const di2 = (a, b) => Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 86400000;
+        ok('우클릭 드래그 왼쪽→오른쪽: 확대(보이는 봉 수 감소)되고 누른 자리의 날짜는 유지', c1 < c0 && di2(d0.d, d1.d) <= 3, [c0, c1, d0, d1]);
+        await page.mouse.move(x0, y0); await page.mouse.down({ button: 'right' }); await page.mouse.move(x0 - 160, y0, { steps: 8 }); await page.mouse.up({ button: 'right' }); await page.waitForTimeout(120);
+        const c2 = await cnt(), d2 = await dateAt(x0);
+        ok('우클릭 드래그 오른쪽→왼쪽: 축소(보이는 봉 수 증가)되고 누른 자리의 날짜는 유지', c2 > c1 && di2(d1.d, d2.d) <= 5, [c1, c2, d1, d2]);
+        ok('우클릭 드래그에서 십자선이 남지 않고 컨텍스트 메뉴가 뜨지 않음', (await page.evaluate(() => SM.app._chart().state.cross)) === null);
         await page.evaluate(() => SM.app._chart().resetZoom()); }
       { // 재생(리플레이): 시작일 이전은 모두 보이고 이후는 한 봉씩, 배속·주봉
         const nBars = () => page.evaluate(() => SM.app._chart().state.bars.d.length), full = await nBars();

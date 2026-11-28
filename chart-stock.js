@@ -542,12 +542,14 @@
     }
 
     /* ---- 조작: 드래그 이동 · 핀치/휠 확대 · 탭(터치)·호버(마우스) 십자선 ---- */
-    const ptrs = new Map(); let pan = null, pinch = null, moved = false, dragCross = false, zsel = null;
+    const ptrs = new Map(); let pan = null, pinch = null, moved = false, dragCross = false, zsel = null, rz = null;
     const xToIdx = (clientX) => { const r = canvas.getBoundingClientRect(), g = S.geom; if (!g) return null; return Math.max(g.from, Math.min(g.to, g.from + Math.floor((clientX - r.left - g.PL) / g.bw))); };
     const hitAt = (e) => { const r = canvas.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top, pad = e.pointerType === 'mouse' ? 2 : 8; let best = null, bd = 1e9; for (const h of S.hits || []) { const d = Math.hypot(h.x - px, h.y - py); if (d <= h.r + pad && d < bd) { best = h; bd = d; } } return best; };
     const setWindow = (count, end) => { const n = S.bars.d.length, w = windowRange(n, count, end); S.count = w.count; S.end = w.to; draw(); if (S.cfg.onChange) S.cfg.onChange(); };
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault()); // 우클릭 드래그를 확대·축소에 씀
     canvas.addEventListener('pointerdown', (e) => {
       if (!S.bars) return;
+      if (e.pointerType === 'mouse' && e.button === 2 && S.geom) { rz = { x0: e.clientX, a: anchorOf(e.clientX) }; try { canvas.setPointerCapture(e.pointerId); } catch (x) { /* 무시 */ } S.cross = null; draw(); return; } // 우클릭을 누른 채 드래그: 왼쪽→오른쪽 확대, 오른쪽→왼쪽 축소(누른 자리 기준)
       canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); moved = false;
       if (ptrs.size === 1 && (S.zoomSel || (e.shiftKey && e.pointerType === 'mouse'))) { zsel = { x0: e.clientX }; moved = true; pan = null; return; } // 구간 확대 선택(버튼 또는 Shift+드래그)
       if (ptrs.size === 1) pan = { x: e.clientX, end: S.end, count: S.count };
@@ -559,6 +561,7 @@
     });
     canvas.addEventListener('pointermove', (e) => {
       if (!S.bars || !S.geom) return;
+      if (rz) { zoomTo(rz.a, rz.a.count * Math.exp(-(e.clientX - rz.x0) / 220)); return; } // 누른 시점의 봉 수를 기준으로 드래그 거리만큼(되돌리면 원래대로)
       if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (zsel && ptrs.size === 1) { const r = canvas.getBoundingClientRect(); S.selRect = { x0: zsel.x0 - r.left, x1: e.clientX - r.left }; draw(); return; }
       if (dragCross && ptrs.size === 1) { const i = xToIdx(e.clientX); if (i !== S.cross) { S.cross = i; draw(); } return; }
@@ -580,6 +583,7 @@
       S.zoomSel = false; if (S.cfg.onZoomDone) S.cfg.onZoomDone(); draw();
     };
     const up = (e) => {
+      if (rz && e.button === 2) { rz = null; return; }
       if (!ptrs.has(e.pointerId)) return;
       if (zsel) { ptrs.delete(e.pointerId); finishZoom(e); if (!ptrs.size) { pan = null; dragCross = false; } return; }
       if (ptrs.size === 1 && !moved && S.bars) {
@@ -600,7 +604,7 @@
     canvas.addEventListener('wheel', (e) => {
       if (!S.bars || !S.geom) return;
       e.preventDefault();
-      const a = anchorOf(e.clientX); zoomTo(a, S.count * (e.deltaY > 0 ? 1.18 : 1 / 1.18));
+      const a = anchorOf(e.clientX); zoomTo(a, S.count * (e.deltaY > 0 ? 1 / 1.18 : 1.18)); // 휠을 아래로 굴리면 확대, 위로 굴리면 축소
     }, { passive: false });
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => draw()) : null;
     if (ro) ro.observe(host);
