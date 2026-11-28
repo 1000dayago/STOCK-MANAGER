@@ -287,6 +287,15 @@ t('규칙별 수량: 규칙마다 수량이 다르고, 같은 날 여러 규칙�
   // 물타기 배수는 규칙 수량 위에 곱해짐
   assert.deepEqual(SM.runBacktest(d, Object.assign({}, cfg, { growth: 2 }), S).buys.map((b) => b.qty), [5, 40, 80]);
 });
+t('기본 제공 예시: 금액 단위·한도 200만, 볼린저 합친 고정은 두 묶음 OR, 모두 실행 가능', () => {
+  assert.equal(SM.EXAMPLES.length, 6);
+  for (const e of SM.EXAMPLES) { const c = e.mk(); assert.equal(c.qtyMode, 'amount'); assert.equal(c.qty, 200000); assert.equal(c.maxInvest, 2000000); assert(e.res && /한국전력/.test(e.res), e.id); }
+  const m = SM.EXAMPLES.find((e) => e.id === 'k-bb-merge').mk(), ex = SM.exprOf(m.entries);
+  assert.equal(ex.op, 'OR'); assert.equal(ex.items.length, 2); assert(ex.items.every((g) => g.op === 'AND' && g.items.length === 2)); assert.equal(m.rules.length, 0);
+  assert.equal(SM.EXAMPLES.find((e) => e.id === 'k-bb').mk().rules[0].qty, 600000);
+  const c = [100, 98, 90, 91, 80, 81, 82, 83, 84, 85, 86], d = { d: [], o: c.slice(), h: c.slice(), l: c.slice(), c: c.slice(), v: c.map(() => 100), hasVol: true, hasHL: true }, dt = new Date('2025-03-03'); c.forEach(() => { d.d.push(dt.toISOString().slice(0, 10)); dt.setDate(dt.getDate() + 1); });
+  for (const e of SM.EXAMPLES) assert(!SM.runBacktest(d, e.mk(), S).error, e.id);
+});
 t('재생: cutRaw는 모든 배열을 같은 길이로 자름', () => {
   const raw = { d: ['2025-01-01', '2025-01-02', '2025-01-03'], o: [1, 2, 3], h: [1, 2, 3], l: [1, 2, 3], c: [1, 2, 3], v: [1, 1, 1], frgn: [5, null, 7], hasVol: true, flowUnit: 'shares' };
   const a = SM.cutRaw(raw, '2025-01-02'); assert.deepEqual(a.d, ['2025-01-01', '2025-01-02']); assert.deepEqual(a.frgn, [5, null]); assert.equal(a.hasVol, true); assert.equal(a.flowUnit, 'shares');

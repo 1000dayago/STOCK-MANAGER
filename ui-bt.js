@@ -332,7 +332,7 @@
   }
   // 물타기 기본 전략: 매수 = 30일선 상승 중 AND 직전 매수가 대비 10% 하락 시 추가 매수, 매도 = 평단 +5% 또는 −20%(별개로 도달하면 바로)
   function presetCfg() {
-    const c = SM.blankCfg(); c.qtyMode = 'shares'; c.qty = 10; c.growth = 2; c.maxLots = 5; c.maxInvest = 0; c.cooldown = 0; c.minGap = 0; c.fill = 'nextOpen';
+    const c = SM.blankCfg(); c.qtyMode = 'amount'; c.qty = 200000; c.growth = 2; c.maxLots = 5; c.maxInvest = 2000000; c.cooldown = 0; c.minGap = 0; c.fill = 'nextOpen';
     const tr = newCond('maSlope'); tr.ma = 'sma'; tr.n = 30; tr.k = 5; tr.dir = 'up';
     const dl = newCond('dropLast'); dl.pct = 10; dl.basis = 'last'; dl.first = 'yes';
     const tp = newCond('avgPct'); tp.dir = 'up'; tp.pct = 5; const sl = newCond('avgPct'); sl.dir = 'down'; sl.pct = 20;
@@ -349,20 +349,22 @@
     </div>${Number(c.growth) > 1 && noLimit ? '<p class="hint warn">배수가 1보다 큰데 최대 횟수·투입금이 모두 0입니다. 하락이 이어지면 투입금이 끝없이 커집니다.</p>' : ''}`;
   }
   /* ---------- 기본 제공 전략: 물타기 기본값과 한국전력 탐색 예시 5가지를 ‘저장된 전략’에 한 번만 넣어 둠(지워도 다시 들어오지 않음) ---------- */
+  const SEED_VER = 2; // 2: 수량을 금액(원) 단위로 바꾸고 볼린저 ‘합친 고정’ 추가
   function seedStrategies() {
     const stt = A.getState(); if (!stt || !Array.isArray(stt.strategies)) return;
     if (!Array.isArray(stt.seeded)) stt.seeded = [];
-    const defs = [{ id: 'mg', name: '물타기 기본값', note: '30일선 상승 중일 때 직전 매수가보다 10% 하락하면 2배씩 추가 매수(10 → 20 → 40…, 최대 5회). 평단 +5%에서 전량 매도, −20%면 손절.', cfg: presetCfg() }]
+    const defs = [{ id: 'mg', name: '물타기 기본값', note: '30일선 상승 중일 때 직전 매수가보다 10% 하락하면 2배씩 추가 매수(20만 → 40만 → 80만 원…, 최대 5회, 최대 투입금 200만 원). 평단 +5%에서 전량 매도, −20%면 손절.', cfg: presetCfg() }]
       .concat(SM.EXAMPLES.map((e) => ({ id: e.id, name: '예시 · ' + e.name, note: e.note + (e.res ? ' ｜ 시험값(최대 투입금 대비): ' + e.res : '') + ' ｜ 과거 시험값이며 앞으로를 보장하지 않습니다.', cfg: e.mk() })));
     let changed = false;
     for (const d of defs) {
-      if (stt.seeded.includes(d.id)) continue;
-      stt.seeded.push(d.id); changed = true;
-      if (!stt.strategies.some((x) => x.id === 'seed-' + d.id)) stt.strategies.push({ id: 'seed-' + d.id, name: d.name, note: d.note, cfg: Object.assign(d.cfg, { from: '', to: '' }) });
+      const sid = 'seed-' + d.id, cur = stt.strategies.find((x) => x.id === sid), body = { name: d.name, note: d.note, cfg: Object.assign(d.cfg, { from: '', to: '' }), seedVer: SEED_VER };
+      if (cur) { if (cur.seedVer !== SEED_VER) { Object.assign(cur, body); changed = true; } continue; } // 기본 제공 전략은 덮어쓰기 대상이 아니므로 새 버전이 나오면 그대로 갱신
+      if (stt.seeded.includes(d.id)) continue; // 사용자가 지운 전략은 다시 넣지 않음
+      stt.seeded.push(d.id); changed = true; stt.strategies.push(Object.assign({ id: sid }, body));
     }
     if (changed) A.save();
   }
-  const SEED_ORDER = ['seed-k-bb', 'seed-mg', 'seed-k-dip5', 'seed-k-rsi', 'seed-k-ma20', 'seed-k-ma60']; // 기본 제공 전략의 목록 순서(볼린저 하단이 맨 위)
+  const SEED_ORDER = ['seed-k-bb', 'seed-k-bb-merge', 'seed-mg', 'seed-k-dip5', 'seed-k-rsi', 'seed-k-ma20', 'seed-k-ma60']; // 기본 제공 전략의 목록 순서(볼린저 하단이 맨 위)
   const orderedStrats = (list) => { const rank = (x) => { const i = SEED_ORDER.indexOf(x.id); return i < 0 ? 1e6 : i; }; return list.map((x, i) => [x, i]).sort((a, b) => (rank(a[0]) - rank(b[0])) || (a[1] - b[1])).map((q) => q[0]); }; // 기본 제공이 먼저, 내 전략은 저장한 순서대로
   const stratNote = (list) => { const x = list.find((q) => q.id === bt.strategyId); return x && x.note ? `<p class="hint stratnote">${esc(x.note)}</p>` : ''; };
   A.renderers.btMain = function () {
