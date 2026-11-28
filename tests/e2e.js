@@ -336,6 +336,16 @@ function fixtures() {
       await page.evaluate(() => { const b = SM.app.ui.bt.cfg; b.entries.expr = { op: 'AND', items: [{ type: 'volPrev', x: 1 }, { op: 'OR', items: [{ type: 'maSlope', ma: 'sma', n: 30, k: 5, dir: 'up' }, { type: 'dropLast', pct: 3, basis: 'last', first: 'yes' }] }] }; b.entries.conds = SM.exprLeaves(b.entries.expr); SM.app.render(); });
       await page.click('[data-act=btRun]'); await page.waitForSelector('#chartHost canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(300);
       ok('조건식(괄호 포함)으로 시뮬레이션 실행', await page.evaluate(() => { const r = SM.app.ui.bt.result; return !!r && !r.error && r.cfg.entries.expr && r.cfg.entries.expr.items[1].op === 'OR'; }));
+      { // 매수 규칙 추가(규칙별 수량)
+        await page.click('[data-act=btRuleAdd]'); await page.waitForSelector('#cnd-r1');
+        ok('매수 규칙 추가: 규칙 2 상자와 수량 칸이 생기고 기본 상자는 “매수 규칙 1”로 바뀜', /매수 규칙 2/.test(await page.textContent('#cnd-r1 .cndbox-h')) && (await page.$('#cnd-r1 [data-btrq="0"]')) !== null && /매수 규칙 1/.test(await page.textContent('#cnd-entries .cndbox-h')));
+        await page.click('#cnd-r1 [data-act=btPickOpen]'); await page.waitForSelector('.sheet.buy'); await page.click('.sheet .pick-tabs .chip:has-text("거래량")'); await page.click('.sheet .pickrow[data-t=volPrev]'); await page.waitForSelector('#cnd-r1 .tok');
+        await page.fill('#cnd-r1 [data-btrq="0"]', '30'); await page.waitForTimeout(80);
+        ok('규칙 2에 조건을 넣고 수량 30을 입력하면 전략 설정에 저장됨', await page.evaluate(() => { const r = SM.app.ui.bt.cfg.rules[0]; return r && String(r.qty) === '30' && r.conds.length === 1 && r.conds[0].type === 'volPrev'; }));
+        await page.click('[data-act=btRun]'); await page.waitForSelector('#chartHost canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(300);
+        ok('규칙이 있는 전략으로 시뮬레이션 실행(오류 없음, 규칙이 결과 설정에 포함)', await page.evaluate(() => { const r = SM.app.ui.bt.result; return !!r && !r.error && r.cfg.rules.length === 1; }));
+        await page.click('#cnd-r1 [data-act=btRuleDel]'); await page.waitForTimeout(100);
+        ok('규칙 삭제: 상자가 사라지고 기본 상자가 다시 “매수 조건”', (await page.$('#cnd-r1')) === null && /매수 조건/.test(await page.textContent('#cnd-entries .cndbox-h')) && (await page.evaluate(() => SM.app.ui.bt.cfg.rules.length)) === 0); }
       await page.click('[data-act=btMode2][data-v=mg]'); }
       { // 종목 일괄 비교: 데이터가 둘 이상이면 표 한 장(이익 종목 수·중앙값·뒤 구간·단순 보유)
         await page.click('[data-act=btMode2][data-v=mg]'); await page.waitForSelector('.cndbox.buy');

@@ -608,7 +608,7 @@
   // 수급 조건이 필요로 하는 투자자 열(외국인·기관·개인). ‘외국인·기관 각각 동시(both)’와 ‘합산(combo)’은 둘 다 필요
   const isFlowType = (c) => !!c && (c.type === 'flow' || c.type === 'flowSum');
   const flowWho = (c) => (c.who === 'both' || c.who === 'combo' ? ['frgn', 'inst'] : [c.who]);
-  function needsFlow(cfg) { return [].concat(exprLeaves(exprOf(cfg.entries)), exprLeaves(exprOf(cfg.exits))).some(isFlowType); }
+  function needsFlow(cfg) { return [].concat(exprLeaves(exprOf(cfg.entries)), ...(cfg.rules || []).map((r) => exprLeaves(exprOf(r))), exprLeaves(exprOf(cfg.exits))).some(isFlowType); }
 
   /* ---------- 엔진 ---------- */
   function runBacktest(data, cfg, settings) {
@@ -616,7 +616,10 @@
     const rates = SM.ratesOf(settings, cfg.market || 'KR');
     const ctx = {};
     const eExpr = exprOf(cfg.entries), xExpr = exprOf(cfg.exits);
-    const entryConds = exprLeaves(eExpr).filter((c) => COND_DEFS[c.type] && COND_DEFS[c.type].use !== 'exit');
+    // 매수 규칙: 기본 규칙(cfg.entries · cfg.qty) + 추가 규칙(cfg.rules: 조건식과 수량). 여러 규칙이 같은 날 참이면 수량이 큰 쪽 하나만 매수
+    const rules = [{ expr: eExpr, qty: num(cfg.qty, 1) }].concat((Array.isArray(cfg.rules) ? cfg.rules : []).map((r) => ({ expr: exprOf(r), qty: num(r.qty, num(cfg.qty, 1)) })));
+    rules.forEach((r) => { r.leaves = exprLeaves(r.expr).filter((c) => COND_DEFS[c.type] && COND_DEFS[c.type].use !== 'exit'); });
+    const entryConds = [...new Set([].concat(...rules.map((r) => r.leaves)))];
     const exitConds = exprLeaves(xExpr).filter((c) => COND_DEFS[c.type] && COND_DEFS[c.type].use !== 'entry');
     const errors = [];
     const allConds = entryConds.concat(exitConds);
@@ -652,13 +655,13 @@
     const cycles = []; let cyc = null; // 사이클 = 첫 매수 ~ 보유 순번이 모두 팔릴 때까지(물타기 전략이 ‘언제 본전·이익이 되는지’ 보기 위함)
 
     const invested = () => open.reduce((a, l) => a + l.qty * l.price + l.fee, 0);
-    function buyQty(price) {
-      const g = Math.pow(growth, open.length);
-      if (cfg.qtyMode === 'amount') return Math.floor((qtyCfg * g) / price);
-      return Math.max(1, Math.round(qtyCfg * g));
+    function buyQty(price, base) {
+      const g = Math.pow(growth, open.length), q0 = base != null ? base : qtyCfg;
+      if (cfg.qtyMode === 'amount') return Math.floor((q0 * g) / price);
+      return Math.max(1, Math.round(q0 * g));
     }
-    function execBuy(i, price, wc) {
-      const qty = buyQty(price);
+    function execBuy(i, price, wc, base) {
+      const qty = buyQty(price, base);
       if (!(qty > 0)) return;
       const fee = qty * price * (rates.buyFee / 100);
       if (maxInvest > 0 && invested() + qty * price + fee > maxInvest) { skipped++; return; }
@@ -708,7 +711,7 @@
       if (d > to) break;
       if (!fillClose && pending.length) {
         const orders = pending; pending = [];
-        for (const o of orders) { if (o.t === 'buy') execBuy(i, data.o[i], o.wc); else execSell(o.lot, i, data.o[i], o.why, o.wc); }
+        for (const o of orders) { if (o.t === 'buy') execBuy(i, data.o[i], o.wc, o.qty); else execSell(o.lot, i, data.o[i], o.why, o.wc); }
       }
       if (!inP) continue;
       if (startIdx < 0) startIdx = i;
@@ -740,13 +743,14 @@
         }
       }
       const pendBuys = pending.filter((o) => o.t === 'buy').length;
-      const sig = !!evalExpr(eExpr, (cd) => (entryArr.has(cd) ? entryArr.get(cd)[i] : entryDyn(cd, i)), entrySet);
+      const leafOn = (cd) => (entryArr.has(cd) ? entryArr.get(cd)[i] : entryDyn(cd, i));
+      const hit = rules.filter((r) => !!evalExpr(r.expr, leafOn, entrySet)), sig = hit.length > 0, ruleQty = sig ? Math.max(...hit.map((r) => r.qty)) : 0, winners = hit.filter((r) => r.qty === ruleQty);
       const holdNow = open.length - sellOrders.length + pendBuys > 0; // 쉬는 날 규칙: 보유가 없을 때는 마지막 청산 뒤 cooldown일, 보유 중에는 마지막 매수 뒤 minGap일이 지나야 매수
       const rest = (cooldown > 0 && !holdNow && i - lastCloseIdx < cooldown) || (minGap > 0 && holdNow && i - lastBuyIdx < minGap);
       const canBuy = sig && !sellAll && !rest && (maxLots <= 0 || open.length - sellOrders.length + pendBuys < maxLots);
       const orders = sellOrders.slice();
-      if (canBuy) orders.push({ t: 'buy', wc: entryConds.filter((cd) => (entryArr.has(cd) ? entryArr.get(cd)[i] : entryDyn(cd, i))).map((cd) => Object.assign({}, cd)) });
-      if (fillClose) { for (const o of orders) { if (o.t === 'buy') execBuy(i, c, o.wc); else execSell(o.lot, i, c, o.why, o.wc); } }
+      if (canBuy) orders.push({ t: 'buy', qty: ruleQty, wc: [...new Set([].concat(...winners.map((r) => r.leaves)))].filter(leafOn).map((cd) => Object.assign({}, cd)) });
+      if (fillClose) { for (const o of orders) { if (o.t === 'buy') execBuy(i, c, o.wc, o.qty); else execSell(o.lot, i, c, o.why, o.wc); } }
       else if (i < n - 1 && data.d[i + 1] <= to) pending.push(...orders);
       let unrl = 0;
       for (const l of open) unrl += (c - l.price) * l.qty - l.fee;
@@ -800,7 +804,7 @@
     const palette = ['#2563eb', '#d97706', '#9333ea', '#0891b2', '#be185d', '#65a30d'];
     const lines = [], seen = new Set();
     let pi = 0;
-    for (const c of [].concat(exprLeaves(exprOf(cfg.entries)), exprLeaves(exprOf(cfg.exits)))) {
+    for (const c of [].concat(exprLeaves(exprOf(cfg.entries)), ...(cfg.rules || []).map((r) => exprLeaves(exprOf(r))), exprLeaves(exprOf(cfg.exits)))) {
       if (c.type === 'maCross' || c.type === 'maState') {
         for (const k of [num(c.s, 5), num(c.l, 20)]) { const key = (c.ma || 'sma') + k; if (seen.has(key)) continue; seen.add(key); lines.push({ name: (c.ma === 'ema' ? 'EMA' : 'MA') + k, arr: maOf(c.ma, data.c, k), color: palette[pi++ % palette.length] }); }
       } else if (c.type === 'priceMa') {
@@ -838,7 +842,7 @@
   }
 
   function blankCfg() {
-    return { market: 'KR', qty: 10, qtyMode: 'shares', growth: 1, maxInvest: 0, maxLots: 0, cooldown: 0, minGap: 0, fill: 'nextOpen', from: '', to: '', entries: { mode: 'AND', conds: [] }, exits: { mode: 'OR', conds: [] } };
+    return { market: 'KR', qty: 10, qtyMode: 'shares', growth: 1, maxInvest: 0, maxLots: 0, cooldown: 0, minGap: 0, fill: 'nextOpen', from: '', to: '', entries: { mode: 'AND', conds: [] }, rules: [], exits: { mode: 'OR', conds: [] } };
   }
 
   // 재생용: 기준 날짜(date)까지 일어난 일만 보이도록 사이클을 잘라 줍니다(그 뒤의 매수·매도는 숨김, 아직 안 끝난 사이클은 진행 중으로)

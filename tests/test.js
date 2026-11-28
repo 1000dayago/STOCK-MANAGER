@@ -272,6 +272,21 @@ t('거래량 조건 3종: 증가·감소(단순·배수), 거래량 이동평균
   const r = SM.runBacktest(d, cfg, S); assert(r.cycles.length >= 1 && r.cycles[0].endIdx === 3 && r.cycles[0].sellWhy.conds[0].type === 'dropVol' && r.cycles[0].realized < 0, JSON.stringify(r.cycles.map((x) => [x.startIdx, x.endIdx])));
   assert(SM.runBacktest(Object.assign({}, d, { hasVol: false }), cfg, S).error); // 거래량 없는 데이터는 사전 오류
 });
+t('규칙별 수량: 규칙마다 수량이 다르고, 같은 날 여러 규칙이 참이면 수량이 큰 쪽 하나만 매수', () => {
+  const c = [100, 98, 90, 91, 80, 81, 82, 83], d = { d: [], o: c.slice(), h: c.slice(), l: c.slice(), c: c.slice(), v: c.map(() => 100), hasVol: true, hasHL: true }, dt = new Date('2025-03-03'); c.forEach(() => { d.d.push(dt.toISOString().slice(0, 10)); dt.setDate(dt.getDate() + 1); });
+  const base = { fill: 'close', qty: 5, growth: 1, maxLots: 5, minGap: 0, exits: { mode: 'OR', conds: [{ type: 'holdDays', n: 99 }] } };
+  const cfg = Object.assign(SM.blankCfg(), base, { entries: { mode: 'AND', conds: [{ type: 'change', op: 'lte', v: -1 }] }, rules: [{ qty: 20, mode: 'AND', conds: [{ type: 'change', op: 'lte', v: -8 }] }] });
+  const r = SM.runBacktest(d, cfg, S);
+  // 98(−2%): 기본 5주 · 90(−8.2%): 두 규칙 모두 참 → 20주 하나만 · 80(−12%): 둘 다 참 → 20주
+  assert.deepEqual(r.buys.map((b) => b.qty), [5, 20, 20], JSON.stringify(r.buys));
+  assert.equal(r.cycles.length + (r.openCycle ? 1 : 0), 1);
+  const w = (r.openCycle || r.cycles[0]).buys[1].why.map((x) => x.v); assert(w.includes(-8), '큰 쪽 규칙의 조건이 매수 사유에 남음: ' + JSON.stringify(w));
+  // 규칙이 없으면 기본 수량만, 기본 조건이 비어 있어도 추가 규칙만으로 매수 가능
+  assert.deepEqual(SM.runBacktest(d, Object.assign({}, cfg, { rules: [] }), S).buys.map((b) => b.qty), [5, 5, 5]);
+  const only = SM.runBacktest(d, Object.assign({}, cfg, { entries: { mode: 'AND', conds: [] } }), S); assert.deepEqual(only.buys.map((b) => b.qty), [20, 20]);
+  // 물타기 배수는 규칙 수량 위에 곱해짐
+  assert.deepEqual(SM.runBacktest(d, Object.assign({}, cfg, { growth: 2 }), S).buys.map((b) => b.qty), [5, 40, 80]);
+});
 t('재생: cutRaw는 모든 배열을 같은 길이로 자름', () => {
   const raw = { d: ['2025-01-01', '2025-01-02', '2025-01-03'], o: [1, 2, 3], h: [1, 2, 3], l: [1, 2, 3], c: [1, 2, 3], v: [1, 1, 1], frgn: [5, null, 7], hasVol: true, flowUnit: 'shares' };
   const a = SM.cutRaw(raw, '2025-01-02'); assert.deepEqual(a.d, ['2025-01-01', '2025-01-02']); assert.deepEqual(a.frgn, [5, null]); assert.equal(a.hasVol, true); assert.equal(a.flowUnit, 'shares');

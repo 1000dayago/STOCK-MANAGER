@@ -1024,3 +1024,10 @@ table.cyc table.cycmini th.c-why, table.cyc table.cycmini td.c-why { min-width: 
 .chartbar .panelbtns .btn.on { opacity: 1; background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 700; }
 .chartbar .panelbtns + .btn { margin-left: 0; }
 .chartbar .panelbtns [hidden] { display: none; }
+
+/* 매수 규칙(규칙별 수량) */
+.cndbox-h .rq { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; font-size: 13px; color: var(--muted); }
+.cndbox-h .rq .inp { width: 72px; min-height: 30px; padding: 2px 8px; text-align: right; }
+.cndbox-h .rq i { font-style: normal; }
+.ruleadd { margin: 6px 0 10px; }
+.ruleadd .hint { margin: 6px 0 0; }

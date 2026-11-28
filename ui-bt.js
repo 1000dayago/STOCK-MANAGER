@@ -180,8 +180,11 @@
   function dropUnknown(node) { // 지워진 조건(예: 렌코)이 저장된 전략에 남아 있으면 문장에서 뺌
     node.items = node.items.filter((it) => (isLeaf(it) ? !!SM.COND_DEFS[it.type] : true)); node.items.forEach((it) => { if (!isLeaf(it)) dropUnknown(it); }); return node;
   }
-  function getSide(g) { const s0 = bt.cfg[g]; if (!s0.expr || !Array.isArray(s0.expr.items)) s0.expr = { op: s0.mode === 'OR' ? 'OR' : 'AND', items: (s0.conds || []).slice() }; dropUnknown(s0.expr); s0.conds = SM.exprLeaves(s0.expr); return s0; }
-  function syncSide(g) { const s0 = bt.cfg[g]; s0.conds = SM.exprLeaves(s0.expr); s0.mode = s0.expr.op; }
+  const isRuleG = (g) => /^r\d+$/.test(g), ruleIdx = (g) => Number(g.slice(1)) - 1; // 'r1','r2'… = 추가 매수 규칙(bt.cfg.rules[0], [1]…)
+  const rulesOf = () => (Array.isArray(bt.cfg.rules) ? bt.cfg.rules : (bt.cfg.rules = []));
+  const sideOf = (g) => (isRuleG(g) ? rulesOf()[ruleIdx(g)] : bt.cfg[g]);
+  function getSide(g) { const s0 = sideOf(g); if (!s0.expr || !Array.isArray(s0.expr.items)) s0.expr = { op: s0.mode === 'OR' ? 'OR' : 'AND', items: (s0.conds || []).slice() }; dropUnknown(s0.expr); s0.conds = SM.exprLeaves(s0.expr); return s0; }
+  function syncSide(g) { const s0 = sideOf(g); s0.conds = SM.exprLeaves(s0.expr); s0.mode = s0.expr.op; }
   const keysOf = (path) => (path === '' || path == null ? [] : String(path).split('.').map(Number));
   function nodeAt(g, path) { let n = getSide(g).expr; for (const k of keysOf(path)) n = n && n.items ? n.items[k] : null; return n; }
   function parentAt(g, path) { const ks = keysOf(path), idx = ks.pop(); return { parent: nodeAt(g, ks.join('.')), idx, ppath: ks.join('.') }; }
@@ -230,10 +233,10 @@
   function diagHtml(g) { // 신호 진단: 이 조건식이 참인 날 수
     const ds = curDS(); if (!ds) return '';
     const exprSide = getSide(g), st = SM.signalStats(ds.data, exprSide, { use: g === 'exits' ? 'exit' : 'entry', from: bt.cfg.from, to: bt.cfg.to });
-    const lab = g === 'entries' ? '매수' : '매도';
+    const lab = g !== 'exits' ? '매수' : '매도';
     if (st.error) return `<p class="diag warn">${ic('alert')} ${esc(st.error)}</p>`;
     if (st.empty) return '';
-    if (!st.leaves.some((x) => !x.dyn)) return g === 'entries' ? `<p class="diag">${ic('info')} 보유 상태에 따라 달라지는 조건만 있어 신호일을 미리 셀 수 없습니다.</p>` : ''; // 하락 시 추가 매수·손절 같은 조건만 있을 때
+    if (!st.leaves.some((x) => !x.dyn)) return g !== 'exits' ? `<p class="diag">${ic('info')} 보유 상태에 따라 달라지는 조건만 있어 신호일을 미리 셀 수 없습니다.</p>` : ''; // 하락 시 추가 매수·손절 같은 조건만 있을 때
     const pc = st.days ? ((st.signalDays / st.days) * 100).toFixed(1) : '0';
     const warn = [];
     if (st.signalDays === 0) warn.push(`${lab} 조건식이 이 기간에 한 번도 참이 아닙니다.`);
@@ -243,10 +246,12 @@
     return `<div class="diag ${warn.length ? 'bad' : ''}"><div class="diag-h">${lab} 신호일 <b>${st.signalDays}일</b> <small>(전체 ${st.days}일 중 ${pc}%${st.first ? ' · 첫 신호 ' + st.first : ''})</small></div>${warn.map((w) => `<p class="diag-w">${ic('alert')} ${esc(w)}</p>`).join('')}<details class="diag-d"><summary>조건별 참인 날</summary><div class="dgs">${lines}${st.hasDyn ? '<small class="muted">상태 의존 조건(하락 시 추가 매수 등)은 보유 상태에 따라 달라져 일수에서 제외했습니다.</small>' : ''}</div></details></div>`;
   }
   function condBox(g) {
-    const buy = g === 'entries', side = getSide(g), w = bt.wrap && bt.wrap.g === g;
+    const buy = g !== 'exits', side = getSide(g), w = bt.wrap && bt.wrap.g === g;
     const root = side.expr, empty = !root.items.filter((it) => !hiddenInTree(g, it)).length;
-    return `<div class="cndbox ${buy ? 'buy' : 'sell'}"><div class="cndbox-h"><b>${buy ? '매수 조건' : '매도 조건'}</b>
-        <span class="cndbox-tools">${w ? `<button type="button" class="btn sm primary" data-act="btWrapDo" data-g="${g}">선택 묶기 (${bt.wrap.sel.length})</button><button type="button" class="btn sm" data-act="btWrapToggle" data-g="${g}">취소</button>` : `<button type="button" class="btn sm" data-act="btWrapToggle" data-g="${g}" title="조건 둘 이상을 골라 괄호로 묶음">( ) 묶기</button>`}</span></div>
+    const nRules = rulesOf().length, rule = isRuleG(g), head = rule ? `매수 규칙 ${ruleIdx(g) + 2}` : (buy ? (nRules ? '매수 규칙 1 · 기본 수량' : '매수 조건') : '매도 조건');
+    const qtyBox = rule ? `<label class="rq">수량 <input class="inp" data-btrq="${ruleIdx(g)}" value="${esc(rulesOf()[ruleIdx(g)].qty != null ? rulesOf()[ruleIdx(g)].qty : '')}" inputmode="decimal"><i>${bt.cfg.qtyMode === 'amount' ? '원' : '주'}</i></label>` : '';
+    return `<div class="cndbox ${buy ? 'buy' : 'sell'}" id="cnd-${g}"><div class="cndbox-h"><b>${head}</b>${qtyBox}
+        <span class="cndbox-tools">${rule ? `<button type="button" class="btn sm danger" data-act="btRuleDel" data-v="${ruleIdx(g)}">규칙 삭제</button>` : ''}${w ? `<button type="button" class="btn sm primary" data-act="btWrapDo" data-g="${g}">선택 묶기 (${bt.wrap.sel.length})</button><button type="button" class="btn sm" data-act="btWrapToggle" data-g="${g}">취소</button>` : `<button type="button" class="btn sm" data-act="btWrapToggle" data-g="${g}" title="조건 둘 이상을 골라 괄호로 묶음">( ) 묶기</button>`}</span></div>
       <div class="sent" id="sent-${g}">${empty ? `<span class="cnd-empty">${buy ? '조건을 추가하세요 (없으면 매수하지 않음)' : '조건을 추가하세요 (없으면 기간 끝까지 보유)'}</span>` : renderNode(g, root, '', 0)}<span class="sent-sfx">일 때 ${buy ? '매수' : '매도'}</span></div>
       ${w ? '<p class="cnd-help">묶을 조건(또는 괄호)을 같은 층에서 둘 이상 고른 뒤 “선택 묶기”를 누르세요.</p>' : ''}
       ${empty ? `<button type="button" class="cnd-add" data-act="btPickOpen" data-g="${g}" data-path="">＋ ${buy ? '매수' : '매도'} 조건 추가</button>` : ''}
@@ -254,12 +259,16 @@
       ${root.items.filter((it) => !hiddenInTree(g, it)).length > 1 ? `<p class="sent-plain">${exprPlain(g, root)} 일 때 ${buy ? '매수' : '매도'}</p>` : ''}
       <div class="eds">${editorsHtml(g)}</div>${diagHtml(g)}</div>`;
   }
+  function rulesHint() { // 규칙별 수량: 규칙 추가 버튼과 설명
+    const n = rulesOf().length;
+    return `<div class="ruleadd"><button type="button" class="btn sm" data-act="btRuleAdd">＋ 매수 규칙 추가 (조건마다 수량 다르게)</button>${n ? '<p class="hint">여러 규칙이 같은 날 참이면 <b>수량이 가장 큰 규칙 하나만</b> 매수합니다. 수량 배수(물타기)는 규칙 수량 위에 곱해집니다. 아래 최대 횟수·투입금은 모든 규칙에 공통입니다.</p>' : ''}</div>`;
+  }
   function pickerHtml() {
     const pk = bt.picker; if (!pk) return '';
-    const g = pk.g, want = g === 'entries' ? (d) => d.use !== 'exit' : (d) => d.use !== 'entry', groups = {};
+    const g = pk.g, want = g !== 'exits' ? (d) => d.use !== 'exit' : (d) => d.use !== 'entry', groups = {};
     Object.entries(SM.COND_DEFS).filter(([, d]) => want(d)).forEach(([k, d]) => { (groups[d.group] = groups[d.group] || []).push(k); });
     const names = Object.keys(groups), cur = names.includes(bt.pickGroup) ? bt.pickGroup : names[0];
-    return `<div class="sheet-bg" data-act="btPickClose"></div><div class="sheet ${g === 'entries' ? 'buy' : 'sell'}" role="dialog" aria-label="조건 고르기"><div class="sheet-h"><b>${g === 'entries' ? '매수' : '매도'} 조건 고르기</b><button type="button" class="btn sm" data-act="btPickClose">닫기</button></div>
+    return `<div class="sheet-bg" data-act="btPickClose"></div><div class="sheet ${g !== 'exits' ? 'buy' : 'sell'}" role="dialog" aria-label="조건 고르기"><div class="sheet-h"><b>${g !== 'exits' ? '매수' : '매도'} 조건 고르기</b><button type="button" class="btn sm" data-act="btPickClose">닫기</button></div>
       <div class="chips pick-tabs" role="tablist">${names.map((n) => `<button type="button" class="chip ${n === cur ? 'on' : ''}" data-act="btPickTab" data-v="${esc(n)}">${esc(n)}</button>`).join('')}</div>
       <div class="pick-list">${groups[cur].map((k) => `<button type="button" class="pickrow" data-act="btPick" data-t="${k}"><b>${esc(COND_SHORT[k] || SM.COND_DEFS[k].label)}</b><small>${esc(SM.COND_DEFS[k].label)}</small></button>`).join('')}</div></div>`;
   }
@@ -267,7 +276,7 @@
     const c = leafAtPath(g, path); if (!c) return;
     document.querySelectorAll(`.tok[data-g="${g}"][data-path="${path}"] .tok-b`).forEach((el) => { el.innerHTML = condSummary(c); });
     const pl = document.querySelector(`#sent-${g}`); void pl;
-    const pe = document.querySelector(`.cndbox.${g === 'entries' ? 'buy' : 'sell'} .sent-plain`); if (pe) pe.innerHTML = `${exprPlain(g, getSide(g).expr)} 일 때 ${g === 'entries' ? '매수' : '매도'}`;
+    const pe = document.querySelector(`#cnd-${g} .sent-plain`); if (pe) pe.innerHTML = `${exprPlain(g, getSide(g).expr)} 일 때 ${g !== 'exits' ? '매수' : '매도'}`;
   }
 
   function dsSelectOptions(ds, keys) {
@@ -291,7 +300,7 @@
   function dataInfoCard(ds) {
     if (!ds) return '';
     const inf = SM.dataInfo(ds.data, { from: bt.cfg.from, to: bt.cfg.to });
-    const eff = bt.cfg, usesFlow = [].concat(SM.exprLeaves(SM.exprOf(eff.entries)), SM.exprLeaves(SM.exprOf(eff.exits))).some((c) => c.type === 'flow' || c.type === 'flowSum');
+    const eff = bt.cfg, usesFlow = [].concat(SM.exprLeaves(SM.exprOf(eff.entries)), ...(eff.rules || []).map((r) => SM.exprLeaves(SM.exprOf(r))), SM.exprLeaves(SM.exprOf(eff.exits))).some((c) => c.type === 'flow' || c.type === 'flowSum');
     const warn = [];
     if (!inf.anyFlow) warn.push(usesFlow ? '이 데이터에는 수급이 없는데 전략에 수급 조건이 있습니다. 시뮬레이션을 실행하면 오류가 납니다. 위 “자동 수집 시세·수급 불러오기”나 수급 파일로 먼저 합치세요.' : '수급이 없습니다. 외국인·기관 조건을 쓰려면 수급을 합쳐야 합니다.');
     else {
@@ -405,7 +414,7 @@
           <button class="btn sm primary" data-act="btStratSave">저장</button>${bt.strategyId ? '<button class="btn sm danger" data-act="btStratDel">삭제</button>' : ''}<button class="btn sm" data-act="btStratNew">새로 만들기</button></div>
       </div>
       ${sgrid(c, !custom)}
-      ${condBox('entries')}${condBox('exits')}
+      ${condBox('entries')}${rulesOf().map((_, k) => condBox('r' + (k + 1))).join('')}${rulesHint()}${condBox('exits')}
       <div class="btns">${custom ? '' : '<button class="btn sm" data-act="btPreset">물타기 기본값으로 되돌리기</button>'}</div>
       <details class="box"><summary>고급 설정 <small class="muted">(체결 방식 · 수수료 · 기간 분할 검증)</small></summary>
         <div class="ios-list">
@@ -818,6 +827,8 @@
   Object.assign(H, {
     btRepoRefresh: async () => { SM.data.clear(); repo.cache = {}; repo.initP = null; await A.btRepoInit(true); toast('저장소의 최신 목록을 읽었습니다'); },
     btDSDel: () => { if (isRepoId(bt.datasetId)) return toast('자동 수집 데이터는 삭제하지 않습니다. 수집 대상에서 빼면 목록에서 사라집니다.', true); if (!confirm('이 가격 데이터를 삭제할까요?')) return; const ds = loadDS(); delete ds[bt.datasetId]; saveDS(ds); bt.datasetId = null; bt.result = null; bt.val = null; bt.cmp = null; A.render(); },
+    btRuleAdd: () => { const rs = rulesOf(), q = Number(bt.cfg.qty) > 0 ? Number(bt.cfg.qty) * 2 : 20; rs.push({ qty: q, mode: 'AND', conds: [], expr: { op: 'AND', items: [] } }); bt.condOpen = ''; bt.wrap = null; A.render(); },
+    btRuleDel: (el) => { const rs = rulesOf(); rs.splice(Number(el.dataset.v), 1); bt.condOpen = ''; bt.wrap = null; bt.result = null; A.render(); },
     btDel: (el) => {
       const g = el.dataset.g, { parent, idx } = parentAt(g, el.dataset.path); if (!parent) return;
       parent.items.splice(idx, 1); tidy(getSide(g).expr); syncSide(g); bt.condOpen = ''; A.render();
@@ -1142,6 +1153,7 @@
   A.inputHandlers.bt = (el) => {
     if (el.dataset.btp) { const [g, path, k] = el.dataset.btp.split('|'); const c = leafAtPath(g, path); if (c) { c[k] = el.value; condRefreshPath(g, path); } }
     else if (el.dataset.btc) bt.cfg[el.dataset.btc] = el.value;
+    else if (el.dataset.btrq != null) { const r = rulesOf()[Number(el.dataset.btrq)]; if (r) r.qty = el.value; }
     else if (el.dataset.btsplit) bt.splitPct = el.value;
     else if (el.dataset.rp) rpInput(el);
     else if (el.dataset.btimp) bt.imp[el.dataset.btimp] = el.value;
