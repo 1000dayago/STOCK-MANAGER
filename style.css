@@ -1014,3 +1014,6 @@ body.ios-sim .ios-seg button { font-size: 13.5px; padding: 9px 4px; }
 /* 세부 사이클 표: 조건 열이 한 글자씩 줄바꿈되지 않게 최소 너비를 주고, 표가 넓으면 펼친 영역 안에서 가로로 밀어 봄 */
 table.cyc table.cycmini { min-width: 720px; width: max-content; }
 table.cyc table.cycmini th.c-why, table.cyc table.cycmini td.c-why { min-width: 170px; max-width: 260px; text-align: left; white-space: normal; font-size: 11.5px; line-height: 1.35; }
+/* 전략 저장·불러오기: 전략 카드 맨 위에 항상 보임 */
+.stratsave { margin: 0 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); } .stratsave .stratbar { margin-bottom: 0; }
+.stratsave .stratbar select.inp { flex: 1 1 100%; }

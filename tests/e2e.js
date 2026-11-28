@@ -119,6 +119,17 @@ function fixtures() {
         await page.click('.cndbox.buy .tok-b'); ok('불러온 조건을 눌러 바로 값을 수정할 수 있음', (await page.$('.cndbox.buy .tok-ed.show')) !== null);
         await page.click('[data-act=btMode2][data-v=mg]'); await page.waitForSelector('.sgrid');
         await page.evaluate(() => { SM.app.ui.bt.modeCfg.custom = SM.blankCfg(); }); } // 뒤의 검사는 비어 있는 직접 조건에서 시작
+      { // 전략 저장·불러오기: 고급 설정을 열지 않아도 항상 보임
+        ok('전략 저장·불러오기 줄이 전략 카드 맨 위에 항상 보임(고급 설정을 열지 않아도)', (await page.isVisible('#stratName')) && (await page.isVisible('[data-act=btStratSave]')) && (await page.isVisible('[data-change=btStratPick]')) && (await page.evaluate(() => !document.querySelector('details.box:has(summary)') || ![...document.querySelectorAll('details.box')].some((d) => /고급 설정/.test(d.textContent.slice(0, 12)) && d.open))));
+        await page.fill('#stratName', '저장 시험 전략'); await page.click('[data-act=btStratSave]'); await page.waitForTimeout(150);
+        const sv = await page.evaluate(() => { const l = SM.app.getState().strategies; return { n: l.length, name: l[0] && l[0].name, e: l[0] && SM.exprLeaves(SM.exprOf(l[0].cfg.entries)).map((x) => x.type).join(), from: l[0] && l[0].cfg.from }; });
+        ok('저장: 이름·조건 문장이 전략 목록에 들어가고 기간은 저장하지 않음', sv.n === 1 && sv.name === '저장 시험 전략' && sv.e === 'maSlope,dropLast' && sv.from === '', sv);
+        ok('저장한 전략이 불러오기 목록에 나타남', (await page.$$eval('[data-change=btStratPick] option', (e) => e.map((x) => x.textContent))).includes('저장 시험 전략'));
+        await page.evaluate(() => { const id = SM.app.getState().strategies[0].id; const sel = document.querySelector('[data-change=btStratPick]'); sel.value = id; sel.dispatchEvent(new Event('change', { bubbles: true })); }); await page.waitForSelector('[data-act=btStratDel]');
+        ok('불러오기: 직접 조건 만들기로 열리고 삭제 버튼이 나타남', (await page.evaluate(() => SM.app.ui.bt.mode)) === 'custom' && /하락 시 추가 매수/.test(await page.textContent('#sent-entries')));
+        await page.evaluate(() => { SM.app.getState().strategies.length = 0; SM.app.ui.bt.strategyId = ''; SM.app.save(); }); // 뒤의 검사에 영향이 없게 정리
+        await page.click('[data-act=btMode2][data-v=mg]'); await page.waitForSelector('.sgrid'); await page.evaluate(() => { SM.app.ui.bt.modeCfg.custom = SM.blankCfg(); }); }
+
       await page.fill('[data-btc=qty]', '10'); await page.fill('[data-btc=growth]', '2'); await page.fill('[data-btc=maxInvest]', '50,000,000');
       await page.evaluate(() => { const b = SM.app.ui.bt.cfg, mk = (t, o) => Object.assign(SM.app.ui.bt.cfg && { type: t }, o); b.entries.expr = { op: 'AND', items: [mk('dropLast', { pct: 3, basis: 'last', first: 'yes' })] }; b.entries.conds = SM.exprLeaves(b.entries.expr); b.exits.expr = { op: 'OR', items: [mk('avgPct', { dir: 'up', pct: 2 }), mk('avgPct', { dir: 'down', pct: 20 })] }; b.exits.conds = SM.exprLeaves(b.exits.expr); SM.app.render(); });
       await page.click('[data-act=btRun]'); await page.waitForSelector('table.cyc', { timeout: 10000 });

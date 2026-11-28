@@ -399,19 +399,21 @@
     ${bt.mode !== 'example' ? `
     <h3 class="sim-h">② 전략 <small>${custom ? '조건을 직접 조합 (비어 있음)' : '물타기 기본값 · 조건은 바꿔 쓰세요'}</small></h3>
     <section class="card">
+      <div class="stratsave" aria-label="전략 저장·불러오기">
+        <div class="stratbar"><select class="inp" data-change="btStratPick"><option value="">저장된 전략 불러오기…</option>${st.map((x) => `<option value="${x.id}" ${bt.strategyId === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
+          <input id="stratName" class="inp" placeholder="전략 이름" value="${esc((st.find((x) => x.id === bt.strategyId) || {}).name || '')}">
+          <button class="btn sm primary" data-act="btStratSave">저장</button>${bt.strategyId ? '<button class="btn sm danger" data-act="btStratDel">삭제</button>' : ''}<button class="btn sm" data-act="btStratNew">새로 만들기</button></div>
+      </div>
       ${sgrid(c, !custom)}
       ${condBox('entries')}${condBox('exits')}
       <div class="btns">${custom ? '' : '<button class="btn sm" data-act="btPreset">물타기 기본값으로 되돌리기</button>'}</div>
-      <details class="box"><summary>고급 설정 <small class="muted">(체결 방식 · 수수료 · 전략 저장 · 기간 분할 검증)</small></summary>
+      <details class="box"><summary>고급 설정 <small class="muted">(체결 방식 · 수수료 · 기간 분할 검증)</small></summary>
         <div class="ios-list">
           <div class="ios-row stack"><span>체결 방식</span><span class="rowr">${seg('fill', [['nextOpen', '다음 날 시가'], ['close', '당일 종가']], c.fill)}</span></div>
           <div class="ios-row stack"><span>수수료·세금 기준</span><span class="rowr">${seg('market', [['KR', '국내'], ['US', '해외']], c.market)}</span></div>
         </div>
         
-        <h4>전략 저장 · 불러오기</h4>
-        <div class="stratbar"><select class="inp" data-change="btStratPick"><option value="">저장된 전략 불러오기…</option>${st.map((x) => `<option value="${x.id}" ${bt.strategyId === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
-          <input id="stratName" class="inp" placeholder="전략 이름" value="${esc((st.find((x) => x.id === bt.strategyId) || {}).name || '')}">
-          <button class="btn sm primary" data-act="btStratSave">저장</button>${bt.strategyId ? '<button class="btn sm danger" data-act="btStratDel">삭제</button>' : ''}<button class="btn sm" data-act="btStratNew">새로 만들기</button></div>
+
       <div class="box2"><label class="chk"><input type="checkbox" data-change="btValidate" ${bt.validate ? 'checked' : ''}> <b>기간 분할 검증</b> — 앞 구간에서 만든 전략이 뒤 구간에서도 통하는지 확인</label>
         ${bt.validate ? `<div class="row gap wrap"><label class="mini">앞 구간 비율 %<input class="inp" data-btsplit="1" value="${bt.splitPct}" inputmode="numeric" style="width:90px"></label><span class="hint">전체 기간의 앞 ${bt.splitPct}%를 “설정용”, 나머지를 “검증용”으로 나눠 각각 돌립니다.</span></div>` : '<p class="hint">조건과 숫자를 마음껏 바꾸다 보면 과거에만 딱 맞는 설정이 만들어지기 쉽습니다. 이 옵션을 켜면 설정하지 않은 구간에서의 결과를 함께 보여줍니다.</p>'}</div>
       </details>
