@@ -110,6 +110,7 @@ function fixtures() {
       { // 기본 제공 전략: 탭 없이 하나의 전략 화면, 물타기 기본값·예시 5가지는 ‘저장된 전략’으로 들어 있음
         ok('탭(물타기 전략·직접 조건 만들기·예시)이 없고 처음 화면은 물타기 기본값이 채워진 전략 화면', (await page.$('.ios-seg')) === null && (await page.$('[data-act=btMode2]')) === null && (await page.$('.excard')) === null && (await page.$('.cndbox.buy')) !== null && Number(await page.evaluate(() => SM.app.ui.bt.cfg.growth)) === 2);
         const names = await page.$$eval('[data-change=btStratPick] option', (e) => e.map((x) => x.textContent.trim()));
+        ok('기본 제공 목록 맨 위는 볼린저 하단 전략', /볼린저 하단/.test(names[1]), names.slice(0, 3));
         ok('불러오기 목록에 물타기 기본값과 예시 5가지가 들어 있음', names.includes('물타기 기본값') && names.filter((x) => /^예시 · /.test(x)).length === 5 && names.some((x) => /5일 급락 \+ 양봉/.test(x)), names);
         if (process.env.EXT_SHOT) await page.screenshot({ path: process.env.EXT_SHOT, fullPage: false });
         const pick = (id) => page.evaluate((v) => { const sel = document.querySelector('[data-change=btStratPick]'); sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); }, id);

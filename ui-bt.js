@@ -362,6 +362,8 @@
     }
     if (changed) A.save();
   }
+  const SEED_ORDER = ['seed-k-bb', 'seed-mg', 'seed-k-dip5', 'seed-k-rsi', 'seed-k-ma20', 'seed-k-ma60']; // 기본 제공 전략의 목록 순서(볼린저 하단이 맨 위)
+  const orderedStrats = (list) => { const rank = (x) => { const i = SEED_ORDER.indexOf(x.id); return i < 0 ? 1e6 : i; }; return list.map((x, i) => [x, i]).sort((a, b) => (rank(a[0]) - rank(b[0])) || (a[1] - b[1])).map((q) => q[0]); }; // 기본 제공이 먼저, 내 전략은 저장한 순서대로
   const stratNote = (list) => { const x = list.find((q) => q.id === bt.strategyId); return x && x.note ? `<p class="hint stratnote">${esc(x.note)}</p>` : ''; };
   A.renderers.btMain = function () {
     seedStrategies();
@@ -397,7 +399,7 @@
     <h3 class="sim-h">② 전략 <small>저장된 전략을 불러오거나 조건을 직접 조합</small></h3>
     <section class="card">
       <div class="stratsave" aria-label="전략 저장·불러오기">
-        <div class="stratbar"><select class="inp" data-change="btStratPick"><option value="">저장된 전략 불러오기…</option>${st.map((x) => `<option value="${x.id}" ${bt.strategyId === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
+        <div class="stratbar"><select class="inp" data-change="btStratPick"><option value="">저장된 전략 불러오기…</option>${orderedStrats(st).map((x) => `<option value="${x.id}" ${bt.strategyId === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
           <input id="stratName" class="inp" placeholder="전략 이름" value="${esc((st.find((x) => x.id === bt.strategyId) || {}).name || '')}">
           <button class="btn sm primary" data-act="btStratSave">저장</button>${bt.strategyId ? '<button class="btn sm danger" data-act="btStratDel">삭제</button>' : ''}<button class="btn sm" data-act="btStratNew">새로 만들기</button></div>
       </div>
