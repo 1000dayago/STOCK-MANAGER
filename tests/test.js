@@ -215,6 +215,23 @@ t('종목 일괄 비교 요약: 이익 종목 수·수익률 중앙값·뒤 구�
   assert.equal(r.n, 5); assert.equal(r.ran, 4); assert.equal(r.win, 3); assert(Math.abs(r.medRet - 0.065) < 1e-9); assert.equal(r.tested, 3); assert.equal(r.lateWin, 2); assert.equal(r.withBh, 3); assert.equal(r.beatBh, 1);
   assert.deepEqual(SM.summarizeMulti([]), { n: 0, ran: 0, win: 0, medRet: null, tested: 0, lateWin: 0, beatBh: 0, withBh: 0 });
 });
+t('새 조건 11종: 등락률·연속·갭·낙폭·반등·봉·이격도·정배열·스토캐스틱·밴드폭·불타기', () => {
+  const mkd = (c, o) => { const d = { d: [], o: o || c.slice(), h: [], l: [], c: c.slice(), v: c.map(() => 1000), hasVol: true, hasHL: true }, dt = new Date('2024-11-01'); c.forEach((x, i) => { d.d.push(dt.toISOString().slice(0, 10)); dt.setDate(dt.getDate() + 1); d.h.push(Math.max(d.o[i], x)); d.l.push(Math.min(d.o[i], x)); }); return d; };
+  const A = mkd([100, 102, 104, 103, 101, 99, 100, 105, 110, 108], [100, 100, 102, 104, 103, 101, 99, 96, 105, 110]);
+  const days = (d, cond) => { const st = SM.signalStats(d, { expr: { op: 'AND', items: [cond] } }); return st.leaves[0].days; }, daysAt = (d, cond) => { const idx = []; const st = SM.signalStats(d, { expr: { op: 'AND', items: [cond] } }); void st; return idx; }; void daysAt;
+  assert.equal(days(A, { type: 'retN', n: 2, op: 'gte', v: 5 }), 2); // 7번째(105/99), 8번째(110/100)
+  assert.equal(days(A, { type: 'streakDays', n: 2, dir: 'up' }), 3);
+  assert.equal(days(A, { type: 'gapOpen', dir: 'down', pct: 2 }), 1); assert.equal(days(A, { type: 'gapOpen', dir: 'up', pct: 2 }), 0);
+  assert.equal(days(A, { type: 'candle', dir: 'up', pct: 1 }), 5); assert.equal(days(A, { type: 'candle', dir: 'down', pct: 1 }), 3);
+  assert.equal(days(A, { type: 'fromHigh', n: 3, pct: 3 }), 1); assert.equal(days(A, { type: 'fromLow', n: 3, pct: 5 }), 3);
+  assert.equal(days(A, { type: 'stoch', n: 3, op: 'lte', v: 20 }), 2); assert.equal(days(A, { type: 'maGap', ma: 'sma', n: 3, dir: 'below', pct: 1 }), 2);
+  const D = mkd([20, 19, 18, 17, 16, 15, 14, 13, 12, 11]); assert.equal(days(D, { type: 'maAlign', ma: 'sma', s: 2, m: 3, l: 4, dir: 'down' }), 7); assert.equal(days(D, { type: 'maAlign', ma: 'sma', s: 2, m: 3, l: 4, dir: 'up' }), 0);
+  const F = mkd([100, 100, 100, 100, 100, 100, 100, 100, 100, 100]); assert.equal(days(F, { type: 'bbWidth', n: 3, k: 2, op: 'lte', v: 1 }), 8); assert.equal(days(F, { type: 'bbWidth', n: 3, k: 2, op: 'gte', v: 1 }), 0);
+  // 불타기: 직전 매수가보다 5% 오를 때마다 추가 매수(첫 매수는 바로)
+  const U = mkd([100, 100, 106, 112, 119, 119]);
+  const r = SM.runBacktest(U, mk([{ type: 'riseLast', pct: 5, basis: 'last', first: 'yes' }], [], { fill: 'close', qty: 1, growth: 1 }), S); assert.deepEqual(r.buys.map((b) => b.i), [0, 2, 3, 4]);
+  for (const k of ['retN', 'streakDays', 'gapOpen', 'fromHigh', 'fromLow', 'candle', 'stoch', 'bbWidth', 'maGap', 'maAlign', 'riseLast']) assert(SM.COND_DEFS[k] && SM.COND_DEFS[k].params.length, k);
+});
 t('재생: cutRaw는 모든 배열을 같은 길이로 자름', () => {
   const raw = { d: ['2025-01-01', '2025-01-02', '2025-01-03'], o: [1, 2, 3], h: [1, 2, 3], l: [1, 2, 3], c: [1, 2, 3], v: [1, 1, 1], frgn: [5, null, 7], hasVol: true, flowUnit: 'shares' };
   const a = SM.cutRaw(raw, '2025-01-02'); assert.deepEqual(a.d, ['2025-01-01', '2025-01-02']); assert.deepEqual(a.frgn, [5, null]); assert.equal(a.hasVol, true); assert.equal(a.flowUnit, 'shares');

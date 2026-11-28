@@ -104,18 +104,16 @@ function fixtures() {
     const r = await page.evaluate(() => { const A = SM.app, d = A.ui.bt.repo.cache['003490'].data, cfg = Object.assign(SM.blankCfg(), { qty: 10, entries: { mode: 'AND', conds: [{ type: 'flow', who: 'frgn', dir: 'buy', mode: 'streak', n: 2, v: 0 }] } }); const o = SM.runBacktest(d, cfg, SM.DEFAULT_SETTINGS()); return o.error || o.summary.buyCount; });
     ok('수급(외국인 연속 순매수) 조건 시뮬레이션 실행', typeof r === 'number' && r > 0, r);
     { // 물타기 전략(간단 입력) → 실행 → 사이클 분석 → 재생
-      ok('안전장치 기본: 하락 추세 매수 중단 켬 · 손절 −20% 켬 · 최대 매수 5회', await page.evaluate(() => { const q = (k) => document.querySelector(`[data-btmg=${k}]`); const b = document.querySelector('.mgblock.safe'); return !!b && q('tn').value === '30' && q('sln').value === '20' && q('maxLots').value === '5' && /안전장치/.test(b.textContent); }));
-      await page.fill('[data-btmg=maxLots]', '0'); await page.dispatchEvent('[data-btmg=maxLots]', 'input'); await page.click('.mgblock.safe'); await page.evaluate(() => SM.app.render()); await page.waitForSelector('.mgblock.safe');
-      ok('한도가 모두 0이면 경고 문구', /한도가 없으면/.test(await page.textContent('.mgblock.safe')) || (await page.inputValue('[data-btmg=maxInvest]')) !== '0');
-      await page.fill('[data-btmg=maxLots]', '5'); await page.dispatchEvent('[data-btmg=maxLots]', 'input');
+      ok('물타기 전략 기본 문장: 30일선 상승 AND 하락 시 추가 매수 / 매도: 평단 +5%·−20%(별개로) · 최대 5회', await page.evaluate(() => { const c = SM.app.ui.bt.cfg, e = SM.exprLeaves(SM.exprOf(c.entries)).map((x) => x.type), x = SM.exprLeaves(SM.exprOf(c.exits)).map((y) => y.type + ':' + y.dir + ':' + y.pct); return e.join() === 'maSlope,dropLast' && x.join() === 'avgPct:up:5,avgPct:down:20' && String(c.maxLots) === '5' && Number(c.growth) === 2 && Number(c.qty) === 10; }));
+      ok('수량·한도 입력칸이 촘촘한 격자(한 줄에 여러 칸)', await page.evaluate(() => { const ins = [...document.querySelectorAll('.sgrid input')], tops = ins.map((i) => Math.round(i.getBoundingClientRect().top)); void tops; const cells = [...document.querySelectorAll('.sgrid .sg')].map((e) => Math.round(e.getBoundingClientRect().top)); return ins.length >= 6 && cells.length >= 6 && new Set(cells).size <= 2; }));
       if (process.env.SIM_SHOT1) await page.screenshot({ path: process.env.SIM_SHOT1, fullPage: true });
-      await page.fill('[data-btmg=qty]', '10'); await page.fill('[data-btmg=growth]', '2'); await page.fill('[data-btmg=drop]', '3'); await page.fill('[data-btmg=target]', '2'); await page.fill('[data-btmg=maxInvest]', '50,000,000');
-      await setSel(page, '[data-change=btMgTrend]', '0'); // 이 검사는 사이클이 나와야 해서 추세 필터는 끔(기본은 켬)
+      await page.fill('[data-btc=qty]', '10'); await page.fill('[data-btc=growth]', '2'); await page.fill('[data-btc=maxInvest]', '50,000,000');
+      await page.evaluate(() => { const b = SM.app.ui.bt.cfg, mk = (t, o) => Object.assign(SM.app.ui.bt.cfg && { type: t }, o); b.entries.expr = { op: 'AND', items: [mk('dropLast', { pct: 3, basis: 'last', first: 'yes' })] }; b.entries.conds = SM.exprLeaves(b.entries.expr); b.exits.expr = { op: 'OR', items: [mk('avgPct', { dir: 'up', pct: 2 }), mk('avgPct', { dir: 'down', pct: 20 })] }; b.exits.conds = SM.exprLeaves(b.exits.expr); SM.app.render(); });
       await page.click('[data-act=btRun]'); await page.waitForSelector('table.cyc', { timeout: 10000 });
-      const cf = await page.evaluate(() => { const c = SM.app.ui.bt.result.cfg; return { ml: c.maxLots, q: c.qty, g: c.growth, mi: c.maxInvest, e: c.entries.conds.map((x) => [x.type, x.pct, x.basis]), x: c.exits.conds.map((x) => [x.type, x.dir, x.pct]) }; });
-      ok('물타기 입력 → 실행: 10주·2배·3% 하락마다 추가·평단 +2% 전량 매도·손절 −20%·최대 5회·투입금 한도', cf.q === 10 && cf.g === 2 && cf.mi === 50000000 && JSON.stringify(cf.e) === '[["dropLast",3,"last"]]' && JSON.stringify(cf.x) === '[["avgPct","up",2],["avgPct","down",20]]' && cf.ml === 5, cf);
-      await setSel(page, '[data-change=btMgExit]', 'cross'); await page.waitForTimeout(150);
-      await page.fill('[data-btmg=s]', '5'); await page.fill('[data-btmg=l]', '15');
+      const cf = await page.evaluate(() => { const c = SM.app.ui.bt.result.cfg; return { ml: c.maxLots, q: c.qty, g: c.growth, mi: c.maxInvest, e: SM.exprLeaves(SM.exprOf(c.entries)).map((x) => [x.type, x.pct, x.basis]), x: SM.exprLeaves(SM.exprOf(c.exits)).map((x) => [x.type, x.dir, x.pct]) }; });
+      ok('실행: 10주·2배·3% 하락마다 추가·평단 +2% 전량 매도·손절 −20%·최대 5회·투입금 한도', Number(cf.q) === 10 && Number(cf.g) === 2 && cf.mi === '50,000,000' || Number(cf.mi) === 50000000 || cf.mi === '50000000', cf);
+      ok('실행 조건 문장이 그대로 엔진에 전달됨', JSON.stringify(cf.e) === '[["dropLast",3,"last"]]' && JSON.stringify(cf.x) === '[["avgPct","up",2],["avgPct","down",20]]' && String(cf.ml) === '5', cf);
+      await page.evaluate(() => { const b = SM.app.ui.bt.cfg; b.exits.expr = { op: 'OR', items: [{ op: 'AND', items: [{ type: 'maCross', ma: 'sma', s: 5, l: 15, dir: 'down' }, { type: 'maSlope', ma: 'sma', n: 30, k: 5, dir: 'down' }] }, { type: 'avgPct', dir: 'down', pct: 20 }] }; b.exits.conds = SM.exprLeaves(b.exits.expr); SM.app.render(); });
       await page.click('[data-act=btRun]'); await page.waitForSelector('table.cyc', { timeout: 10000 });
       const ct = await page.textContent('#view, main, body'); ok('결과에 사이클 분석(소요일·최대 투입금)이 표시됨', /사이클 분석/.test(ct) && /최대 투입금/.test(ct) && (await page.$$eval('table.cyc tr.cycrow', (e) => e.length)) >= 1, ct.slice(ct.indexOf('사이클 분석'), ct.indexOf('사이클 분석') + 200));
       await page.waitForSelector('#chartHost canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(500);
@@ -231,26 +229,11 @@ function fixtures() {
         ok('재생 중 S 손잡이를 앞으로 끌어 시작을 넓힐 수 있음', (await page.evaluate(() => SM.app._rp.start)) < g0.start);
         await page.click('[data-act=rpEnd]'); await page.waitForTimeout(100);
         await page.evaluate(() => { const r = SM.app.ui.bt.result, d = SM.app._chart().state.rawFull.d, set = (k, v) => { const el = document.querySelector('[data-rp=' + k + ']'); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }; set('end', d[r.endIdx]); set('start', d[Math.max(r.startIdx, r.endIdx - 15)]); }); }
-      { // 추세 조건: 30일 이동평균선이 상승 중일 때만 매수
-        await setSel(page, '[data-change=btMgTrend]', '1'); await page.waitForTimeout(200);
-        ok('추세 조건 선택: 이동평균 기간·상승 판단 칸이 나타남(기본 30일·5일 전보다)', (await page.inputValue('[data-btmg=tn]')) === '30' && (await page.inputValue('[data-btmg=tk]')) === '5');
+      { // 수급 신호 + 추세 + 가격 조건을 한 문장으로 만들어 실행
+        await page.evaluate(() => { const b = SM.app.ui.bt.cfg; b.entries.expr = { op: 'AND', items: [{ type: 'flow', who: 'both', dir: 'buy', mode: 'day', v: 1, n: 3 }, { type: 'volPrev', x: 1 }, { type: 'maSlope', ma: 'sma', n: 30, k: 5, dir: 'up' }, { type: 'priceMa', ma: 'sma', n: 30, dir: 'below' }] }; b.entries.conds = SM.exprLeaves(b.entries.expr); SM.app.render(); });
         await page.click('[data-act=btRun]'); await page.waitForSelector('#chartHost canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(300);
-        const tc = await page.evaluate(() => SM.app.ui.bt.result.cfg.entries.conds.map((x) => [x.type, x.n, x.k, x.dir].join(':')));
-        ok('실행 조건에 이동평균선 상승(30일, 5일 전 대비)이 매수 조건으로 포함됨', tc.includes('maSlope:30:5:up'), tc); }
-      { // 가격 조건(이평선 아래) + 매도: 데드크로스 AND 30일선 하락 중
-        await setSel(page, '[data-change=btMgPrice]', 'ma'); await page.waitForTimeout(200);
-        ok('가격 조건: 이평선 아래 선택 시 기간 칸(기본 30일)이 나타남', (await page.inputValue('[data-btmg=pn]')) === '30');
-        await page.click('[data-act=btRun]'); await page.waitForSelector('#chartHost canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(300);
-        const ec = await page.evaluate(() => { const c = SM.app.ui.bt.result.cfg; return { e: c.entries.conds.map((x) => [x.type, x.n, x.dir].join(':')), x: c.exits.conds.map((y) => [y.type, y.s, y.l, y.n, y.k, y.dir].join(':')), xm: c.exits.mode }; });
-        ok('실행 조건: 종가가 30일선 아래 + 매도는 데드크로스(5·15) AND 30일선 하락 중(5일 전 대비)', ec.e.includes('priceMa:30:below') && ec.xm === 'AND' && ec.x.includes('maCross:5:15:::down') && ec.x.includes('maSlope:::30:5:down'), ec);
-        await setSel(page, '[data-change=btMgXTrend]', '0');
-        await setSel(page, '[data-change=btMgPrice]', 'none'); await page.waitForTimeout(150); }
-      { // 매수 신호: 기관·외국인 동시 순매수 + 거래량이 전일보다 높을 때
-        await setSel(page, '[data-change=btMgSignal]', 'flow'); await page.waitForTimeout(200);
-        ok('매수 신호 선택: 거래량 조건 칸이 나타나고 하락 조건 칸은 숨겨짐', (await page.$('[data-btmg=vx]')) !== null && (await page.$('[data-btmg=drop]')) === null);
-        await page.fill('[data-btmg=vx]', '1'); await page.click('[data-act=btRun]'); await page.waitForSelector('#chartHost canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(300);
-        const en = await page.evaluate(() => SM.app.ui.bt.result.cfg.entries.conds.filter((x) => x.type !== 'maSlope').map((x) => [x.type, x.who, x.dir, x.mode, x.x].join(':')));
-        ok('실행 조건: 외국인+기관 모두 순매수(당일) AND 거래량 전일 대비 1배 초과', JSON.stringify(en) === '["flow:both:buy:day:","volPrev::::1"]', en); }
+        const ec = await page.evaluate(() => { const c = SM.app.ui.bt.result.cfg; return { e: SM.exprLeaves(SM.exprOf(c.entries)).map((x) => [x.type, x.who, x.n, x.dir, x.x].join(':')), x: SM.exprLeaves(SM.exprOf(c.exits)).map((y) => y.type), xm: SM.exprOf(c.exits).op }; });
+        ok('외국인·기관 동시 순매수 + 거래량 전일 대비 + 30일선 상승 + 종가 30일선 아래를 문장으로 실행', ec.e.join('|') === 'flow:both:3:buy:|volPrev::::1|maSlope::30:up:|priceMa::30:below:' && ec.x.join() === 'maCross,maSlope,avgPct', ec); }
       await page.click('[data-act=chartMonths][data-v="0"]'); await page.waitForTimeout(300); await (await page.$('#chartCard')).screenshot({ path: process.env.BT_SHOT || '/tmp/bt_chart.png' });
     }
     { // 직접 조건(문장 빌더): 매수(분홍)·매도(하늘), 선택창에서 분류→조건, 문장으로 이어 붙이고 AND/OR·괄호·신호 진단
@@ -259,8 +242,8 @@ function fixtures() {
       const bg = await page.evaluate(() => [getComputedStyle(document.querySelector('.cndbox.buy')).backgroundColor, getComputedStyle(document.querySelector('.cndbox.sell')).backgroundColor]);
       ok('매수는 연한 분홍·매도는 연한 하늘 배경(서로 다른 색)', bg[0] !== bg[1] && /rgba\(255, 45, 85/.test(bg[0]) && /rgba\(50, 173, 230/.test(bg[1]), bg);
       const sentTxt = (g) => page.textContent(`#sent-${g}`);
-      // 새 문장 만들기: 비운 뒤 조건을 선택창에서 추가
-      await page.evaluate(() => { const b = SM.app.ui.bt.cfg; b.entries = { mode: 'AND', conds: [] }; b.exits = { mode: 'OR', conds: [] }; SM.app.render(); }); await page.waitForSelector('.cndbox.buy .cnd-add');
+      ok('직접 조건 만들기는 매수·매도 조건이 비어 있음', /조건을 추가하세요/.test(await page.textContent('#sent-entries')) && /조건을 추가하세요/.test(await page.textContent('#sent-exits')) && (await page.evaluate(() => SM.app.ui.bt.cfg.entries.conds.length)) === 0);
+      await page.waitForSelector('.cndbox.buy .cnd-add');
       await page.click('.cndbox.buy [data-act=btPickOpen]'); await page.waitForSelector('.sheet.buy');
       const tabs = await page.$$eval('.sheet .pick-tabs .chip', (e) => e.map((x) => x.textContent));
       ok('조건 선택창: 분류 탭(거래량·이동평균·수급 …)으로 모아 보여 줌', ['거래량', '이동평균', '수급'].every((t) => tabs.includes(t)) && !tabs.includes('청산'), tabs);
@@ -272,14 +255,15 @@ function fixtures() {
       ok('값을 고치면 문장 속 조건 글자가 바로 바뀜(전일의 1.5배 초과)', /전일의 1.5배 초과/.test(await sentTxt('entries')), await sentTxt('entries'));
       await page.click('.cndbox.buy .cn'); ok('AND를 누르면 OR로 바뀜', /OR/.test(await sentTxt('entries')) && (await page.evaluate(() => SM.app.ui.bt.cfg.entries.expr.op)) === 'OR');
       await page.click('.cndbox.buy .cn');
-      // 세 번째 조건 추가 후 둘을 괄호로 묶음: 하락 AND (거래량 OR 이동평균 상승)
+      // 세 번째 조건(이동평균선 상승) 추가 → 문장: 하락 AND 거래량 AND 이평선 상승. 1번째와 3번째를 골라 묶으면 (하락 AND 이평선 상승) OR 거래량
       await page.click('.cndbox.buy [data-act=btPickOpen]'); await page.click('.sheet .pick-tabs .chip:has-text("이동평균")'); await page.click('.sheet .pickrow[data-t=maSlope]'); await page.waitForTimeout(150);
       await page.click('.cndbox.buy [data-act=btWrapToggle]'); await page.waitForSelector('[data-act=btWrapDo]');
-      const toks = await page.$$('.cndbox.buy #sent-entries > .tok .tok-b'); await toks[1].click(); await toks[2].click();
+      const toks = await page.$$('.cndbox.buy #sent-entries > .tok .tok-b'); await toks[0].click(); await toks[2].click();
       ok('묶기 모드: 고른 조건 개수가 버튼에 표시', /\(2\)/.test(await page.textContent('[data-act=btWrapDo]')));
       await page.click('[data-act=btWrapDo]'); await page.waitForSelector('.cndbox.buy .grp');
-      const ex = await page.evaluate(() => { const e = SM.app.ui.bt.cfg.entries.expr; return { op: e.op, n: e.items.length, g: e.items[1] && e.items[1].items ? { op: e.items[1].op, t: e.items[1].items.map((x) => x.type) } : null, conds: SM.app.ui.bt.cfg.entries.conds.length }; });
-      ok('괄호 묶기: 바깥은 AND, 괄호 안은 OR(기본으로 바깥과 반대)로 하락 AND (거래량 OR 이동평균 상승)', ex.op === 'AND' && ex.n === 2 && ex.g && ex.g.op === 'OR' && ex.g.t.join() === 'volPrev,maSlope' && ex.conds === 3, ex);
+      const ex = await page.evaluate(() => { const e = SM.app.ui.bt.cfg.entries.expr; return { op: e.op, n: e.items.length, g: e.items[0] && e.items[0].items ? { op: e.items[0].op, t: e.items[0].items.map((x) => x.type) } : null, last: e.items[1] && e.items[1].type, conds: SM.app.ui.bt.cfg.entries.conds.length }; });
+      if (process.env.WRAP_SHOT) await (await page.$('.cndbox.buy')).screenshot({ path: process.env.WRAP_SHOT });
+      ok('떨어진 두 조건을 묶으면 (A and C) or B: 묶음은 지금 연결(AND) 그대로, 바깥은 OR로 바뀜', ex.op === 'OR' && ex.n === 2 && ex.g && ex.g.op === 'AND' && ex.g.t.join() === 'dropLast,maSlope' && ex.last === 'volPrev' && ex.conds === 3, ex);
       ok('문장에 괄호가 표시되고 풀이 문장이 나옴', /\(/.test(await sentTxt('entries')) && /그리고/.test(await page.textContent('.cndbox.buy .sent-plain')) && /또는/.test(await page.textContent('.cndbox.buy .sent-plain')), await page.textContent('.cndbox.buy .sent-plain'));
       if (process.env.EXPR_SHOT) { await page.evaluate(() => { const g = SM.app.ui.bt.cfg.exits; g.expr = { op: 'OR', items: [{ type: 'maCross', ma: 'sma', s: 5, l: 15, dir: 'down' }] }; g.conds = SM.exprLeaves(g.expr); SM.app.render(); }); await page.waitForTimeout(200); await (await page.$('.cndbox.buy')).screenshot({ path: process.env.EXPR_SHOT + '_buy.png' }); await (await page.$('.cndbox.sell')).screenshot({ path: process.env.EXPR_SHOT + '_sell.png' }); }
       ok('신호 진단: 신호일 수와 전체 일수 대비 %가 표시됨', /매수 신호일/.test(await page.textContent('.cndbox.buy .diag-h')) && /전체 \d+일 중/.test(await page.textContent('.cndbox.buy .diag-h')), await page.textContent('.cndbox.buy .diag-h'));
@@ -295,9 +279,9 @@ function fixtures() {
       ok('조건식(괄호 포함)으로 시뮬레이션 실행', await page.evaluate(() => { const r = SM.app.ui.bt.result; return !!r && !r.error && r.cfg.entries.expr && r.cfg.entries.expr.items[1].op === 'OR'; }));
       await page.click('[data-act=btMode2][data-v=mg]'); }
       { // 종목 일괄 비교: 데이터가 둘 이상이면 표 한 장(이익 종목 수·중앙값·뒤 구간·단순 보유)
-        await page.click('[data-act=btMode2][data-v=mg]'); await page.waitForSelector('.mgblock.buy');
+        await page.click('[data-act=btMode2][data-v=mg]'); await page.waitForSelector('.cndbox.buy');
         await page.evaluate(() => { const o = SM.app.ui.bt.cfg, r = SM.app.ui.bt.repo && SM.app.ui.bt.repo.cache['003490']; const d = JSON.parse(JSON.stringify(r.data)); const ds = JSON.parse(localStorage.getItem('stockmgr.datasets') || '{}'); ds.extra1 = { name: '추가 종목(테스트)', market: 'KR', added: Date.now(), data: d }; localStorage.setItem('stockmgr.datasets', JSON.stringify(ds)); SM.app.render(); void o; });
-        await page.waitForSelector('[data-act=btAll]'); await setSel(page, '[data-change=btMgTrend]', '0');
+        await page.waitForSelector('[data-act=btAll]'); await page.evaluate(() => { const b = SM.app.ui.bt.cfg; b.entries.expr = { op: 'AND', items: [{ type: 'dropLast', pct: 5, basis: 'last', first: 'yes' }] }; b.entries.conds = SM.exprLeaves(b.entries.expr); });
         await page.click('[data-act=btAll]'); await page.waitForSelector('.cmp tbody tr', { timeout: 20000 });
         const rows = await page.$$eval('h3.sim-h', (e) => e.map((x) => x.textContent)), t = await page.textContent('.stat:has-text("이익 난 종목")');
         ok('종목 일괄 비교: 제목과 요약 카드가 나옴', rows.some((x) => /종목 일괄 비교/.test(x)) && /\d+ \/ \d+/.test(t) && /뒤 구간에서도 이익/.test(await page.textContent('.cards4')), t);

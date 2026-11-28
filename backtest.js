@@ -454,6 +454,17 @@
       { k: 'mode', label: '방식', def: 'day', opts: [['day', '당일 N주 이상'], ['streak', 'N일 연속'], ['sum', '최근 N일 누적 합이 값 이상'], ['ratio', '당일 순매수/거래량 %']] },
       { k: 'n', label: '일수(연속·누적)', def: 3 }, { k: 'v', label: '기준값(수급 데이터 단위: 주 또는 원, 비율은 %)', def: 100000 }] },
     dropLast: { use: 'entry', group: '분할매수', dyn: true, label: '보유 매수가 대비 N% 하락 시 추가 매수', params: [{ k: 'pct', label: '하락률 %', def: 10 }, { k: 'basis', label: '기준', def: 'last', opts: [['last', '직전 매수가'], ['avg', '전체 평단'], ['low', '가장 낮은 매수가']] }, { k: 'first', label: '보유 순번이 없으면', def: 'yes', opts: [['yes', '첫 매수로 진입'], ['no', '진입 안 함']] }] },
+    riseLast: { use: 'entry', group: '분할매수', dyn: true, label: '보유 매수가 대비 N% 상승 시 추가 매수 (불타기)', params: [{ k: 'pct', label: '상승률 %', def: 5 }, { k: 'basis', label: '기준', def: 'last', opts: [['last', '직전 매수가'], ['avg', '전체 평단'], ['low', '가장 낮은 매수가']] }, { k: 'first', label: '보유 순번이 없으면', def: 'yes', opts: [['yes', '첫 매수로 진입'], ['no', '진입 안 함']] }] },
+    maGap: { use: 'both', group: '이동평균', label: '종가가 이동평균선에서 N% 이상 벗어남 (이격도)', params: [{ k: 'ma', label: '종류', def: 'sma', opts: MA_OPTS }, { k: 'n', label: '기간(일)', def: 20 }, { k: 'dir', label: '방향', def: 'below', opts: [['below', '아래로 벗어남'], ['above', '위로 벗어남']] }, { k: 'pct', label: '이격 %', def: 5 }] },
+    maAlign: { use: 'both', group: '이동평균', label: '이동평균 정배열·역배열 (단기>중기>장기)', params: [{ k: 'ma', label: '종류', def: 'sma', opts: MA_OPTS }, { k: 's', label: '단기', def: 5 }, { k: 'm', label: '중기', def: 20 }, { k: 'l', label: '장기', def: 60 }, { k: 'dir', label: '배열', def: 'up', opts: [['up', '정배열 (단기가 가장 위)'], ['down', '역배열']] }] },
+    retN: { use: 'both', group: '가격 흐름', label: 'N일 전 대비 종가 등락률', params: [{ k: 'n', label: '며칠 전과(일)', def: 5 }, { k: 'op', label: '조건', def: 'lte', opts: [['lte', '이하'], ['gte', '이상']] }, { k: 'v', label: '등락률 %', def: -5 }] },
+    streakDays: { use: 'both', group: '가격 흐름', label: 'N일 연속 상승·하락 (종가)', params: [{ k: 'n', label: '연속 일수', def: 3 }, { k: 'dir', label: '방향', def: 'down', opts: [['up', '상승'], ['down', '하락']] }] },
+    gapOpen: { use: 'both', group: '가격 흐름', label: '갭 (시가가 전일 종가 대비 N% 이상 벌어짐)', params: [{ k: 'dir', label: '방향', def: 'down', opts: [['up', '갭 상승'], ['down', '갭 하락']] }, { k: 'pct', label: '갭 %', def: 2 }] },
+    fromHigh: { use: 'both', group: '가격 흐름', label: 'N일 고점 대비 X% 이상 하락 (낙폭)', params: [{ k: 'n', label: '기간(일)', def: 60 }, { k: 'pct', label: '하락 %', def: 15 }] },
+    fromLow: { use: 'both', group: '가격 흐름', label: 'N일 저점 대비 X% 이상 반등', params: [{ k: 'n', label: '기간(일)', def: 20 }, { k: 'pct', label: '반등 %', def: 10 }] },
+    candle: { use: 'both', group: '가격 흐름', label: '양봉·음봉 (몸통 X% 이상)', params: [{ k: 'dir', label: '봉', def: 'up', opts: [['up', '양봉'], ['down', '음봉']] }, { k: 'pct', label: '몸통 %', def: 1 }] },
+    stoch: { use: 'both', group: '지표', label: '스토캐스틱 %K', params: [{ k: 'n', label: '기간(일)', def: 14 }, { k: 'op', label: '조건', def: 'lte', opts: [['lte', '이하'], ['gte', '이상']] }, { k: 'v', label: '값', def: 20 }] },
+    bbWidth: { use: 'both', group: '지표', label: '볼린저 밴드폭(변동성) 수축·확대', params: [{ k: 'n', label: '기간', def: 20 }, { k: 'k', label: '배수', def: 2 }, { k: 'op', label: '조건', def: 'lte', opts: [['lte', '좁음 (수축)'], ['gte', '넓음 (확대)']] }, { k: 'v', label: '밴드폭 %', def: 5 }] },
     tp: { use: 'exit', group: '청산', dyn: true, label: '순번별 목표수익 % 도달 시 그 순번 매도', params: [{ k: 'pct', label: '수익률 %', def: 10 }] },
     sl: { use: 'exit', group: '청산', dyn: true, label: '순번별 손절 % 도달 시 그 순번 매도', params: [{ k: 'pct', label: '손실률 %', def: 10 }] },
     trail: { use: 'exit', group: '청산', dyn: true, label: '순번별 고점 대비 N% 하락(트레일링 스탑)', params: [{ k: 'pct', label: '하락률 %', def: 8 }] },
@@ -495,6 +506,16 @@
         for (let i = k; i < n; i++) out[i] = m[i] != null && m[i - k] != null && (p.dir === 'down' ? m[i] < m[i - k] : m[i] > m[i - k]);
         break;
       }
+      case 'maGap': { const m = maOf(p.ma, data.c, Math.max(2, Math.floor(num(p.n, 20)))), t = num(p.pct, 5) / 100; for (let i = 0; i < n; i++) out[i] = m[i] != null && (p.dir === 'above' ? data.c[i] >= m[i] * (1 + t) : data.c[i] <= m[i] * (1 - t)); break; }
+      case 'maAlign': { const a = maOf(p.ma, data.c, Math.max(2, num(p.s, 5))), b = maOf(p.ma, data.c, Math.max(2, num(p.m, 20))), c2 = maOf(p.ma, data.c, Math.max(2, num(p.l, 60))); for (let i = 0; i < n; i++) out[i] = a[i] != null && b[i] != null && c2[i] != null && (p.dir === 'down' ? a[i] < b[i] && b[i] < c2[i] : a[i] > b[i] && b[i] > c2[i]); break; }
+      case 'retN': { const k = Math.max(1, Math.floor(num(p.n, 5))), v = num(p.v, -5); for (let i = k; i < n; i++) { const r = (data.c[i] / data.c[i - k] - 1) * 100; out[i] = p.op === 'gte' ? r >= v : r <= v; } break; }
+      case 'streakDays': { const k = Math.max(1, Math.floor(num(p.n, 3))); let run = 0; for (let i = 1; i < n; i++) { run = (p.dir === 'up' ? data.c[i] > data.c[i - 1] : data.c[i] < data.c[i - 1]) ? run + 1 : 0; out[i] = run >= k; } break; }
+      case 'gapOpen': { const t = num(p.pct, 2); for (let i = 1; i < n; i++) { const g = (data.o[i] / data.c[i - 1] - 1) * 100; out[i] = p.dir === 'up' ? g >= t : g <= -t; } break; }
+      case 'fromHigh': { const k = Math.max(2, Math.floor(num(p.n, 60))), t = num(p.pct, 15) / 100; for (let i = k - 1; i < n; i++) { let hi = -Infinity; for (let j = i - k + 1; j <= i; j++) if (data.h[j] > hi) hi = data.h[j]; out[i] = data.c[i] <= hi * (1 - t); } break; }
+      case 'fromLow': { const k = Math.max(2, Math.floor(num(p.n, 20))), t = num(p.pct, 10) / 100; for (let i = k - 1; i < n; i++) { let lo = Infinity; for (let j = i - k + 1; j <= i; j++) if (data.l[j] < lo) lo = data.l[j]; out[i] = data.c[i] >= lo * (1 + t); } break; }
+      case 'candle': { const t = num(p.pct, 1); for (let i = 0; i < n; i++) { const body = data.o[i] > 0 ? (data.c[i] / data.o[i] - 1) * 100 : 0; out[i] = p.dir === 'down' ? body <= -t : body >= t; } break; }
+      case 'stoch': { const k = Math.max(2, Math.floor(num(p.n, 14))), v = num(p.v, 20); for (let i = k - 1; i < n; i++) { let hi = -Infinity, lo = Infinity; for (let j = i - k + 1; j <= i; j++) { if (data.h[j] > hi) hi = data.h[j]; if (data.l[j] < lo) lo = data.l[j]; } if (hi > lo) { const K = ((data.c[i] - lo) / (hi - lo)) * 100; out[i] = p.op === 'gte' ? K >= v : K <= v; } } break; }
+      case 'bbWidth': { const b = bollinger(data.c, Math.max(2, Math.floor(num(p.n, 20))), num(p.k, 2)), v = num(p.v, 5); for (let i = 0; i < n; i++) { if (b.up[i] == null || b.lo[i] == null || !(b.mid[i] > 0)) continue; const w = ((b.up[i] - b.lo[i]) / b.mid[i]) * 100; out[i] = p.op === 'gte' ? w >= v : w <= v; } break; }
       case 'maState': {
         const s = maOf(p.ma, data.c, num(p.s, 5)), l = maOf(p.ma, data.c, num(p.l, 20));
         for (let i = 0; i < n; i++) out[i] = s[i] != null && l[i] != null && (p.dir === 'below' ? s[i] < l[i] : s[i] > l[i]);
@@ -691,6 +712,7 @@
       if (c.basis === 'avg') { const q = open.reduce((a, l) => a + l.qty, 0); ref = open.reduce((a, l) => a + l.qty * l.price, 0) / q; }
       else if (c.basis === 'low') ref = Math.min(...open.map((l) => l.price));
       else ref = open[open.length - 1].price;
+      if (c.type === 'riseLast') return cl >= ref * (1 + num(c.pct, 5) / 100);
       return cl <= ref * (1 - num(c.pct, 10) / 100);
     }
 
