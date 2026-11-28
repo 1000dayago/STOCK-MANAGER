@@ -555,14 +555,14 @@
         const r = canvas.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top, mouse = e.pointerType === 'mouse'; // 마우스는 선이 호버를 따라다니므로 위쪽 손잡이를 잡을 때만, 터치는 선 근처 어디든
         if (Math.abs(px - idxToX(S.geom, S.cross)) <= (mouse ? 12 : 30) && (!mouse || py <= 28)) { dragCross = true; pan = null; moved = true; const i = xToIdx(e.clientX); if (i !== S.cross) { S.cross = i; draw(); } }
       }
-      if (ptrs.size === 2) { const [a, c] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - c.x, a.y - c.y), count: S.count, end: S.end }; pan = null; }
+      if (ptrs.size === 2) { const [a, c] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - c.x, a.y - c.y), count: S.count, end: S.end, anchor: S.geom ? anchorOf((a.x + c.x) / 2) : null }; pan = null; }
     });
     canvas.addEventListener('pointermove', (e) => {
       if (!S.bars || !S.geom) return;
       if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (zsel && ptrs.size === 1) { const r = canvas.getBoundingClientRect(); S.selRect = { x0: zsel.x0 - r.left, x1: e.clientX - r.left }; draw(); return; }
       if (dragCross && ptrs.size === 1) { const i = xToIdx(e.clientX); if (i !== S.cross) { S.cross = i; draw(); } return; }
-      if (pinch && ptrs.size === 2) { const [a, c] = [...ptrs.values()], d = Math.hypot(a.x - c.x, a.y - c.y); moved = true; if (pinch.d > 0) setWindow(pinch.count * (pinch.d / Math.max(1, d)), pinch.end); return; }
+      if (pinch && ptrs.size === 2) { const [a, c] = [...ptrs.values()], d = Math.hypot(a.x - c.x, a.y - c.y); moved = true; if (pinch.d > 0) { const cnt = pinch.count * (pinch.d / Math.max(1, d)); if (pinch.anchor) zoomTo(pinch.anchor, cnt); else setWindow(cnt, pinch.end); } return; }
       if (pan && ptrs.size === 1) {
         const dx = e.clientX - pan.x;
         if (Math.abs(dx) > 5) moved = true;
@@ -591,10 +591,16 @@
     };
     canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
     canvas.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && S.cross != null && !ptrs.size) { S.cross = null; draw(); } });
+    // 확대·축소: 커서(또는 두 손가락 중심) 아래에 있던 봉이 같은 자리에 그대로 있도록 창을 옮김
+    const anchorOf = (clientX) => { const r = canvas.getBoundingClientRect(), g = S.geom; return { idx: g.from + (clientX - r.left - g.PL) / g.bw, pos: (clientX - r.left - g.PL) / g.bw, count: S.count }; };
+    const zoomTo = (a, count) => {
+      const n = S.bars.d.length, w0 = windowRange(n, count, S.end), n2 = w0.count; // 한계(최소·최대 봉 수)를 먼저 적용
+      const from2 = a.idx - a.pos * (n2 / a.count); setWindow(n2, Math.round(from2 + n2 - 1));
+    };
     canvas.addEventListener('wheel', (e) => {
-      if (!S.bars) return;
+      if (!S.bars || !S.geom) return;
       e.preventDefault();
-      setWindow(S.count * (e.deltaY > 0 ? 1.18 : 1 / 1.18), S.end); // 오른쪽 끝(최근)을 고정한 채 확대·축소
+      const a = anchorOf(e.clientX); zoomTo(a, S.count * (e.deltaY > 0 ? 1.18 : 1 / 1.18));
     }, { passive: false });
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => draw()) : null;
     if (ro) ro.observe(host);

@@ -214,6 +214,18 @@ function fixtures() {
         cvz = await toTop(); await page.keyboard.down('Shift'); await page.mouse.move(cvz.x + 260, cvz.y + 100); await page.mouse.down(); await page.mouse.move(cvz.x + 150, cvz.y + 100, { steps: 5 }); await page.mouse.up(); await page.keyboard.up('Shift'); await page.waitForTimeout(150);
         ok('마우스는 Shift+드래그로도 확대', (await page.evaluate(() => SM.app._chart().state.count)) < v0.count);
         await page.evaluate(() => SM.app._chart().resetZoom()); await page.waitForTimeout(100); }
+      { // 휠 확대·축소: 커서가 놓인 봉이 같은 자리에 그대로 있음(보고 싶은 위치가 밀려나지 않음)
+        await page.evaluate(() => { document.querySelector('#chartHost canvas').scrollIntoView({ block: 'start' }); window.scrollBy(0, -90); }); await page.waitForTimeout(150);
+        const cb = await (await page.$('#chartHost canvas')).boundingBox();
+        const dateAt = (x) => page.evaluate((cx) => { const c = document.querySelector('#chartHost canvas'), r = c.getBoundingClientRect(), st = SM.app._chart().state, g = st.geom, i = Math.floor(g.from + (cx - r.left - g.PL) / g.bw); return { d: st.bars.d[Math.max(0, Math.min(st.bars.d.length - 1, i))], count: st.count }; }, x);
+        for (const frac of [0.25, 0.6]) {
+          const x = cb.x + cb.width * frac; await page.mouse.move(x, cb.y + 120); await page.waitForTimeout(80);
+          const b0 = await dateAt(x); await page.mouse.wheel(0, -300); await page.waitForTimeout(150); const b1 = await dateAt(x); await page.mouse.wheel(0, 300); await page.mouse.wheel(0, 300); await page.waitForTimeout(150); const b2 = await dateAt(x);
+          const di = (a, b) => Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 86400000;
+          ok(`휠 확대(커서 ${Math.round(frac * 100)}% 지점): 봉 수가 줄었는데도 커서 아래 날짜가 그대로(±3일)`, b1.count < b0.count && di(b0.d, b1.d) <= 3, [b0, b1]);
+          ok(`휠 축소(커서 ${Math.round(frac * 100)}% 지점): 봉 수가 늘었는데도 커서 아래 날짜가 그대로(±5일)`, b2.count > b1.count && di(b0.d, b2.d) <= 5, [b0, b2]);
+        }
+        await page.evaluate(() => SM.app._chart().resetZoom()); }
       { // 재생(리플레이): 시작일 이전은 모두 보이고 이후는 한 봉씩, 배속·주봉
         const nBars = () => page.evaluate(() => SM.app._chart().state.bars.d.length), full = await nBars();
         if (process.env.SIM_SHOT2) { await page.click('[data-act=rpStart]'); await page.waitForSelector('#rpSlider'); for (let i = 0; i < 4; i++) await page.click('[data-act=rpStep][data-v="1"]'); await page.waitForTimeout(200); await page.screenshot({ path: process.env.SIM_SHOT2, fullPage: false }); if (process.env.SIM_SHOT3) { await page.click('[data-act=chartMonths][data-v="3"]'); await page.waitForTimeout(200); await (await page.$('.chartfirst')).screenshot({ path: process.env.SIM_SHOT3 }); } await page.click('[data-act=rpEnd]'); }
