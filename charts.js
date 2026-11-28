@@ -174,34 +174,5 @@
     };
   }
 
-  /* 렌코 차트 */
-  function drawRenko(canvas, renko, markers, h = 240) {
-    const T = theme();
-    const { ctx, w } = setup(canvas, h);
-    const L = 58, R = 8, Tp = 8, B = 18;
-    const bricks = renko.bricks;
-    if (!bricks.length) { ctx.fillStyle = T.text; ctx.font = '13px sans-serif'; ctx.fillText('벽돌이 없습니다 (벽돌 크기를 줄여보세요)', 12, 30); return; }
-    let mn = Infinity, mx = -Infinity;
-    for (const b of bricks) { mn = Math.min(mn, b.o, b.c); mx = Math.max(mx, b.o, b.c); }
-    [mn, mx] = niceRange(mn, mx);
-    const bw = Math.min(24, (w - L - R) / bricks.length);
-    const y = (v) => Tp + ((mx - v) / (mx - mn)) * (h - Tp - B);
-    ctx.font = '11px sans-serif'; ctx.lineWidth = 1;
-    for (let k = 0; k <= 4; k++) {
-      const v = mn + ((mx - mn) * k) / 4, yy = y(v);
-      ctx.strokeStyle = T.grid; ctx.beginPath(); ctx.moveTo(L, yy); ctx.lineTo(w - R, yy); ctx.stroke();
-      ctx.fillStyle = T.text; ctx.textAlign = 'right'; ctx.fillText(fmt(v), L - 4, yy + 4);
-    }
-    const first = Math.max(0, bricks.length - Math.floor((w - L - R) / bw));
-    bricks.forEach((b, k) => {
-      if (k < first) return;
-      const x = L + (k - first) * bw;
-      ctx.fillStyle = b.dir > 0 ? T.up : T.down;
-      ctx.fillRect(x + 1, Math.min(y(b.o), y(b.c)), bw - 2, Math.abs(y(b.o) - y(b.c)));
-    });
-    ctx.fillStyle = T.text; ctx.textAlign = 'left';
-    ctx.fillText(`벽돌 ${bricks.length}개 · 크기 ${fmt(renko.size)}` + (first ? ' (최근만 표시)' : ''), L + 4, h - 4);
-  }
-
-  Object.assign(SM, { drawBars, lineIndexAt, drawLine, drawCandles, drawRenko });
+  Object.assign(SM, { drawBars, lineIndexAt, drawLine, drawCandles });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

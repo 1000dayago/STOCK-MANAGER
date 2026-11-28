@@ -1,4 +1,4 @@
-/* backtest.js - 데이터 불러오기(CSV/수급), 지표, 렌코, 백테스트 엔진 (DOM 없음) */
+/* backtest.js - 데이터 불러오기(CSV/수급), 지표, 백테스트 엔진 (DOM 없음) */
 (function (root) {
   'use strict';
   const SM = (root.SM = root.SM || {});
@@ -390,44 +390,6 @@
     return cnt ? s / cnt : 0;
   }
 
-  /* ---------- 렌코 (종가 기준) ---------- */
-  function renkoSize(data, rk) {
-    const mode = rk.mode || 'pct';
-    let size;
-    if (mode === 'fixed') size = num(rk.value, 0);
-    else if (mode === 'atr') size = atrValue(data, Math.max(2, num(rk.period, 14))) * num(rk.value, 1);
-    else size = data.c[0] * (num(rk.value, 2) / 100);
-    return size > 0 ? size : data.c[0] * 0.02;
-  }
-  function buildRenko(data, rk) {
-    const n = data.c.length;
-    const size = renkoSize(data, rk || {});
-    const bricks = [];
-    const flipUp = new Array(n).fill(false), flipDn = new Array(n).fill(false), newUp = new Array(n).fill(false), runUp = new Array(n).fill(0);
-    let dir = 0, open = data.c[0], close = data.c[0], run = 0;
-    for (let i = 1; i < n; i++) {
-      const c = data.c[i];
-      let guard = 0;
-      while (guard++ < 1000) {
-        if (dir === 0) {
-          if (c >= close + size) { bricks.push({ dir: 1, o: close, c: close + size, i }); open = close; close = close + size; dir = 1; run = 1; newUp[i] = true; }
-          else if (c <= close - size) { bricks.push({ dir: -1, o: close, c: close - size, i }); open = close; close = close - size; dir = -1; run = 1; }
-          else break;
-        } else if (dir === 1) {
-          if (c >= close + size) { bricks.push({ dir: 1, o: close, c: close + size, i }); open = close; close += size; run++; newUp[i] = true; }
-          else if (c <= open - size) { bricks.push({ dir: -1, o: open, c: open - size, i }); close = open - size; dir = -1; run = 1; flipDn[i] = true; }
-          else break;
-        } else {
-          if (c <= close - size) { bricks.push({ dir: -1, o: close, c: close - size, i }); open = close; close -= size; run++; }
-          else if (c >= open + size) { bricks.push({ dir: 1, o: open, c: open + size, i }); close = open + size; dir = 1; run = 1; flipUp[i] = true; newUp[i] = true; }
-          else break;
-        }
-      }
-      runUp[i] = dir === 1 ? run : 0;
-    }
-    return { size, bricks, flipUp, flipDn, newUp, runUp };
-  }
-
   /* ---------- 조건 정의 ---------- */
   // use: 'both' = 매수/매도 모두, 'entry' = 매수 전용, 'exit' = 매도 전용
   // 매도 목록에 넣은 일반 조건은 "보유 순번 전량 매도" 신호가 됩니다.
@@ -446,8 +408,6 @@
     macd: { use: 'both', group: '지표', label: 'MACD 시그널 교차', params: [{ k: 's', label: '단기', def: 12 }, { k: 'l', label: '장기', def: 26 }, { k: 'sig', label: '시그널', def: 9 }, { k: 'dir', label: '방향', def: 'up', opts: [['up', '상향 돌파'], ['down', '하향 이탈']] }] },
     breakout: { use: 'both', group: '지표', label: 'N일 신고가/신저가', params: [{ k: 'n', label: '기간(일)', def: 20 }, { k: 'dir', label: '방향', def: 'high', opts: [['high', '신고가 돌파'], ['low', '신저가 이탈']] }] },
     change: { use: 'both', group: '지표', label: '전일 대비 등락률', params: [{ k: 'op', label: '조건', def: 'lte', opts: [['lte', '이하'], ['gte', '이상']] }, { k: 'v', label: '등락률 %', def: -3 }] },
-    renkoFlip: { use: 'both', group: '렌코', label: '렌코 반전 벽돌', params: [{ k: 'dir', label: '방향', def: 'up', opts: [['up', '하락→상승'], ['down', '상승→하락']] }] },
-    renkoRun: { use: 'both', group: '렌코', label: '렌코 상승 벽돌 N개 연속', params: [{ k: 'n', label: '연속 개수', def: 3 }] },
     flowSum: { use: 'both', group: '수급', label: '수급 누적 순매수 (최근 N일 합)', params: [
       { k: 'who', label: '투자자', def: 'combo', opts: [['frgn', '외국인'], ['inst', '기관'], ['indiv', '개인'], ['both', '외국인·기관 각각 모두 (누적 동시)'], ['combo', '외국인+기관 합산']] },
       { k: 'dir', label: '방향', def: 'buy', opts: [['buy', '순매수'], ['sell', '순매도']] },
@@ -562,8 +522,6 @@
         for (let i = 1; i < n; i++) { const ch = (data.c[i] / data.c[i - 1] - 1) * 100; out[i] = p.op === 'gte' ? ch >= v : ch <= v; }
         break;
       }
-      case 'renkoFlip': { const r = ctx.renko(); for (let i = 0; i < n; i++) out[i] = p.dir === 'down' ? r.flipDn[i] : r.flipUp[i]; break; }
-      case 'renkoRun': { const r = ctx.renko(); const t = num(p.n, 3); for (let i = 0; i < n; i++) out[i] = r.newUp[i] && r.runUp[i] >= t; break; }
       case 'flowSum': { // 최근 N일 누적 순매수(매도)가 기준값 이상. who: 외국인·기관·개인 / both=외국인과 기관이 각각(동시에) / combo=둘을 합산
         const sell = p.dir === 'sell', k = Math.max(1, Math.floor(num(p.n, 5))), v = num(p.v, 0);
         const whoList = p.who === 'combo' ? ['combo'] : p.who === 'both' ? ['frgn', 'inst'] : [p.who];
@@ -644,8 +602,7 @@
   function runBacktest(data, cfg, settings) {
     const n = data.c.length;
     const rates = SM.ratesOf(settings, cfg.market || 'KR');
-    let renkoCache = null;
-    const ctx = { renko: () => (renkoCache = renkoCache || buildRenko(data, cfg.renko || {})) };
+    const ctx = {};
     const eExpr = exprOf(cfg.entries), xExpr = exprOf(cfg.exits);
     const entryConds = exprLeaves(eExpr).filter((c) => COND_DEFS[c.type] && COND_DEFS[c.type].use !== 'exit');
     const exitConds = exprLeaves(xExpr).filter((c) => COND_DEFS[c.type] && COND_DEFS[c.type].use !== 'entry');
@@ -806,7 +763,7 @@
     const dist = {}; for (const x of cycles) dist[x.lots] = (dist[x.lots] || 0) + 1; // 몇 번 매수하고 청산됐는지의 분포
     const cycleStats = { count: cycles.length, avgDays: cd.length ? cd.reduce((a, b) => a + b, 0) / cd.length : null, maxDays: cd.length ? Math.max(...cd) : null, minDays: cd.length ? Math.min(...cd) : null, maxLots: Math.max(0, ...cycles.map((x) => x.maxLots), openCycle ? openCycle.maxLots : 0), maxInvest: Math.max(0, ...cycles.map((x) => x.peakInv), openCycle ? openCycle.peakInv : 0), worst: Math.min(0, ...cycles.map((x) => x.worst), openCycle ? openCycle.worst : 0), wins: cycles.filter((x) => x.realized > 0).length, avgLots: avg(cycles.map((x) => x.lots)), avgInvest: avg(cycles.map((x) => x.peakInv)), avgQty: avg(cycles.map((x) => x.qty)), maxQty: mx(cycles.map((x) => x.qty)), maxLotsDone: mx(cycles.map((x) => x.lots)), maxInvestDone: mx(cycles.map((x) => x.peakInv)), dist };
     return {
-      cycles, openCycle, cycleStats, cfg, trades, buys, sells, equity, startIdx, endIdx, renko: renkoCache,
+      cycles, openCycle, cycleStats, cfg, trades, buys, sells, equity, startIdx, endIdx,
       summary: {
         buyCount: buys.length, closed: trades.length, open: open.length, openQty, wins,
         winRate: trades.length ? wins / trades.length : null,
@@ -869,7 +826,7 @@
   }
 
   function blankCfg() {
-    return { market: 'KR', qty: 10, qtyMode: 'shares', growth: 1, maxInvest: 0, maxLots: 0, cooldown: 0, minGap: 0, fill: 'nextOpen', from: '', to: '', renko: { mode: 'pct', value: 2, period: 14 }, entries: { mode: 'AND', conds: [] }, exits: { mode: 'OR', conds: [] } };
+    return { market: 'KR', qty: 10, qtyMode: 'shares', growth: 1, maxInvest: 0, maxLots: 0, cooldown: 0, minGap: 0, fill: 'nextOpen', from: '', to: '', entries: { mode: 'AND', conds: [] }, exits: { mode: 'OR', conds: [] } };
   }
 
   // 재생용: 기준 날짜(date)까지 일어난 일만 보이도록 사이클을 잘라 줍니다(그 뒤의 매수·매도는 숨김, 아직 안 끝난 사이클은 진행 중으로)
@@ -897,7 +854,7 @@
     if (!data.hasVol && leaves.some((c) => ['vol', 'volRatio', 'volPrev'].includes(c.type))) errors.push('거래량 데이터가 없습니다.');
     if (errors.length) return { error: [...new Set(errors)].join(' ') };
     if (!leaves.length) return { empty: true, days: 0, signalDays: 0, leaves: [], groups: [] };
-    let renkoCache = null; const ctx = { renko: () => (renkoCache = renkoCache || buildRenko(data, opt.renko || {})) };
+    const ctx = {};
     const stat = leaves.filter((c) => !isDyn(c)), statSet = new Set(stat), arr = new Map(stat.map((c) => [c, condArr(data, c, ctx)]));
     const from = opt.from || data.d[0], to = opt.to || data.d[n - 1], idx = []; for (let i = 0; i < n; i++) if (data.d[i] >= from && data.d[i] <= to) idx.push(i);
     const count = (node) => { let k = 0, first = null; for (const i of idx) { const v = evalExpr(node, (c) => arr.get(c)[i], statSet); if (v) { k++; if (first == null) first = data.d[i]; } } return { k, first }; };
@@ -945,6 +902,6 @@
   }
   Object.assign(SM, { summarizeMulti });
   Object.assign(SM, { detectSplits, adjustSplits, exprOf, exprLeaves, evalExpr, signalStats, applyWithin });
-  Object.assign(SM, { dataInfo, detectFlowUnit, parseOHLCV, parseTable, guessFlowCols, mergeFlow, parseDate, splitTable, guessCols, kindOf, analyzeTable, buildDataset, mergeDatasets, sameStockScore, sma, ema, rsi, macd, bollinger, buildRenko, COND_DEFS, runBacktest, runSplitValidation, overlayLines, blankCfg, closeOn, buyHoldFrom, needsFlow });
+  Object.assign(SM, { dataInfo, detectFlowUnit, parseOHLCV, parseTable, guessFlowCols, mergeFlow, parseDate, splitTable, guessCols, kindOf, analyzeTable, buildDataset, mergeDatasets, sameStockScore, sma, ema, rsi, macd, bollinger, COND_DEFS, runBacktest, runSplitValidation, overlayLines, blankCfg, closeOn, buyHoldFrom, needsFlow });
   if (typeof module !== 'undefined' && module.exports) module.exports = SM;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

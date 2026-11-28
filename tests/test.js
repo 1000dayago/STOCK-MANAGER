@@ -98,7 +98,6 @@ t('백테스트: 여러 조건 실행 / 정합성', () => {
     이평교차: mk([{ type: 'maCross', ma: 'sma', s: 5, l: 20, dir: 'up' }], [{ type: 'maCross', ma: 'sma', s: 5, l: 20, dir: 'down' }]),
     EMA교차: mk([{ type: 'maCross', ma: 'ema', s: 12, l: 26, dir: 'up' }], [{ type: 'maCross', ma: 'ema', s: 12, l: 26, dir: 'down' }]),
     볼린저: mk([{ type: 'bb', n: 20, k: 2, band: 'lower', basis: 'close' }], [{ type: 'bb', n: 20, k: 2, band: 'upper', basis: 'close' }]),
-    렌코: mk([{ type: 'renkoFlip', dir: 'up' }], [{ type: 'renkoFlip', dir: 'down' }]),
     RSI: mk([{ type: 'rsi', n: 14, op: 'lte', v: 35 }], [{ type: 'rsi', n: 14, op: 'gte', v: 65 }]),
     MACD: mk([{ type: 'macd', s: 12, l: 26, sig: 9, dir: 'up' }], [{ type: 'macd', s: 12, l: 26, sig: 9, dir: 'down' }]),
     신고가: mk([{ type: 'breakout', n: 20, dir: 'high' }], [{ type: 'trail', pct: 8 }]),
@@ -252,6 +251,11 @@ t('수급 누적 순매수 조건(외국인·기관·합산·누적 동시)과 �
   assert(cy.buys[0].why.length === 2 && cy.buys[0].why.map((x) => x.type).join() === 'flowSum,volPrev', JSON.stringify(cy.buys[0].why));
   assert(r.cycles.length >= 1 && r.cycles[0].sellWhy.text === '평단 목표' && r.cycles[0].sellWhy.conds[0].type === 'avgPct' && r.cycles[0].sellWhy.conds[0].dir === 'up');
 });
+t('삭제된 조건(렌코)이 옛 전략에 남아 있어도 무시되고 오류 없이 실행됨', () => {
+  const px = [100, 102, 101, 105, 104, 108], d = { d: [], o: px.slice(), h: px.slice(), l: px.slice(), c: px.slice(), v: px.map(() => 1000), hasVol: true, hasHL: true }, dt = new Date('2025-02-03'); px.forEach(() => { d.d.push(dt.toISOString().slice(0, 10)); dt.setDate(dt.getDate() + 1); });
+  const r = SM.runBacktest(d, mk([{ type: 'renkoFlip', dir: 'up' }, { type: 'change', op: 'gte', v: 1 }], []), Object.assign({}, S)); assert(!r.error && r.buys.length > 0); assert(!SM.COND_DEFS.renkoFlip && !SM.COND_DEFS.renkoRun && !SM.buildRenko);
+  assert(/매수 조건/.test(SM.runBacktest(d, mk([{ type: 'renkoFlip', dir: 'up' }], []), S).error)); // 렌코만 남은 전략은 ‘조건 없음’
+});
 t('재생: cutRaw는 모든 배열을 같은 길이로 자름', () => {
   const raw = { d: ['2025-01-01', '2025-01-02', '2025-01-03'], o: [1, 2, 3], h: [1, 2, 3], l: [1, 2, 3], c: [1, 2, 3], v: [1, 1, 1], frgn: [5, null, 7], hasVol: true, flowUnit: 'shares' };
   const a = SM.cutRaw(raw, '2025-01-02'); assert.deepEqual(a.d, ['2025-01-01', '2025-01-02']); assert.deepEqual(a.frgn, [5, null]); assert.equal(a.hasVol, true); assert.equal(a.flowUnit, 'shares');
@@ -327,11 +331,6 @@ t('백테스트: 손으로 만든 예 (체결가=다음날 시가, TP)', () => {
   // 01-02 신호 → 01-03 시가 20에 매수(1번), 01-03 신호 → 01-04 시가 20에 매수(2번). 01-03 종가20 → 수익0 이라 TP 없음. 01-05 종가22(+10%) → 01-06 시가 22 매도
   assert.equal(r.buys.length, 2); assert.equal(r.trades.length, 2);
   approx(r.summary.realized, 4);
-});
-t('렌코 생성', () => {
-  const data = { d: [], o: [], h: [], l: [], c: [100,102,104,106,104,102,100,98,100,104], v: [], hasVol: false };
-  const r = SM.buildRenko(data, { mode: 'fixed', value: 2 });
-  assert(r.bricks.length > 0); console.log('   bricks', r.bricks.map((b) => (b.dir > 0 ? '+' : '-') + b.c).join(' '));
 });
 
 const rowsN = (n, f) => Array.from({ length: n }, (_, i) => f(i));

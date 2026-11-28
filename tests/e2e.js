@@ -253,7 +253,6 @@ function fixtures() {
       ok('조건 선택창: 분류 탭(거래량·이동평균·수급 …)으로 모아 보여 줌', ['거래량', '이동평균', '수급'].every((t) => tabs.includes(t)) && !tabs.includes('청산'), tabs);
       await page.click('.sheet .pick-tabs .chip:has-text("수급")'); const flowRows = await page.$$eval('.sheet .pickrow', (e) => e.map((x) => x.textContent));
       ok('수급 분류에 “수급 누적 순매수(N일 합)” 조건이 있음', flowRows.some((x) => /수급 누적 순매수/.test(x)) && flowRows.some((x) => /수급 \(외국인·기관·개인\)/.test(x)), flowRows);
-      ok('렌코 조건을 쓰지 않으면 렌코 설정은 보이지 않음', (await page.evaluate(() => [...document.querySelectorAll('details.box > summary')].some((x) => /렌코 차트 설정/.test(x.textContent)))) === false);
       await page.click('.sheet .pick-tabs .chip:has-text("분할매수")'); await page.click('.sheet .pickrow[data-t=dropLast]'); await page.waitForSelector('.cndbox.buy .tok');
       ok('조건을 고르면 선택창이 닫히고 문장에 조건이 들어가고 값 편집칸이 열림', (await page.$('.sheet')) === null && /하락 시 추가 매수/.test(await sentTxt('entries')) && /일 때 매수/.test(await sentTxt('entries')) && (await page.$('.cndbox.buy .tok-ed.show')) !== null);
       await page.click('.cndbox.buy [data-act=btPickOpen]'); await page.click('.sheet .pick-tabs .chip:has-text("거래량")'); await page.click('.sheet .pickrow[data-t=volPrev]'); await page.waitForSelector('.cndbox.buy .cn');

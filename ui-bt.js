@@ -128,7 +128,7 @@
 
   /* ---------- 화면 조각 ---------- */
   /* ---------- 조건 UI: 선택한 조건은 한 줄 요약으로 모아 보이고, 눌러서 펼쳐 값을 고침 · 추가는 아래에서 올라오는 선택창 ---------- */
-  const COND_SHORT = { vol: '거래량 N주 이상', volPrev: '거래량이 전일보다 높음', volRatio: '거래량이 평균 대비 급증', maCross: '이동평균 교차 (골든·데드)', maState: '단기·장기선 위치', maSlope: '이동평균선 방향 (상승·하락 중)', priceMa: '종가와 이동평균선 위치', bb: '볼린저밴드 터치', rsi: 'RSI', macd: 'MACD 시그널 교차', breakout: '신고가·신저가', change: '전일 대비 등락률', renkoFlip: '렌코 반전', renkoRun: '렌코 상승 연속', flow: '수급 (외국인·기관·개인)', flowSum: '수급 누적 순매수 (N일 합)', riseLast: '상승 시 추가 매수 (불타기)', maGap: '이동평균 이격도', maAlign: '이동평균 정배열·역배열', retN: 'N일 전 대비 등락률', streakDays: 'N일 연속 상승·하락', gapOpen: '갭 상승·하락', fromHigh: '고점 대비 낙폭', fromLow: '저점 대비 반등', candle: '양봉·음봉', stoch: '스토캐스틱', bbWidth: '볼린저 밴드폭', dropLast: '하락 시 추가 매수', tp: '목표수익 도달 (순번별)', sl: '손절 (순번별)', trail: '고점 대비 하락 (순번별)', holdDays: 'N일 보유 후 (순번별)', avgPct: '평단 대비 ±N% (전량)' };
+  const COND_SHORT = { vol: '거래량 N주 이상', volPrev: '거래량이 전일보다 높음', volRatio: '거래량이 평균 대비 급증', maCross: '이동평균 교차 (골든·데드)', maState: '단기·장기선 위치', maSlope: '이동평균선 방향 (상승·하락 중)', priceMa: '종가와 이동평균선 위치', bb: '볼린저밴드 터치', rsi: 'RSI', macd: 'MACD 시그널 교차', breakout: '신고가·신저가', change: '전일 대비 등락률', flow: '수급 (외국인·기관·개인)', flowSum: '수급 누적 순매수 (N일 합)', riseLast: '상승 시 추가 매수 (불타기)', maGap: '이동평균 이격도', maAlign: '이동평균 정배열·역배열', retN: 'N일 전 대비 등락률', streakDays: 'N일 연속 상승·하락', gapOpen: '갭 상승·하락', fromHigh: '고점 대비 낙폭', fromLow: '저점 대비 반등', candle: '양봉·음봉', stoch: '스토캐스틱', bbWidth: '볼린저 밴드폭', dropLast: '하락 시 추가 매수', tp: '목표수익 도달 (순번별)', sl: '손절 (순번별)', trail: '고점 대비 하락 (순번별)', holdDays: 'N일 보유 후 (순번별)', avgPct: '평단 대비 ±N% (전량)' };
   const WHO_TXT = { frgn: '외국인', inst: '기관', indiv: '개인', both: '외국인·기관 동시', combo: '외국인+기관 합산' };
   function condSummary(c) {
     const base = condSummaryCore(c), w = Math.floor(Number(c.within)); return w > 1 && !(SM.COND_DEFS[c.type] || {}).dyn ? `${base} · 최근 ${w}일 이내` : base;
@@ -148,8 +148,6 @@
       case 'macd': return `MACD(${n(c.s)},${n(c.l)},${n(c.sig)}) ${up ? '상향 돌파' : '하향 이탈'}`;
       case 'breakout': return `${n(c.n)}일 ${c.dir === 'low' ? '신저가 이탈' : '신고가 돌파'}`;
       case 'change': return `전일 대비 ${n(c.v)}% ${c.op === 'gte' ? '이상' : '이하'}`;
-      case 'renkoFlip': return `렌코 ${c.dir === 'down' ? '상승→하락' : '하락→상승'} 반전`;
-      case 'renkoRun': return `렌코 상승 벽돌 ${n(c.n)}개 연속`;
       case 'flow': { const who = WHO_TXT[c.who] || '외국인', dir = c.dir === 'sell' ? '순매도' : '순매수', md = c.mode === 'streak' ? `${n(c.n)}일 연속` : c.mode === 'sum' ? `최근 ${n(c.n)}일 합 ${n(c.v)} 이상` : c.mode === 'ratio' ? `당일 거래량의 ${n(c.v)}% 이상` : `당일 ${n(c.v)} 이상`; return `${who} ${dir} · ${md}`; }
       case 'flowSum': { const who = c.who === 'both' ? '외국인·기관 각각' : (WHO_TXT[c.who] || '외국인'), dir = c.dir === 'sell' ? '순매도' : '순매수'; return `${who} 최근 ${n(c.n)}일 누적 ${dir} ${n(c.v)} 이상${c.who === 'both' ? ' (누적 동시)' : ''}`; }
       case 'dropLast': return `${c.basis === 'avg' ? '전체 평단' : c.basis === 'low' ? '가장 낮은 매수가' : '직전 매수가'} 대비 ${n(c.pct)}% 하락 시 추가 매수`;
@@ -176,7 +174,10 @@
   const isLeaf = (n) => !!(n && n.type);
   const isDynC = (c) => !!(SM.COND_DEFS[c.type] && SM.COND_DEFS[c.type].dyn);
   const hiddenInTree = (g, it) => g === 'exits' && isLeaf(it) && isDynC(it); // 매도의 순번별·평단 조건(손절·목표 등)은 식 밖에서 도달하면 바로 매도 → 따로 표시
-  function getSide(g) { const s0 = bt.cfg[g]; if (!s0.expr || !Array.isArray(s0.expr.items)) s0.expr = { op: s0.mode === 'OR' ? 'OR' : 'AND', items: (s0.conds || []).slice() }; return s0; }
+  function dropUnknown(node) { // 지워진 조건(예: 렌코)이 저장된 전략에 남아 있으면 문장에서 뺌
+    node.items = node.items.filter((it) => (isLeaf(it) ? !!SM.COND_DEFS[it.type] : true)); node.items.forEach((it) => { if (!isLeaf(it)) dropUnknown(it); }); return node;
+  }
+  function getSide(g) { const s0 = bt.cfg[g]; if (!s0.expr || !Array.isArray(s0.expr.items)) s0.expr = { op: s0.mode === 'OR' ? 'OR' : 'AND', items: (s0.conds || []).slice() }; dropUnknown(s0.expr); s0.conds = SM.exprLeaves(s0.expr); return s0; }
   function syncSide(g) { const s0 = bt.cfg[g]; s0.conds = SM.exprLeaves(s0.expr); s0.mode = s0.expr.op; }
   const keysOf = (path) => (path === '' || path == null ? [] : String(path).split('.').map(Number));
   function nodeAt(g, path) { let n = getSide(g).expr; for (const k of keysOf(path)) n = n && n.items ? n.items[k] : null; return n; }
@@ -225,7 +226,7 @@
   }
   function diagHtml(g) { // 신호 진단: 이 조건식이 참인 날 수
     const ds = curDS(); if (!ds) return '';
-    const exprSide = getSide(g), st = SM.signalStats(ds.data, exprSide, { use: g === 'exits' ? 'exit' : 'entry', from: bt.cfg.from, to: bt.cfg.to, renko: bt.cfg.renko });
+    const exprSide = getSide(g), st = SM.signalStats(ds.data, exprSide, { use: g === 'exits' ? 'exit' : 'entry', from: bt.cfg.from, to: bt.cfg.to });
     const lab = g === 'entries' ? '매수' : '매도';
     if (st.error) return `<p class="diag warn">${ic('alert')} ${esc(st.error)}</p>`;
     if (st.empty) return '';
@@ -328,7 +329,6 @@
     return c;
   }
   // 수량·한도: 촘촘한 격자(한 줄에 여러 칸)
-  const renkoUsed = () => [].concat(SM.exprLeaves(SM.exprOf(bt.cfg.entries)), SM.exprLeaves(SM.exprOf(bt.cfg.exits))).some((c) => /^renko/.test(c.type)); // 렌코 조건을 쓸 때만 렌코 설정을 보임
   function sgrid(c, mg) {
     const f = (k, label, unit) => `<label class="sg"><span>${label}</span><span class="sgi"><input class="inp" data-btc="${k}" value="${esc(c[k] == null ? '' : c[k])}" inputmode="decimal">${unit ? `<i>${unit}</i>` : ''}</span></label>`;
     const noLimit = !(Number(c.maxLots) > 0) && !(Number(c.maxInvest) > 0);
@@ -374,8 +374,6 @@
       ${sgrid(c, !custom)}
       ${condBox('entries')}${condBox('exits')}
       ${custom ? '' : '<div class="btns"><button class="btn sm" data-act="btPreset">물타기 기본값으로 되돌리기</button></div>'}
-      ${renkoUsed() ? `<details class="box"><summary>렌코 차트 설정 <small class="muted">(렌코 조건의 벽돌 크기)</small></summary><div class="grid2"><label>벽돌 크기 기준<select data-change="btRenko" data-k="mode" data-seg>${opts([['pct', '첫 종가의 N%'], ['fixed', '고정 금액'], ['atr', 'ATR(평균변동폭) × 배수']], c.renko.mode)}</select></label>
-      <label>값 (%, 금액, 배수)<input data-btr="value" value="${esc(c.renko.value)}" inputmode="decimal"></label><label>ATR 기간<input data-btr="period" value="${esc(c.renko.period)}" inputmode="decimal"></label></div><p class="hint">일봉 종가로 만든 렌코라서 증권사 렌코 차트와 모양이 다를 수 있습니다.</p></details>` : ''}
       <details class="box"><summary>고급 설정 <small class="muted">(체결 방식 · 수수료 · 전략 저장 · 기간 분할 검증)</small></summary>
         <div class="ios-list">
           <div class="ios-row stack"><span>체결 방식</span><span class="rowr">${seg('fill', [['nextOpen', '다음 날 시가'], ['close', '당일 종가']], c.fill)}</span></div>
@@ -505,8 +503,7 @@
       ${cycleSection(r, cur)}
       <p class="hint warn">과거 결과일 뿐입니다. 다른 종목·기간에서도 확인하세요.</p>
     </section>
-    <section class="card"><h4>누적 손익 곡선 <small class="muted">(실현 + 평가)</small></h4><canvas id="btEquity" class="chart"></canvas>
-      ${r.renko ? `<h4>렌코 차트</h4><canvas id="btRenko" class="chart"></canvas>` : ''}</section>
+    <section class="card"><h4>누적 손익 곡선 <small class="muted">(실현 + 평가)</small></h4><canvas id="btEquity" class="chart"></canvas></section>
     <section class="card"><details class="box" ${hasCyc ? '' : 'open'}><summary><b>청산된 순번</b> <small class="muted">${r.trades.length}건 · 순번(매수 한 건)별 매도 결과</small></summary>${r.trades.length ? `<div class="tablewrap"><table><thead><tr><th>순번</th><th>매수일</th><th>매수가</th><th>매도일</th><th>매도가</th><th>수량</th><th>손익</th><th>수익률</th><th>보유일</th><th>사유</th></tr></thead><tbody>
       ${r.trades.map((t) => `<tr><td data-label="순번"><span class="v">${t.no}번</span></td><td data-label="매수일"><span class="v">${t.buyDate}</span></td><td data-label="매수가"><span class="v">${fmtNum(t.buyPrice, 2)}</span></td><td data-label="매도일"><span class="v">${t.sellDate}</span></td><td data-label="매도가"><span class="v">${fmtNum(t.sellPrice, 2)}</span></td><td data-label="수량"><span class="v">${fmtNum(t.qty, t.qty % 1 ? 2 : 0)}</span></td><td data-label="손익"><span class="v ${t.pnl >= 0 ? 'pos' : 'neg'}">${fmtMoney(t.pnl, cur)}</span></td><td data-label="수익률"><span class="v">${pct(t.ret)}</span></td><td data-label="보유일"><span class="v">${t.days}일</span></td><td data-label="사유"><span class="v">${esc(t.reason || '')}</span></td></tr>`).join('')}
       </tbody></table></div>` : '<p class="muted">청산된 순번이 없습니다 (매도 조건이 없거나 아직 충족되지 않음).</p>'}</details></section>`;
@@ -731,8 +728,6 @@
       eq.addEventListener('pointermove', (e) => { if (down) at(e); });
       const end = () => { down = false; }; eq.addEventListener('pointerup', end); eq.addEventListener('pointercancel', end);
     }
-    const rk = document.getElementById('btRenko');
-    if (rk && r.renko) SM.drawRenko(rk, r.renko);
   };
 
   /* ---------- 데이터 저장 ---------- */
@@ -920,13 +915,13 @@
       const det = row.parentNode.querySelector(`tr.cycdet[data-cd="${row.dataset.cd}"]`); if (!det) return;
       const open = det.hidden; det.hidden = !open; row.setAttribute('aria-expanded', String(open)); const ar = row.querySelector('.cycar'); if (ar) ar.textContent = open ? '▾' : '▸';
     },
-    btMode2: (el) => { // 물타기 전략 ↔ 직접 조건 만들기: 각자 자기 설정을 따로 기억(기간·시장·체결 방식·렌코는 공유)
+    btMode2: (el) => { // 물타기 전략 ↔ 직접 조건 만들기: 각자 자기 설정을 따로 기억(기간·시장·체결 방식은 공유)
       const to = el.dataset.v === 'custom' ? 'custom' : 'mg'; if (to === bt.mode) return;
       bt.modeCfg[bt.mode] = bt.cfg; const next = bt.modeCfg[to] || (to === 'mg' ? presetCfg() : SM.blankCfg());
-      for (const k of ['from', 'to', 'market', 'fill', 'renko']) next[k] = bt.cfg[k];
+      for (const k of ['from', 'to', 'market', 'fill']) next[k] = bt.cfg[k];
       bt.modeCfg[to] = next; bt.cfg = next; bt.mode = to; bt.condOpen = ''; bt.wrap = null; bt.result = null; bt.val = null; A.render();
     },
-    btPreset: () => { const keep = { from: bt.cfg.from, to: bt.cfg.to, market: bt.cfg.market, fill: bt.cfg.fill, renko: bt.cfg.renko }; bt.cfg = Object.assign(presetCfg(), keep); bt.modeCfg.mg = bt.cfg; bt.strategyId = ''; bt.condOpen = ''; bt.wrap = null; bt.result = null; bt.val = null; A.render(); },
+    btPreset: () => { const keep = { from: bt.cfg.from, to: bt.cfg.to, market: bt.cfg.market, fill: bt.cfg.fill }; bt.cfg = Object.assign(presetCfg(), keep); bt.modeCfg.mg = bt.cfg; bt.strategyId = ''; bt.condOpen = ''; bt.wrap = null; bt.result = null; bt.val = null; A.render(); },
     btRange: (el) => {
       const ds = curDS(); if (!ds) return; const d = ds.data.d, last = d[d.length - 1], m = +el.dataset.v;
       bt.cfg.from = m ? (addMonthsStr(last, -m) < d[0] ? d[0] : addMonthsStr(last, -m)) : ''; bt.cfg.to = ''; bt.result = null; bt.val = null; A.render();
@@ -998,7 +993,6 @@
     btDS: (el) => { bt.datasetId = el.value; bt.result = null; bt.val = null; bt.cmp = null; bt.cfg.from = ''; bt.cfg.to = ''; if (isRepoId(el.value)) A.btRepoLoad(el.value.slice(5)); A.render(); },
     btParam: (el) => { const c = leafAtPath(el.dataset.g, el.dataset.path); if (c) { c[el.dataset.k] = el.value; condRefreshPath(el.dataset.g, el.dataset.path); } },
     btTop: (el) => { bt.cfg[el.dataset.k] = el.value; if (el.dataset.k === 'qtyMode') A.render(); },
-    btRenko: (el) => { bt.cfg.renko[el.dataset.k] = el.value; },
     btValidate: (el) => { bt.validate = el.checked; A.render(); },
     btStratPick: (el) => {
       const s = strategies().find((x) => x.id === el.value);
@@ -1113,7 +1107,6 @@
   A.inputHandlers.bt = (el) => {
     if (el.dataset.btp) { const [g, path, k] = el.dataset.btp.split('|'); const c = leafAtPath(g, path); if (c) { c[k] = el.value; condRefreshPath(g, path); } }
     else if (el.dataset.btc) bt.cfg[el.dataset.btc] = el.value;
-    else if (el.dataset.btr) bt.cfg.renko[el.dataset.btr] = el.value;
     else if (el.dataset.btsplit) bt.splitPct = el.value;
     else if (el.dataset.rp) rpInput(el);
     else if (el.dataset.btimp) bt.imp[el.dataset.btimp] = el.value;
