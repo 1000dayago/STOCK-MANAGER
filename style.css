@@ -1009,3 +1009,8 @@ table.cyc > tbody > tr.cycrow td:first-child { overflow: hidden; }
 .exsent.buy { background: var(--buy-bg); } .exsent.sell { background: var(--sell-bg); } .exsent > b:first-child { margin-right: 6px; } .exsent.buy > b:first-child { color: var(--buy-fg); } .exsent.sell > b:first-child { color: var(--sell-fg); }
 .exset { margin: 4px 2px; font-size: 12px; color: var(--muted); } .exres { margin: 4px 2px 8px; font-size: 12.5px; }
 body.ios-sim .ios-seg button { font-size: 13.5px; padding: 9px 4px; }
+/* 손익 색: 이익(플러스)은 상승색(기본 빨강), 손실(마이너스)은 하락색(기본 파랑) — 설정의 색 선택을 따름 */
+.pos { color: var(--up); } .neg { color: var(--down); }
+/* 세부 사이클 표: 조건 열이 한 글자씩 줄바꿈되지 않게 최소 너비를 주고, 표가 넓으면 펼친 영역 안에서 가로로 밀어 봄 */
+table.cyc table.cycmini { min-width: 720px; width: max-content; }
+table.cyc table.cycmini th.c-why, table.cyc table.cycmini td.c-why { min-width: 170px; max-width: 260px; text-align: left; white-space: normal; font-size: 11.5px; line-height: 1.35; }
