@@ -14,7 +14,7 @@
     catch (e) { toast('가격 데이터를 저장할 공간이 부족합니다. 안 쓰는 데이터를 삭제하세요.', true); return false; }
   }
   const newImp = () => ({ stockId: '', autoNote: '', text: '', headerLine: '', an: null, fileNames: [], dest: 'new', destId: '', name: '', market: 'KR', useAdj: true, unit: '' });
-  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mode: 'mg', picker: null, pickGroup: '', wrap: null, condOpen: '', mgOpen: false, mg: { qty: 10, growth: 2, drop: 10, signal: 'drop', vx: 1, trend: true, tn: 30, tk: 5, sl: true, sln: 20, pc: 'none', pn: 30, pv: 40, xtrend: true, xn: 30, xk: 5, exit: 'target', target: 5, s: 5, l: 15, maxLots: 5, maxInvest: 0 }, stockId: '', imp: newImp() });
+  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mode: 'mg', picker: null, pickGroup: '', all: null, allBusy: false, wrap: null, condOpen: '', mgOpen: false, mg: { qty: 10, growth: 2, drop: 10, signal: 'drop', vx: 1, trend: true, tn: 30, tk: 5, sl: true, sln: 20, cooldown: 0, minGap: 0, pc: 'none', pn: 30, pv: 40, xtrend: true, xn: 30, xk: 5, exit: 'target', target: 5, s: 5, l: 15, maxLots: 5, maxInvest: 0 }, stockId: '', imp: newImp() });
   const MAP_KEY = 'stockmgr.colmaps';
   const loadMaps = () => { try { return JSON.parse(localStorage.getItem(MAP_KEY) || '{}'); } catch (e) { return {}; } };
   function rememberCols(an) { try { const m = loadMaps(); m[an.signature] = an.cols; localStorage.setItem(MAP_KEY, JSON.stringify(m)); } catch (e) { /* ignore */ } }
@@ -130,6 +130,9 @@
   const COND_SHORT = { vol: '거래량 N주 이상', volPrev: '거래량이 전일보다 높음', volRatio: '거래량이 평균 대비 급증', maCross: '이동평균 교차 (골든·데드)', maState: '단기·장기선 위치', maSlope: '이동평균선 방향 (상승·하락 중)', priceMa: '종가와 이동평균선 위치', bb: '볼린저밴드 터치', rsi: 'RSI', macd: 'MACD 시그널 교차', breakout: '신고가·신저가', change: '전일 대비 등락률', renkoFlip: '렌코 반전', renkoRun: '렌코 상승 연속', flow: '수급 (외국인·기관·개인)', dropLast: '하락 시 추가 매수', tp: '목표수익 도달 (순번별)', sl: '손절 (순번별)', trail: '고점 대비 하락 (순번별)', holdDays: 'N일 보유 후 (순번별)', avgPct: '평단 대비 ±N% (전량)' };
   const WHO_TXT = { frgn: '외국인', inst: '기관', indiv: '개인', both: '외국인·기관 동시' };
   function condSummary(c) {
+    const base = condSummaryCore(c), w = Math.floor(Number(c.within)); return w > 1 && !(SM.COND_DEFS[c.type] || {}).dyn ? `${base} · 최근 ${w}일 이내` : base;
+  }
+  function condSummaryCore(c) {
     const n = (v) => esc(String(v == null ? '' : v)), ma = c.ma === 'ema' ? 'EMA' : '', up = c.dir !== 'down';
     switch (c.type) {
       case 'vol': return `거래량 ${n(c.n)}주 이상`;
@@ -197,7 +200,8 @@
     const out = [];
     (function walk(node, path) { node.items.forEach((it, k) => { const p = pthOf(path, k); if (isLeaf(it)) { const def = SM.COND_DEFS[it.type]; if (!def) return;
       const fields = def.params.map((q) => q.opts ? `<label class="mini">${q.label}<select class="inp" data-change="btParam" data-g="${g}" data-path="${p}" data-k="${q.k}" data-seg>${opts(q.opts, it[q.k] != null ? it[q.k] : q.def)}</select></label>` : `<label class="mini">${q.label}<input class="inp" data-btp="${g}|${p}|${q.k}" value="${esc(it[q.k] != null ? it[q.k] : q.def)}" inputmode="decimal"></label>`).join('');
-      out.push(`<div class="tok-ed ${bt.condOpen === `${g}:${p}` ? 'show' : ''}" data-g="${g}" data-path="${p}"><div class="tok-edh"><b>${esc(COND_SHORT[it.type] || def.label)}</b><button type="button" class="btn sm danger" data-act="btDel" data-g="${g}" data-path="${p}">삭제</button></div><div class="tok-edb">${fields}</div></div>`); } else walk(it, p); }); })(getSide(g).expr, '');
+      const within = def.dyn ? '' : `<label class="mini">N일 이내<input class="inp" data-btp="${g}|${p}|within" value="${esc(it.within != null ? it.within : 1)}" inputmode="numeric" placeholder="1"><small>1 = 당일만 · 3 = 최근 3일 중 하루라도</small></label>`;
+      out.push(`<div class="tok-ed ${bt.condOpen === `${g}:${p}` ? 'show' : ''}" data-g="${g}" data-path="${p}"><div class="tok-edh"><b>${esc(COND_SHORT[it.type] || def.label)}</b><button type="button" class="btn sm danger" data-act="btDel" data-g="${g}" data-path="${p}">삭제</button></div><div class="tok-edb">${fields}${within}</div></div>`); } else walk(it, p); }); })(getSide(g).expr, '');
     return out.join('');
   }
   function indepHtml(g) { // 매도의 독립 조건 목록
@@ -317,7 +321,8 @@
       <div class="mgblock safe"><div class="mgblock-h">안전장치</div><div class="ios-list">
         ${sel('하락 추세 매수 중단', 'btMgTrend', [['1', '켬'], ['0', '끔']], m.trend ? '1' : '0', '이동평균선이 내려가는 중이면 매수하지 않음')}${m.trend ? row('tn', '이동평균 기간', '일') + row('tk', '하락 판단', '일 전보다 낮으면') : ''}
         ${sel('손절', 'btMgSL', [['1', '켬'], ['0', '끔']], m.sl ? '1' : '0', '평단 대비 손실이 이 값에 닿으면 전량 매도')}${m.sl ? row('sln', '손절 기준', '% 손실') : ''}
-        ${row('maxLots', '최대 매수 횟수', '회', '0 = 제한 없음')}${row('maxInvest', '최대 투입금', '원', '0 = 제한 없음')}</div>
+        ${row('maxLots', '최대 매수 횟수', '회', '0 = 제한 없음')}${row('maxInvest', '최대 투입금', '원', '0 = 제한 없음')}
+        ${row('cooldown', '청산 뒤 쉬는 날', '일', '매도 후 이 기간 새로 사지 않음')}${row('minGap', '매수 최소 간격', '일', '같은 사이클 안에서 매수 사이 간격')}</div>
         ${Number(m.maxLots) <= 0 && Number(m.maxInvest) <= 0 ? '<p class="hint warn">한도가 없으면 하락 종목에서 투입금이 끝없이 커질 수 있습니다.</p>' : ''}</div>`;
   }
   A.renderers.btMain = function () {
@@ -368,6 +373,8 @@
         <div class="ios-list">
           <div class="ios-row stack"><span>체결 방식</span><span class="rowr">${seg('fill', [['nextOpen', '다음 날 시가'], ['close', '당일 종가']], c.fill)}</span></div>
           <div class="ios-row stack"><span>수수료·세금 기준</span><span class="rowr">${seg('market', [['KR', '국내'], ['US', '해외']], c.market)}</span></div>
+          <label class="ios-row"><span>청산 뒤 쉬는 날<small>매도 후 이 기간 새로 사지 않음</small></span><span class="rowr"><input class="inp" data-btc="cooldown" value="${esc(c.cooldown || 0)}" inputmode="numeric"><i>일</i></span></label>
+          <label class="ios-row"><span>매수 최소 간격<small>같은 사이클 안에서 매수 사이 간격</small></span><span class="rowr"><input class="inp" data-btc="minGap" value="${esc(c.minGap || 0)}" inputmode="numeric"><i>일</i></span></label>
           ${custom ? `<div class="ios-row stack"><span>매수 단위</span><span class="rowr">${seg('qtyMode', [['shares', '주 수'], ['amount', '금액']], c.qtyMode)}</span></div>` : ''}
         </div>
         
@@ -379,8 +386,8 @@
         ${bt.validate ? `<div class="row gap wrap"><label class="mini">앞 구간 비율 %<input class="inp" data-btsplit="1" value="${bt.splitPct}" inputmode="numeric" style="width:90px"></label><span class="hint">전체 기간의 앞 ${bt.splitPct}%를 “설정용”, 나머지를 “검증용”으로 나눠 각각 돌립니다.</span></div>` : '<p class="hint">조건과 숫자를 마음껏 바꾸다 보면 과거에만 딱 맞는 설정이 만들어지기 쉽습니다. 이 옵션을 켜면 설정하지 않은 구간에서의 결과를 함께 보여줍니다.</p>'}</div>
       </details>
     </section>
-    <div class="btns runrow"><button class="btn primary runbtn" data-act="btRun" ${cur ? '' : 'disabled'}>시뮬레이션 실행</button>${st.length ? `<button class="btn" data-act="btCmp" ${cur ? '' : 'disabled'}>저장된 전략 모두 비교 (${st.length}개)</button>` : ''}</div>
-    ${bt.cmp ? cmpHtml() : ''}${bt.val ? valHtml() : ''}${bt.result ? resultHtml() : ''}${pickerHtml()}</div>`;
+    <div class="btns runrow"><button class="btn primary runbtn" data-act="btRun" ${cur ? '' : 'disabled'}>시뮬레이션 실행</button>${st.length ? `<button class="btn" data-act="btCmp" ${cur ? '' : 'disabled'}>저장된 전략 모두 비교 (${st.length}개)</button>` : ''}${Object.keys(ds).length > 1 ? `<button class="btn" data-act="btAll" ${bt.allBusy ? 'disabled' : ''}>${bt.allBusy ? '돌리는 중…' : `모든 데이터에 같은 전략 비교 (${Object.keys(ds).length}개)`}</button>` : ''}</div>
+    ${bt.all ? allHtml() : ''}${bt.cmp ? cmpHtml() : ''}${bt.val ? valHtml() : ''}${bt.result ? resultHtml() : ''}${pickerHtml()}</div>`;
   };
 
   /* ---------- 불러오기 패널(열 지정 · 미리보기 · 저장 위치) ---------- */
@@ -449,6 +456,16 @@
     }
     return `<section class="card"><h2>기간 분할 검증</h2><div class="tablewrap"><table><thead><tr><th>구간</th><th>기간</th><th>매수/청산</th><th>총 손익</th><th>수익률</th><th>단순 보유</th><th>최대 낙폭</th></tr></thead><tbody>${summaryRow('설정용(앞)', a, cur)}${summaryRow('검증용(뒤)', b, cur)}</tbody></table></div><p class="verdict">${msg}</p></section>`;
   }
+  // 모든 데이터(종목)에 지금 전략을 돌려 한 표로: 총손익·최대 투입금·수익률·단순 보유·앞/뒤 기간 분할
+  function allHtml() {
+    const a = bt.all, sm = SM.summarizeMulti(a.rows), cur = a.cur, pc = (v) => (v == null ? '-' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`), cl = (v) => (v == null ? '' : v >= 0 ? 'pos' : 'neg');
+    const rows = a.rows.map((r) => r.error ? `<tr><td data-label="종목"><span class="v">${esc(r.name)}</span></td><td colspan="8" class="muted">${esc(r.error)}</td></tr>`
+      : `<tr><td data-label="종목"><span class="v">${esc(r.name)}</span><small class="muted">${esc(r.range)}</small></td><td data-label="매수"><span class="v">${r.buys}회</span></td><td data-label="사이클"><span class="v">${r.cycles}${r.loss ? ` <small class="neg">손실 ${r.loss}</small>` : ''}</span></td><td data-label="총손익"><span class="v ${cl(r.total)}">${fmtMoney(r.total, cur)}</span></td><td data-label="최대 투입금"><span class="v">${fmtMoney(r.peak, cur)}</span></td><td data-label="수익률"><span class="v ${cl(r.ret)}">${pc(r.ret)}</span></td><td data-label="단순 보유"><span class="v">${pc(r.bh)}</span></td><td data-label="앞 구간"><span class="v ${cl(r.ret1)}">${pc(r.ret1)}</span></td><td data-label="뒤 구간"><span class="v ${cl(r.ret2)}">${pc(r.ret2)}</span></td></tr>`).join('');
+    return `<h3 class="sim-h">종목 일괄 비교 <small>지금 전략을 모든 데이터에 같은 조건으로</small></h3><section class="card">
+      <div class="cards cards4"><div class="stat"><span>이익 난 종목</span><b>${sm.win} / ${sm.ran}</b><small>총손익 기준</small></div><div class="stat"><span>수익률 중앙값</span><b>${pc(sm.medRet)}</b><small>최대 투입금 대비</small></div><div class="stat"><span>뒤 구간에서도 이익</span><b>${sm.lateWin} / ${sm.tested}</b><small>앞 70%·뒤 30% 분할</small></div><div class="stat"><span>단순 보유보다 나음</span><b>${sm.beatBh} / ${sm.withBh}</b><small>수익률 비교</small></div></div>
+      <div class="tablewrap"><table class="cmp"><thead><tr><th>종목</th><th>매수</th><th>사이클</th><th>총손익</th><th>최대 투입금</th><th>수익률</th><th>단순 보유</th><th>앞 구간</th><th>뒤 구간</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="hint warn">설정을 바꿔 가며 여러 번 비교해 가장 좋은 것을 고르면 과거에만 맞춘 설정이 되기 쉽습니다. 종목 수가 적으면 결과가 우연일 수 있습니다.</p></section>`;
+  }
   function cmpHtml() {
     const cur = bt.cmpCur || 'KRW';
     return `<section class="card"><h2>전략 비교 <small class="muted">(같은 데이터·기간·체결 방식)</small></h2><div class="tablewrap"><table><thead><tr><th>전략</th><th>매수</th><th>청산/보유</th><th>총 손익</th><th>수익률(최대 투입 대비)</th><th>최대 낙폭</th><th>수수료·세금</th><th>단순 보유</th></tr></thead><tbody>
@@ -491,7 +508,7 @@
       </tbody></table></div>` : '<p class="muted">청산된 순번이 없습니다 (매도 조건이 없거나 아직 충족되지 않음).</p>'}</details></section>`;
   }
   /* ---------- 재생(리플레이): 고른 구간을 실제 차트처럼 하루씩(또는 한 주씩) 움직여 봅니다 ---------- */
-  const rp = bt.rp || (bt.rp = { on: false, playing: false, start: '', end: '', cur: '', speed: 2, unit: 'day', timer: null });
+  const rp = bt.rp || (bt.rp = { on: false, sel: false, open: false, playing: false, start: '', end: '', cur: '', speed: 2, unit: 'day', timer: null });
   const rpMonday = (d) => { const t = new Date(d + 'T00:00:00Z'), k = (t.getUTCDay() + 6) % 7; t.setUTCDate(t.getUTCDate() - k); return t.toISOString().slice(0, 10); };
   function rpData() { const r = bt.result, ds = allDS()[bt.datasetId]; return r && ds && ds.data ? { r, data: ds.data } : null; }
   function rpIdx(date) { const x = rpData(); if (!x) return -1; let t = -1; for (let i = 0; i < x.data.d.length && x.data.d[i] <= date; i++) t = i; return t; }
@@ -513,11 +530,12 @@
   function rpInner() {
     const x = rpData(); if (!x) return '';
     const { data } = x, si = rpIdx(rp.start), ei = rpIdx(rp.end), ci = rpIdx(rp.cur);
-    if (!rp.on) return `<div class="rp-off"><button type="button" class="btn primary" data-act="rpStart">▶ 재생</button>
-      <span class="rp-rng"><input type="date" data-rp="start" value="${rp.start}" aria-label="재생 시작일"><i>~</i><input type="date" data-rp="end" value="${rp.end}" aria-label="재생 종료일"></span>
-      <span class="rp-se"><button type="button" class="se s" data-act="rpSetS" title="차트에서 고른 날짜를 시작으로">S 지정</button><button type="button" class="se e" data-act="rpSetE" title="차트에서 고른 날짜를 끝으로">E 지정</button></span>
-      <canvas id="rpTimeline" class="rp-tl" aria-label="재생 구간 선택 막대"></canvas>
-      <span class="rp-hint">아래 막대의 <b>S</b>·<b>E</b> 손잡이를 끌거나, 차트를 눌러 날짜를 고른 뒤 S·E 지정을 누르세요.</span></div>`;
+    if (!rp.on) return `<div class="rp-off">
+      <div class="rp-row"><button type="button" class="btn selbtn ${rp.sel ? 'cancel' : ''}" data-act="rpSel" aria-pressed="${rp.sel}">${rp.sel ? '구간 지정 취소' : '<span class="se-ico"><i class="s">S</i><i class="ar">⟷</i><i class="e">E</i></span> 재생 구간 지정'}</button>
+        <button type="button" class="btn primary" data-act="rpStart">▶ 재생</button></div>
+      <div class="rp-row"><span class="rp-rng"><input type="date" data-rp="start" value="${rp.start}" aria-label="재생 시작일"><i>~</i><input type="date" data-rp="end" value="${rp.end}" aria-label="재생 종료일"></span>
+        ${rp.sel ? '<span class="rp-se"><button type="button" class="se s" data-act="rpSetS" title="차트에서 고른 날짜를 시작으로">S 지정</button><button type="button" class="se e" data-act="rpSetE" title="차트에서 고른 날짜를 끝으로">E 지정</button></span>' : ''}</div>
+      ${rp.sel ? `<canvas id="rpTimeline" class="rp-tl" aria-label="재생 구간 선택 막대"></canvas><span class="rp-hint">막대의 <b>S</b>·<b>E</b>를 끌거나, 차트에서 날짜를 고른 뒤 S·E 지정을 누르세요.</span>` : '<span class="rp-hint">날짜를 넣어 바로 재생하거나, “재생 구간 지정”으로 전체 막대에서 시작·끝을 고르세요.</span>'}</div>`;
     return `<div class="rp-bar">
         <button type="button" class="rpb" data-act="rpRestart" title="처음으로" aria-label="처음으로">⏮</button><button type="button" class="rpb" data-act="rpStep" data-v="-1" title="뒤로" aria-label="한 봉 뒤로">◀</button>
         <button type="button" class="rpb play" data-act="rpPlay" id="rpPlayBtn" aria-label="${rp.playing ? '일시정지' : '재생'}">${rp.playing ? '⏸' : '▶'}</button><button type="button" class="rpb" data-act="rpStep" data-v="1" title="앞으로" aria-label="한 봉 앞으로">▶❘</button>
@@ -568,6 +586,7 @@
     });
     const end = () => { drag = null; }; cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
   }
+  function rpApplyRange() { if (A.chartRange) { if (rp.sel || rp.on) A.chartRange(rp.start, rp.end); else A.chartRange(null, null); } } // 필요할 때만(구간 지정·재생 중) 차트에 선택 구간 표시
   function rpRangeChanged() { // 구간이 바뀌면 입력칸·타임라인·슬라이더·차트 음영을 맞춤(재생 중에도 가능)
     const a = document.querySelector('[data-rp=start]'), b = document.querySelector('[data-rp=end]'); if (a) a.value = rp.start; if (b) b.value = rp.end;
     const x = rpData();
@@ -578,7 +597,7 @@
       const lb = document.querySelector('.rp-lbl'); if (lb) lb.innerHTML = `<span>${x.data.d[si]}</span><span>${x.data.d[ei]}</span>`;
       rpSync();
     } else if (!rp.on) rp.cur = rp.start;
-    rpDrawTL(); if (A.chartRange) A.chartRange(rp.start, rp.end);
+    rpDrawTL(); rpApplyRange();
   }
   function rpSetFromChart(which) {
     const x = rpData(); if (!x) return; const date = A.chartCrossDate && A.chartCrossDate();
@@ -588,7 +607,8 @@
     if (rpIdx(rp.end) - rpIdx(rp.start) < 2) { toast('구간이 너무 짧습니다', true); rp.start = d[Math.max(r.startIdx, rpIdx(rp.end) - 5)]; }
     rpRangeChanged();
   }
-  function rpHtml() { rpInit(); return `<div class="rp ${rp.on ? 'on' : ''}" id="rpPanel">${rpInner()}</div>`; }
+  function rpHtml() { rpInit(); return `<details class="rpmenu" id="rpWrap" ${rp.open || rp.on || rp.sel ? 'open' : ''}><summary><b>구간 재생</b> <small>원하는 구간을 골라 실제 차트처럼 재생</small></summary><div class="rp ${rp.on ? 'on' : ''}" id="rpPanel">${rpInner()}</div></details>`; }
+  document.addEventListener('toggle', (e) => { if (e.target && e.target.id === 'rpWrap') rp.open = e.target.open; }, true);
   function rpRefresh() { const el = document.getElementById('rpPanel'); if (!el) return; el.classList.toggle('on', rp.on); el.innerHTML = rpInner(); const st = document.getElementById('rpState'); if (st) { st.hidden = !rp.on; st.innerHTML = rp.on ? rpStateHtml() : ''; } rpDrawTL(); }
   function rpSync() { // 재생 중 한 칸: 차트·상태·슬라이더만 갱신(패널 전체를 다시 그리지 않음)
     if (A.chartReveal) A.chartReveal(rp.on ? rp.cur : null);
@@ -620,12 +640,13 @@
     setTimeout(() => { row.classList.remove('hl'); if (tr) tr.classList.remove('hl'); }, 2600);
     (tr || row).scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
-  A.rpReset = () => { rpStop(); rp.on = false; }; // 새 결과가 나오면 재생 상태 초기화
+  A.rpReset = () => { rpStop(); rp.on = false; rp.sel = false; }; // 새 결과가 나오면 재생 상태 초기화
   A._rp = rp; // 테스트용
   Object.assign(A.handlers, {
     rpSetS: () => rpSetFromChart('s'), rpSetE: () => rpSetFromChart('e'),
-    rpStart: () => { rpInit(); rp.on = true; rp.cur = rp.start; rpRefresh(); rpSync(); },
-    rpEnd: () => { rpStop(); rp.on = false; if (A.chartReveal) A.chartReveal(null); rpRefresh(); },
+    rpSel: () => { rpInit(); rp.sel = !rp.sel; rp.open = true; rpRefresh(); rpApplyRange(); }, // 구간 지정 켜기(전체 막대 표시) / 취소(막대와 차트의 선택 구간이 사라짐)
+    rpStart: () => { rpInit(); rp.on = true; rp.cur = rp.start; rpRefresh(); rpApplyRange(); rpSync(); },
+    rpEnd: () => { rpStop(); rp.on = false; if (A.chartReveal) A.chartReveal(null); rpRefresh(); rpApplyRange(); },
     rpPlay: () => { if (rp.playing) rpStop(); else rpPlay(); },
     rpRestart: () => { rpStop(); rp.cur = rp.start; rpSync(); },
     rpStep: (el) => { rpStop(); const x = rpData(); if (!x) return; rp.cur = x.data.d[rpNext(+el.dataset.v)]; rpSync(); },
@@ -688,7 +709,7 @@
     if (A.mountChart && document.getElementById('chartHost')) {
       const dsId = String(bt.datasetId || ''), code = dsId.startsWith('repo:') ? dsId.slice(5) : '';
       const mounted = A.mountChart({ ds: { name: stored.name || '시뮬레이션 데이터', data }, code, onMarker: (h) => A.btOpenCycle(h), cycles: r.cycles.concat(r.openCycle ? [r.openCycle] : []), target: targetPct != null ? Number(targetPct) : 0 });
-      if (mounted && mounted.then) mounted.then(() => { if (rp.on && A.chartReveal) A.chartReveal(rp.cur); if (A.chartRange && rp.start && rp.end) A.chartRange(rp.start, rp.end); rpDrawTL(); }); // 다시 그려져도 재생 위치·구간 유지
+      if (mounted && mounted.then) mounted.then(() => { if (rp.on && A.chartReveal) A.chartReveal(rp.cur); rpApplyRange(); rpDrawTL(); }); // 다시 그려져도 재생 위치·구간 유지
     }
     const canvas = document.getElementById('btCandle');
     if (canvas) SM.drawCandles(canvas, data, { from: r.startIdx, to: r.endIdx, lines: SM.overlayLines(data, cfg), buys: r.buys, sells: r.sells, volLine: vc ? num(vc.n) : 0, tip: document.getElementById('candleTip'), height: 360 });
@@ -772,6 +793,7 @@
     let xc;
     if (m.exit === 'cross') { const sh = Math.max(2, Math.round(nz(m.s, 5))), lg = Math.max(sh + 1, Math.round(nz(m.l, 15))); xc = newCond('maCross'); xc.ma = 'sma'; xc.s = sh; xc.l = lg; xc.dir = 'down'; } // 단기선이 장기선을 아래로 뚫음 = 데드크로스
     else { xc = newCond('avgPct'); xc.dir = 'up'; xc.pct = Math.max(0.1, nz(m.target, 5)); }
+    c.cooldown = Math.max(0, Math.floor(nz(m.cooldown, 0))); c.minGap = Math.max(0, Math.floor(nz(m.minGap, 0)));
     c.entries = { mode: 'AND', conds: ec }; c.exits = { mode: 'OR', conds: [xc] };
     const slc = m.sl ? (() => { const x = newCond('avgPct'); x.dir = 'down'; x.pct = Math.max(1, nz(m.sln, 20)); return x; })() : null; // 안전장치: 평단 대비 손실이 N%에 닿으면 전량 매도
     if (m.exit === 'cross' && m.xtrend) { const xs = newCond('maSlope'); xs.ma = 'sma'; xs.n = Math.max(2, Math.round(nz(m.xn, 30))); xs.k = Math.max(1, Math.round(nz(m.xk, 5))); xs.dir = 'down'; c.exits = { mode: 'AND', conds: [xc, xs] }; } // 데드크로스 + 이동평균선이 하락 중일 때만 매도
@@ -936,6 +958,22 @@
       }
       A.render();
       setTimeout(() => { const e = document.getElementById('btCandle'); if (e) e.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50);
+    },
+    btAll: async () => {
+      if (bt.allBusy) return; const settings = A.getState().settings, base = clone(bt.cfg); if (bt.mode !== 'custom') applyMgTo(base);
+      bt.allBusy = true; A.render();
+      try {
+        for (const [id, e] of Object.entries(allDS())) if (e.repo && !e.data) { try { await A.btRepoLoad(e.code); } catch (x) { /* 못 읽은 데이터는 표에 오류로 */ } } // 자동 수집 데이터는 필요할 때 읽어 옴
+        const rows = [];
+        for (const [id, e] of Object.entries(allDS())) {
+          if (!e.data) { rows.push({ name: e.name, error: '데이터를 읽지 못했습니다' }); continue; }
+          const cfg = clone(base); cfg.from = bt.cfg.from || ''; cfg.to = bt.cfg.to || '';
+          const r = SM.runBacktest(e.data, cfg, settings); if (r.error) { rows.push({ name: e.name, error: r.error }); continue; }
+          const s = r.summary, d = e.data.d, sp = r.startIdx + Math.floor((r.endIdx - r.startIdx) * 0.7), v = SM.runSplitValidation(e.data, cfg, settings, d[sp]);
+          rows.push({ name: e.name, range: `${d[r.startIdx]} ~ ${d[r.endIdx]}`, buys: s.buyCount, cycles: r.cycles.length, loss: r.cycles.filter((c) => c.realized < 0).length, total: s.total, peak: s.peakInvested, ret: s.retOnPeak, bh: s.bh ? s.bh.ret : null, ret1: v.a && !v.a.error ? v.a.summary.retOnPeak : null, ret2: v.b && !v.b.error ? v.b.summary.retOnPeak : null });
+        }
+        bt.all = { rows, cur: base.market === 'US' ? 'USD' : 'KRW' };
+      } finally { bt.allBusy = false; A.render(); }
     },
     btCmp: () => {
       const ds = curDS();

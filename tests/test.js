@@ -192,6 +192,29 @@ t('조건식(트리): AND/OR 묶음·빈 묶음 무시·엔진 평가·신호 �
   assert(SM.signalStats(d, { expr: { op: 'AND', items: [L('flow', { who: 'frgn', mode: 'day', dir: 'buy', v: 1, n: 3 })] } }).error);
   const g4 = SM.signalStats(d, { expr: { op: 'AND', items: [B, L('dropLast', { pct: 5, basis: 'last', first: 'yes' })] } }); assert.equal(g4.hasDyn, true); assert.equal(g4.leaves[1].dyn, true);
 });
+t('N일 이내 옵션과 재매수 쿨다운·최소 간격', () => {
+  assert.deepEqual(SM.applyWithin([false, true, false, false, false, true, false], 3), [false, true, true, true, false, true, true]); assert.deepEqual(SM.applyWithin([true, false], 1), [true, false]); assert.deepEqual(SM.applyWithin([true, false], undefined), [true, false]);
+  // 사건형 두 개(서로 다른 날)를 AND로 묶어도 N일 이내면 겹침: 2일째 거래량 급증, 4일째 +3% 상승
+  const px = [100, 100, 100, 103, 103, 103, 103, 103], vol = [1000, 1000, 3000, 1000, 1000, 1000, 1000, 1000];
+  const d = { d: [], o: px.slice(), h: px.slice(), l: px.slice(), c: px.slice(), v: vol, hasVol: true, hasHL: true }, dt = new Date('2024-09-01'); px.forEach(() => { d.d.push(dt.toISOString().slice(0, 10)); dt.setDate(dt.getDate() + 1); });
+  const A = { type: 'vol', n: 2500 }, B = { type: 'change', op: 'gte', v: 2 }, run = (a, b) => SM.runBacktest(d, Object.assign(SM.blankCfg(), { fill: 'close', qty: 1, growth: 1, entries: { mode: 'AND', conds: [a, b] }, exits: { mode: 'OR', conds: [] } }), S);
+  assert.equal(run(A, B).buys.length, 0); assert.deepEqual(run(Object.assign({}, A, { within: 3 }), B).buys.map((x) => x.i), [3]); // 3일 이내 → 4번째 날에 신호
+  assert.equal(SM.signalStats(d, { expr: { op: 'AND', items: [Object.assign({}, A, { within: 3 }), B] } }).signalDays, 1);
+  // 쿨다운: 매일 매수 신호 + 평단 +1% 청산. 쿨다운 0이면 청산 다음 날 바로 재매수, 3이면 3거래일 쉼. 최소 간격 2이면 보유 중 매수가 하루 걸러
+  const p2 = [100, 100, 102, 100, 100, 102, 100, 100, 102, 100, 100, 102], d2 = { d: [], o: p2.slice(), h: p2.slice(), l: p2.slice(), c: p2.slice(), v: p2.map(() => 1000), hasVol: true, hasHL: true }, dt2 = new Date('2024-10-01'); p2.forEach(() => { d2.d.push(dt2.toISOString().slice(0, 10)); dt2.setDate(dt2.getDate() + 1); });
+  const base = (x) => Object.assign(SM.blankCfg(), { fill: 'close', qty: 1, growth: 1, entries: { mode: 'AND', conds: [{ type: 'vol', n: 1 }] }, exits: { mode: 'OR', conds: [{ type: 'avgPct', dir: 'up', pct: 1 }] } }, x);
+  const r0 = SM.runBacktest(d2, base({}), S), r3 = SM.runBacktest(d2, base({ cooldown: 3 }), S), g2 = SM.runBacktest(d2, base({ minGap: 2 }), S);
+  const all = (r) => r.cycles.concat(r.openCycle ? [r.openCycle] : []);
+  assert(all(r0).length >= 2 && all(r0)[1].startIdx === all(r0)[0].endIdx + 1, '쿨다운 없으면 청산 다음 날 재진입');
+  assert(all(r3).length >= 2 && all(r3)[1].startIdx - all(r3)[0].endIdx >= 3, '쿨다운 3일: 청산 뒤 3거래일 이후 재진입 ' + all(r3).map((c) => [c.startIdx, c.endIdx]));
+  assert(g2.buys.every((b, k) => k === 0 || b.cyc !== g2.buys[k - 1].cyc || b.i - g2.buys[k - 1].i >= 2), '같은 사이클 안 매수는 2거래일 이상 간격');
+  assert(r0.buys.length >= g2.buys.length);
+});
+t('종목 일괄 비교 요약: 이익 종목 수·수익률 중앙값·뒤 구간·단순 보유 비교', () => {
+  const r = SM.summarizeMulti([{ total: 100, ret: 0.1, ret1: 0.2, ret2: 0.05, bh: 0.02 }, { total: -50, ret: -0.05, ret1: 0.1, ret2: -0.1, bh: 0.1 }, { total: 30, ret: 0.03, ret1: null, ret2: null, bh: null }, { error: 'x' }, { total: 10, ret: 0.2, ret1: 0.1, ret2: 0.3, bh: 0.3 }]);
+  assert.equal(r.n, 5); assert.equal(r.ran, 4); assert.equal(r.win, 3); assert(Math.abs(r.medRet - 0.065) < 1e-9); assert.equal(r.tested, 3); assert.equal(r.lateWin, 2); assert.equal(r.withBh, 3); assert.equal(r.beatBh, 1);
+  assert.deepEqual(SM.summarizeMulti([]), { n: 0, ran: 0, win: 0, medRet: null, tested: 0, lateWin: 0, beatBh: 0, withBh: 0 });
+});
 t('재생: cutRaw는 모든 배열을 같은 길이로 자름', () => {
   const raw = { d: ['2025-01-01', '2025-01-02', '2025-01-03'], o: [1, 2, 3], h: [1, 2, 3], l: [1, 2, 3], c: [1, 2, 3], v: [1, 1, 1], frgn: [5, null, 7], hasVol: true, flowUnit: 'shares' };
   const a = SM.cutRaw(raw, '2025-01-02'); assert.deepEqual(a.d, ['2025-01-01', '2025-01-02']); assert.deepEqual(a.frgn, [5, null]); assert.equal(a.hasVol, true); assert.equal(a.flowUnit, 'shares');

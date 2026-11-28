@@ -160,6 +160,11 @@ function fixtures() {
         await page.evaluate(() => document.querySelectorAll('tr.cycdet').forEach((d) => { d.hidden = true; })); }
       { // 캔들 아래 날짜 줄 + 재생 구간 선택(타임라인 손잡이·S/E 지정·차트 음영)
         ok('캔들 바로 아래에 날짜 줄이 있고 그 아래로 수급·거래량 패널이 이어짐', await page.evaluate(() => { const P = SM.app._chart().state.geom.P; return P[0].k === 'main' && P[1].k === 'dates' && P.length > 2; }));
+        ok('구간 재생 메뉴는 기본으로 접혀 있고, 구간 지정 전에는 내비 막대·차트 음영이 없음', (await page.evaluate(() => !document.getElementById('rpWrap').open)) && (await page.$('#rpTimeline')) === null && (await page.evaluate(() => SM.app._chart().state.range)) === null);
+        await page.evaluate(() => { document.getElementById('rpWrap').open = true; }); await page.waitForTimeout(100);
+        await page.click('[data-act=rpSel]'); await page.waitForSelector('#rpTimeline');
+        ok('“재생 구간 지정”을 누르면 내비게이션 막대(S·E)가 나타나고 차트에 선택 구간이 표시됨', (await page.$('#rpTimeline')) !== null && !!(await page.evaluate(() => SM.app._chart().state.range)) && /구간 지정 취소/.test(await page.textContent('[data-act=rpSel]')));
+        if (process.env.MENU_SHOT) { await page.evaluate(() => { document.querySelector('.chartfirst').scrollIntoView({ block: 'start' }); window.scrollBy(0, -70); }); await page.waitForTimeout(250); await page.screenshot({ path: process.env.MENU_SHOT }); }
         await page.evaluate(() => { document.getElementById('rpTimeline').scrollIntoView({ block: 'center' }); }); await page.waitForTimeout(200);
         const idxOf = (d) => page.evaluate((x) => SM.app._chart().state.rawFull.d.indexOf(x), d);
         const tl0 = await page.evaluate(() => { const cv = document.getElementById('rpTimeline'), t = cv._tl, rp = SM.app._rp, d = SM.app._chart().state.rawFull.d; return { sx: t.X(d.indexOf(rp.start)), ex: t.X(d.indexOf(rp.end)), start: rp.start, end: rp.end }; });
@@ -179,7 +184,22 @@ function fixtures() {
         if (process.env.RNG_SHOT) { await page.evaluate(() => { document.querySelector('.chartfirst').scrollIntoView({ block: 'start' }); window.scrollBy(0, -70); }); await page.waitForTimeout(200); await (await page.$('.chartfirst')).screenshot({ path: process.env.RNG_SHOT }); }
         const sset = await page.evaluate(() => SM.app._rp.start); ok('차트에서 고른 날짜(십자선)로 S 지정', sset === cd || sset <= cd && cd <= sset.replace(/\d$/, '9'), [sset, cd]);
         await page.evaluate(() => { const r = SM.app.ui.bt.result, d = SM.app._chart().state.rawFull.d, set = (k, v) => { const el = document.querySelector('[data-rp=' + k + ']'); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }; set('end', d[r.endIdx]); set('start', d[Math.max(r.startIdx, r.endIdx - 15)]); }); // 뒤의 재생 검사를 위해 구간을 기본값으로 되돌림
-        await page.waitForTimeout(100); }
+        await page.waitForTimeout(100);
+        await page.click('[data-act=rpSel]'); await page.waitForTimeout(100);
+        ok('“구간 지정 취소”를 누르면 내비게이션 막대와 차트의 선택 구간이 사라짐', (await page.$('#rpTimeline')) === null && (await page.evaluate(() => SM.app._chart().state.range)) === null && /재생 구간 지정/.test(await page.textContent('[data-act=rpSel]'))); }
+      { // 차트 구간 확대: 켜고 오른쪽→왼쪽 드래그는 확대, 왼쪽→오른쪽은 원래 화면
+        const toTop = async () => { await page.evaluate(() => { document.querySelector('#chartHost canvas').scrollIntoView({ block: 'start' }); window.scrollBy(0, -90); }); await page.waitForTimeout(150); return (await page.$('#chartHost canvas')).boundingBox(); };
+        const v0 = await page.evaluate(() => { const s = SM.app._chart().state; return { count: s.count, end: s.end }; });
+        await page.click('#zoomBtn'); ok('구간 확대 버튼을 켜면 표시가 바뀜', /확대/.test(await page.textContent('#zoomBtn')) && (await page.evaluate(() => SM.app._chart().state.zoomSel)) === true);
+        let cvz = await toTop(); await page.mouse.move(cvz.x + 260, cvz.y + 100); await page.mouse.down(); await page.mouse.move(cvz.x + 120, cvz.y + 100, { steps: 6 }); await page.mouse.up(); await page.waitForTimeout(150);
+        const v1 = await page.evaluate(() => { const s = SM.app._chart().state; return { count: s.count, end: s.end, zs: s.zoomSel, home: !!s.homeView }; });
+        ok('오른쪽에서 왼쪽으로 끌면 그 구간이 화면 가득(보이는 봉 수가 줄고) 확대되며 선택 모드는 꺼짐', v1.count < v0.count && v1.home && v1.zs === false, [v0, v1]);
+        await page.click('#zoomBtn'); cvz = await toTop(); await page.mouse.move(cvz.x + 80, cvz.y + 100); await page.mouse.down(); await page.mouse.move(cvz.x + 240, cvz.y + 100, { steps: 6 }); await page.mouse.up(); await page.waitForTimeout(150);
+        const v2 = await page.evaluate(() => { const s = SM.app._chart().state; return { count: s.count, end: s.end, home: !!s.homeView }; });
+        ok('왼쪽에서 오른쪽으로 끌면 확대 전 원래 화면으로 돌아옴', v2.count === v0.count && v2.end === v0.end && !v2.home, [v0, v2]);
+        cvz = await toTop(); await page.keyboard.down('Shift'); await page.mouse.move(cvz.x + 260, cvz.y + 100); await page.mouse.down(); await page.mouse.move(cvz.x + 150, cvz.y + 100, { steps: 5 }); await page.mouse.up(); await page.keyboard.up('Shift'); await page.waitForTimeout(150);
+        ok('마우스는 Shift+드래그로도 확대', (await page.evaluate(() => SM.app._chart().state.count)) < v0.count);
+        await page.evaluate(() => SM.app._chart().resetZoom()); await page.waitForTimeout(100); }
       { // 재생(리플레이): 시작일 이전은 모두 보이고 이후는 한 봉씩, 배속·주봉
         const nBars = () => page.evaluate(() => SM.app._chart().state.bars.d.length), full = await nBars();
         if (process.env.SIM_SHOT2) { await page.click('[data-act=rpStart]'); await page.waitForSelector('#rpSlider'); for (let i = 0; i < 4; i++) await page.click('[data-act=rpStep][data-v="1"]'); await page.waitForTimeout(200); await page.screenshot({ path: process.env.SIM_SHOT2, fullPage: false }); if (process.env.SIM_SHOT3) { await page.click('[data-act=chartMonths][data-v="3"]'); await page.waitForTimeout(200); await (await page.$('.chartfirst')).screenshot({ path: process.env.SIM_SHOT3 }); } await page.click('[data-act=rpEnd]'); }
@@ -274,6 +294,16 @@ function fixtures() {
       await page.click('[data-act=btRun]'); await page.waitForSelector('#chartHost canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(300);
       ok('조건식(괄호 포함)으로 시뮬레이션 실행', await page.evaluate(() => { const r = SM.app.ui.bt.result; return !!r && !r.error && r.cfg.entries.expr && r.cfg.entries.expr.items[1].op === 'OR'; }));
       await page.click('[data-act=btMode2][data-v=mg]'); }
+      { // 종목 일괄 비교: 데이터가 둘 이상이면 표 한 장(이익 종목 수·중앙값·뒤 구간·단순 보유)
+        await page.click('[data-act=btMode2][data-v=mg]'); await page.waitForSelector('.mgblock.buy');
+        await page.evaluate(() => { const o = SM.app.ui.bt.cfg, r = SM.app.ui.bt.repo && SM.app.ui.bt.repo.cache['003490']; const d = JSON.parse(JSON.stringify(r.data)); const ds = JSON.parse(localStorage.getItem('stockmgr.datasets') || '{}'); ds.extra1 = { name: '추가 종목(테스트)', market: 'KR', added: Date.now(), data: d }; localStorage.setItem('stockmgr.datasets', JSON.stringify(ds)); SM.app.render(); void o; });
+        await page.waitForSelector('[data-act=btAll]'); await setSel(page, '[data-change=btMgTrend]', '0');
+        await page.click('[data-act=btAll]'); await page.waitForSelector('.cmp tbody tr', { timeout: 20000 });
+        const rows = await page.$$eval('h3.sim-h', (e) => e.map((x) => x.textContent)), t = await page.textContent('.stat:has-text("이익 난 종목")');
+        ok('종목 일괄 비교: 제목과 요약 카드가 나옴', rows.some((x) => /종목 일괄 비교/.test(x)) && /\d+ \/ \d+/.test(t) && /뒤 구간에서도 이익/.test(await page.textContent('.cards4')), t);
+        const body = await page.$$eval('table.cmp:has(th:has-text("뒤 구간")) tbody tr', (e) => e.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+        ok('표에 데이터별 한 줄(종목·매수·총손익·수익률·단순 보유·앞/뒤 구간)', body.length >= 2 && body.some((x) => /추가 종목\(테스트\)/.test(x)) && body.every((x) => /회|오류|읽지/.test(x)), body.slice(0, 2));
+        await page.evaluate(() => { const ds = JSON.parse(localStorage.getItem('stockmgr.datasets') || '{}'); delete ds.extra1; localStorage.setItem('stockmgr.datasets', JSON.stringify(ds)); }); }
     ok('3) 오류 없음', errs.length === 0, errs); await ctx.close(); }
 
   /* 4) 현재가 자동 반영 + 홈 수집 경고 */
@@ -342,7 +372,7 @@ function fixtures() {
     // 미래 정보 금지: 2025-09 분기는 2025-11-14에 공시 → 그 전 날짜의 십자선에는 2분기(2025-08-14 공시)까지만, 이후 날짜에는 3분기가 보여야 함
     await page.click('[data-act=chartMonths][data-v="0"]'); await page.waitForTimeout(150); bx = await (await page.$('canvas.stockchart')).boundingBox();
     const dates = F.px.trim().split('\n').slice(1).map((l) => l.split(',')[0]), n = dates.length, step = (bx.width - 6 - 72) / n;
-    const at = async (d) => { const i = dates.indexOf(dates.find((x) => x >= d)); await page.mouse.move(bx.x + 6 + (i + 0.5) * step, bx.y + 100); await page.waitForTimeout(150); return page.textContent('#chartRead'); };
+    const at = async (d) => { const i = dates.indexOf(dates.find((x) => x >= d)); await page.evaluate(() => { document.querySelector('canvas.stockchart').scrollIntoView({ block: 'start' }); window.scrollBy(0, -90); }); await page.waitForTimeout(80); const b2 = await (await page.$('canvas.stockchart')).boundingBox(); await page.mouse.move(b2.x + 6 + (i + 0.5) * step, b2.y + 100); await page.waitForTimeout(150); return page.textContent('#chartRead'); };
     const before = await at('2025-10-01'), after = await at('2025-12-01');
     ok('공시 전 날짜(2025-10-01)의 십자선에는 2025 2분기까지만(3분기는 11-14 공시)', /2025 2분기/.test(before) && !/2025 3분기/.test(before) && /공시 2025-08-14/.test(before), before.slice(-150));
     ok('공시 후 날짜(2025-12-01)에는 2025 3분기(전년 동기 대비 표시)', /2025 3분기/.test(after) && /공시 2025-11-14/.test(after), after.slice(-150));

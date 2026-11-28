@@ -37,6 +37,7 @@
       <div class="chartbar">
         ${seg('chartTf', [['D', '일'], ['W', '주'], ['M', '월']], prefs.tf)}
         ${seg('chartMonths', MONTHS, prefs.months)}
+        <button type="button" class="btn sm" data-act="chartZoomSel" id="zoomBtn" title="켠 뒤 차트를 드래그: 오른쪽→왼쪽 = 그 구간 확대, 왼쪽→오른쪽 = 원래 화면 (마우스는 Shift+드래그도 가능)">구간 확대</button>
         <button type="button" class="btn sm" data-act="chartFull" aria-label="전체 화면">${ic('expand') || ''}전체 화면</button>
       </div>
       <div class="chartread" id="chartRead" aria-live="polite"><span class="muted">차트를 불러오는 중…</span></div>
@@ -54,10 +55,11 @@
           <div class="row gap wrap"><label class="chk"><input type="checkbox" data-chartopt="flow" ${prefs.flow ? 'checked' : ''}> 외국인·기관·개인 수급</label><label class="chk"><input type="checkbox" data-chartopt="vol" ${prefs.vol ? 'checked' : ''}> 거래량</label><label class="chk"><input type="checkbox" data-chartopt="events" ${prefs.events ? 'checked' : ''}> 이슈 표시(증자·감자 등)</label><label class="chk"><input type="checkbox" data-chartopt="earnStep" ${prefs.earnStep ? 'checked' : ''}> 영업이익 선을 계단형으로(다음 공시 전까지 직전 값 유지)</label></div>
           <p class="hint">설정은 이 기기에만 저장됩니다. 주·월봉에서는 이동평균·볼린저가 주·월 단위로 계산됩니다.</p>
         </div></details>
-      <p class="hint chartguide">좌우로 <b>드래그</b>하면 이동, <b>두 손가락 벌리기</b>(PC는 마우스 휠)로 확대·축소, <b>탭</b>(PC는 마우스 올리기)하면 그 날의 시세와 수급이 위에 표시됩니다. 수급 누적선은 화면에 보이는 구간의 첫 날부터 합산합니다. 맨 위 파란 손잡이(◂▸)나 선 근처를 잡고 좌우로 끌면 날짜선이 움직입니다. 캔들 아래 글자 상자는 이슈(유 유상증자·무 무상증자·감 감자·분 분할/병합·합 합병/분할)입니다. 영업이익 선은 <b>공시일</b> 위치의 점을 잇습니다. 맨 아래 <b>증감</b> 패널은 전년 동기 대비 영업이익·부채 증감액을 모든 분기에서 이어 보여 주며, “0 맞춘 분리”는 두 선의 0 높이를 같게 하고 각자의 눈금(영업이익 왼쪽·부채 오른쪽)을 쓰며 “같은 눈금”은 실제 크기를 그대로 비교합니다(빨강 흑자·파랑 적자, 공시일을 모르면 속이 빈 점으로 분기 말 + 45일 추정). <b>*</b>는 연간 실적에서 앞 3분기를 뺀 4분기 값이고, 차트 아래 “표”로 바꿔 분기별 숫자를 볼 수 있습니다.</p>
+      <p class="hint chartguide">좌우로 <b>드래그</b>하면 이동, <b>두 손가락 벌리기</b>(PC는 마우스 휠)로 확대·축소, <b>탭</b>(PC는 마우스 올리기)하면 그 날의 시세와 수급이 위에 표시됩니다. 수급 누적선은 화면에 보이는 구간의 첫 날부터 합산합니다. 맨 위 파란 손잡이(◂▸)나 선 근처를 잡고 좌우로 끌면 날짜선이 움직입니다. 캔들 아래 글자 상자는 이슈(유 유상증자·무 무상증자·감 감자·분 분할/병합·합 합병/분할)입니다. <b>구간 확대</b>를 켜고 차트를 오른쪽에서 왼쪽으로 끌면 그 구간이 화면 가득 보이고, 왼쪽에서 오른쪽으로 끌면 원래 화면으로 돌아옵니다(Shift+드래그도 같음). 영업이익 선은 <b>공시일</b> 위치의 점을 잇습니다. 맨 아래 <b>증감</b> 패널은 전년 동기 대비 영업이익·부채 증감액을 모든 분기에서 이어 보여 주며, “0 맞춘 분리”는 두 선의 0 높이를 같게 하고 각자의 눈금(영업이익 왼쪽·부채 오른쪽)을 쓰며 “같은 눈금”은 실제 크기를 그대로 비교합니다(빨강 흑자·파랑 적자, 공시일을 모르면 속이 빈 점으로 분기 말 + 45일 추정). <b>*</b>는 연간 실적에서 앞 3분기를 뺀 4분기 값이고, 차트 아래 “표”로 바꿔 분기별 숫자를 볼 수 있습니다.</p>
     </div></details>`;
   };
 
+  function zoomBtnOff() { const b = document.getElementById('zoomBtn'); if (b) { b.classList.remove('on'); b.textContent = '구간 확대'; } }
   function stockOf() { return A.curStock && A.curStock(); }
   let btCtx = null; // 시뮬레이션 결과 화면에서 쓸 때: { ds:{name,data}, code, cycles, target }
   function btOpts(c) { return { ma: prefs.ma, bb: { on: prefs.bbOn, n: Math.max(2, Math.min(200, Math.round(+prefs.bbN) || 20)), k: Math.max(0.5, Math.min(5, +prefs.bbK || 2)) }, flow: prefs.flow, vol: prefs.vol, earn: prefs.earnView === 'line', chg: prefs.chg, chgScale: prefs.chgScale, earnStep: !!prefs.earnStep, showEvents: prefs.events, onMarkerClick: c.onMarker || null, avg: null, lots: [], cycles: c.cycles || [], cycleTarget: c.target || 0 }; }
@@ -68,7 +70,7 @@
     const lots = st.lots.filter((l) => SM.lotRem(st, l) > 0).map((l) => ({ date: l.date, no: l.no }));
     // 매도 기록: 날짜별로 합쳐 S 원으로 표시(손익률 = 손익 ÷ 원가, 현지 통화 기준)
     const sells = (st.sales || []).map((x) => ({ date: x.date, price: x.price, qty: x.qty, pnl: x.pnlLocal, cost: (x.lines || []).reduce((a, l) => a + (l.costLocal || 0), 0), lots: (x.lines || []).map((l) => l.lotNo) })).filter((x) => x.date);
-    return { showEvents: prefs.events, sells, ma: prefs.ma, bb: { on: prefs.bbOn, n: Math.max(2, Math.min(200, Math.round(+prefs.bbN) || 20)), k: Math.max(0.5, Math.min(5, +prefs.bbK || 2)) }, flow: prefs.flow, vol: prefs.vol, earn: prefs.earnView === 'line', chg: prefs.chg, chgScale: prefs.chgScale, earnStep: !!prefs.earnStep, avg: sm && sm.qty > 0 && avg ? avg : null, lots };
+    return { onZoomDone: zoomBtnOff, showEvents: prefs.events, sells, ma: prefs.ma, bb: { on: prefs.bbOn, n: Math.max(2, Math.min(200, Math.round(+prefs.bbN) || 20)), k: Math.max(0.5, Math.min(5, +prefs.bbK || 2)) }, flow: prefs.flow, vol: prefs.vol, earn: prefs.earnView === 'line', chg: prefs.chg, chgScale: prefs.chgScale, earnStep: !!prefs.earnStep, avg: sm && sm.qty > 0 && avg ? avg : null, lots };
   }
 
   // 분기 실적 표(최근 분기부터): 매출·영업이익·전년 동기 대비·영업이익률·순이익(억원)
@@ -156,6 +158,10 @@
     chartChg: (el) => { prefs.chg = el.dataset.v === 'on'; savePrefs(); renderEarnUi(); },
     chartChgScale: (el) => { prefs.chgScale = el.dataset.v === 'same' ? 'same' : 'zero'; savePrefs(); renderEarnUi(); },
     chartEarn: (el) => { prefs.earnView = el.dataset.v; savePrefs(); renderEarnUi(); },
+    chartZoomSel: () => { // 켜 두고 차트를 드래그: 오른쪽→왼쪽 확대, 왼쪽→오른쪽 원래 화면(한 번 쓰면 꺼짐)
+      if (!chart) return; const b = document.getElementById('zoomBtn'), on = !chart.state.zoomSel; chart.setZoomMode(on);
+      if (b) { b.classList.toggle('on', on); b.textContent = on ? '← 확대 · → 원래대로' : '구간 확대'; }
+    },
     chartTf: (el) => { if (!chart) return; prefs.tf = el.dataset.v; savePrefs(); setOn(el); chart.setTf(prefs.tf); },
     chartMonths: (el) => { if (!chart) return; prefs.months = +el.dataset.v; savePrefs(); setOn(el); chart.setMonths(prefs.months); },
     chartFull: () => {

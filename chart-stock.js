@@ -171,7 +171,7 @@
     canvas.className = 'stockchart';
     canvas.style.touchAction = 'pan-y'; // 세로 스크롤은 페이지가, 가로 드래그·핀치는 차트가
     host.appendChild(canvas);
-    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, range: null, hits: [], events: [], reveal: null, rawFull: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, chg: false, chgScale: 'zero', cycles: null, cycleTarget: 0, sells: [], showEvents: true, earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
+    const S = { raw: null, tf: 'D', bars: null, ind: null, count: 126, end: 0, cross: null, range: null, zoomSel: false, selRect: null, views: [], homeView: null, hits: [], events: [], reveal: null, rawFull: null, cfg: Object.assign({ ma: [5, 20, 60, 120], bb: { on: true, n: 20, k: 2 }, flow: true, vol: true, earn: true, chg: false, chgScale: 'zero', cycles: null, cycleTarget: 0, sells: [], showEvents: true, earnStep: false, avg: null, lots: [], full: false }, cfg0 || {}), geom: null, earn: null };
 
     function rebuild(keepWindow) {
       if (!S.raw) { S.bars = null; return; }
@@ -506,7 +506,12 @@
       }
       updateRead(S.cross != null && S.cross >= from && S.cross <= to ? S.cross : to, S.cross != null, from, to);
       if (S.cross != null && b.d[S.cross]) S.lastCrossDate = b.d[S.cross]; // 마우스가 차트를 벗어나 선이 사라져도 마지막으로 가리킨 날짜는 기억(S·E 지정 버튼용)
-      canvas.style.touchAction = S.cross != null ? 'none' : 'pan-y'; // 십자선이 있을 땐 터치를 모두 차트가 받아 끌기가 끊기지 않게, 없을 땐 세로 스크롤은 페이지가
+      if (S.selRect) { // 구간 확대 선택 사각형: 왼쪽 방향(파랑)=확대, 오른쪽 방향(초록)=원래 화면
+        const xa = Math.min(S.selRect.x0, S.selRect.x1), xb = Math.max(S.selRect.x0, S.selRect.x1), zin = S.selRect.x1 < S.selRect.x0, col = zin ? '37,99,235' : '22,163,74';
+        ctx.fillStyle = `rgba(${col},0.16)`; ctx.fillRect(xa, 0, xb - xa, H - 22); ctx.strokeStyle = `rgba(${col},0.9)`; ctx.lineWidth = 1.5; ctx.strokeRect(xa + 0.5, 0.5, xb - xa, H - 23);
+        ctx.fillStyle = `rgb(${col})`; ctx.font = 'bold 12px -apple-system, "Noto Sans KR", sans-serif'; ctx.textAlign = 'center'; ctx.fillText(zin ? '◂ 이 구간 확대' : (S.homeView ? '원래 화면으로 ▸' : '(확대한 적 없음)'), (xa + xb) / 2, 14); ctx.textAlign = 'left'; ctx.font = '11px -apple-system, "Noto Sans KR", sans-serif';
+      }
+      canvas.style.touchAction = S.zoomSel || S.cross != null ? 'none' : 'pan-y'; canvas.style.cursor = S.zoomSel ? 'zoom-in' : ''; // 십자선이 있을 땐 터치를 모두 차트가 받아 끌기가 끊기지 않게, 없을 땐 세로 스크롤은 페이지가
     }
 
     function updateRead(i, pinned, from, to) {
@@ -537,13 +542,14 @@
     }
 
     /* ---- 조작: 드래그 이동 · 핀치/휠 확대 · 탭(터치)·호버(마우스) 십자선 ---- */
-    const ptrs = new Map(); let pan = null, pinch = null, moved = false, dragCross = false;
+    const ptrs = new Map(); let pan = null, pinch = null, moved = false, dragCross = false, zsel = null;
     const xToIdx = (clientX) => { const r = canvas.getBoundingClientRect(), g = S.geom; if (!g) return null; return Math.max(g.from, Math.min(g.to, g.from + Math.floor((clientX - r.left - g.PL) / g.bw))); };
     const hitAt = (e) => { const r = canvas.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top, pad = e.pointerType === 'mouse' ? 2 : 8; let best = null, bd = 1e9; for (const h of S.hits || []) { const d = Math.hypot(h.x - px, h.y - py); if (d <= h.r + pad && d < bd) { best = h; bd = d; } } return best; };
     const setWindow = (count, end) => { const n = S.bars.d.length, w = windowRange(n, count, end); S.count = w.count; S.end = w.to; draw(); if (S.cfg.onChange) S.cfg.onChange(); };
     canvas.addEventListener('pointerdown', (e) => {
       if (!S.bars) return;
       canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); moved = false;
+      if (ptrs.size === 1 && (S.zoomSel || (e.shiftKey && e.pointerType === 'mouse'))) { zsel = { x0: e.clientX }; moved = true; pan = null; return; } // 구간 확대 선택(버튼 또는 Shift+드래그)
       if (ptrs.size === 1) pan = { x: e.clientX, end: S.end, count: S.count };
       if (ptrs.size === 1 && S.cross != null && S.geom && S.cross >= S.geom.from && S.cross <= S.geom.to) { // 십자선 근처를 잡으면 차트 이동 대신 선을 끌어 옮김
         const r = canvas.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top, mouse = e.pointerType === 'mouse'; // 마우스는 선이 호버를 따라다니므로 위쪽 손잡이를 잡을 때만, 터치는 선 근처 어디든
@@ -554,6 +560,7 @@
     canvas.addEventListener('pointermove', (e) => {
       if (!S.bars || !S.geom) return;
       if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (zsel && ptrs.size === 1) { const r = canvas.getBoundingClientRect(); S.selRect = { x0: zsel.x0 - r.left, x1: e.clientX - r.left }; draw(); return; }
       if (dragCross && ptrs.size === 1) { const i = xToIdx(e.clientX); if (i !== S.cross) { S.cross = i; draw(); } return; }
       if (pinch && ptrs.size === 2) { const [a, c] = [...ptrs.values()], d = Math.hypot(a.x - c.x, a.y - c.y); moved = true; if (pinch.d > 0) setWindow(pinch.count * (pinch.d / Math.max(1, d)), pinch.end); return; }
       if (pan && ptrs.size === 1) {
@@ -564,8 +571,17 @@
       }
       if (e.pointerType === 'mouse' && !ptrs.size) { canvas.style.cursor = hitAt(e) && S.cfg.onMarkerClick ? 'pointer' : 'crosshair'; const i = xToIdx(e.clientX); if (i !== S.cross) { S.cross = i; draw(); } }
     });
+    const finishZoom = (e) => { // 오른쪽→왼쪽으로 끌면 그 구간을 화면 가득, 왼쪽→오른쪽으로 끌면 원래 보던 화면으로
+      const dx = e.clientX - zsel.x0, x0 = zsel.x0; zsel = null; S.selRect = null;
+      if (S.bars && Math.abs(dx) >= 14) {
+        if (dx < 0) { const a = xToIdx(Math.min(x0, e.clientX)), b = xToIdx(Math.max(x0, e.clientX)); if (!S.homeView) S.homeView = { count: S.count, end: S.end }; setWindow(Math.max(8, b - a + 1), b); S.cross = null; }
+        else if (S.homeView) { const v = S.homeView; S.homeView = null; setWindow(v.count, v.end); S.cross = null; }
+      }
+      S.zoomSel = false; if (S.cfg.onZoomDone) S.cfg.onZoomDone(); draw();
+    };
     const up = (e) => {
       if (!ptrs.has(e.pointerId)) return;
+      if (zsel) { ptrs.delete(e.pointerId); finishZoom(e); if (!ptrs.size) { pan = null; dragCross = false; } return; }
       if (ptrs.size === 1 && !moved && S.bars) {
         const hit = hitAt(e);
         if (hit && S.cfg.onMarkerClick) S.cfg.onMarkerClick({ no: hit.no, seq: hit.seq, kind: hit.kind }); // B·S 원을 누르면 그 사이클을 펼쳐 보여 줌
@@ -589,12 +605,15 @@
       // 재생: date까지의 봉만 보이게(그 뒤는 숨김), null이면 전체. 창은 항상 마지막 봉을 따라감
       setReveal(date) { S.reveal = date || null; S.cross = null; if (S.rawFull) { S.raw = S.reveal ? cutRaw(S.rawFull, S.reveal) : S.rawFull; rebuild(false); draw(); } },
       setTf(tf) { // 보이는 기간(개월)은 유지한 채 봉 단위만 바꿉니다
+        S.homeView = null;
         const per = (t) => (t === 'W' ? 4.35 : t === 'M' ? 1 : 21), months = S.count / per(S.tf);
         S.tf = tf; rebuild(false); const n = S.bars.d.length;
         const w = windowRange(n, Math.max(5, Math.round(months * per(tf))), n - 1); S.count = w.count; S.end = w.to; S.cross = null; draw();
       },
-      setMonths(months) { if (!S.bars) return; S.count = barsForMonths(S.tf, months, S.bars.d.length); S.end = S.bars.d.length - 1; const w = windowRange(S.bars.d.length, S.count, S.end); S.count = w.count; S.end = w.to; S.cross = null; draw(); },
+      setMonths(months) { if (!S.bars) return; S.homeView = null; S.count = barsForMonths(S.tf, months, S.bars.d.length); S.end = S.bars.d.length - 1; const w = windowRange(S.bars.d.length, S.count, S.end); S.count = w.count; S.end = w.to; S.cross = null; draw(); },
       setConfig(c) { Object.assign(S.cfg, c); rebuild(true); draw(); },
+      setZoomMode(on) { S.zoomSel = !!on; S.selRect = null; draw(); },
+      resetZoom() { if (S.homeView) { const v = S.homeView; S.homeView = null; setWindow(v.count, v.end); } },
       setRange(from, to) { S.range = from && to ? { from, to } : null; draw(); },
       setEvents(list) { S.events = (list || []).filter((x) => x && /^\d{4}-\d{2}-\d{2}$/.test(x.date) && x.kind).slice().sort((a, b) => (a.date < b.date ? -1 : 1)); draw(); },
       // 날짜 구간(from~to)이 보이도록 창을 옮김(to가 없으면 그 날짜 하나를 가운데에 놓고 십자선 표시). 성공하면 true

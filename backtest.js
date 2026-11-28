@@ -592,6 +592,14 @@
     if (!vals.length) return null;
     return node.op === 'OR' ? vals.some(Boolean) : vals.every(Boolean);
   }
+  // N일 이내: 오늘 포함 최근 N일 중 하루라도 참이면 참(사건형 조건을 AND로 묶을 때 필요). N이 1이하면 그대로
+  function applyWithin(arr, w) {
+    const k = Math.floor(Number(w)); if (!(k > 1)) return arr;
+    const out = new Array(arr.length).fill(false); let last = -1e9;
+    for (let i = 0; i < arr.length; i++) { if (arr[i]) last = i; out[i] = i - last < k; }
+    return out;
+  }
+  const condArr = (data, c, ctx) => applyWithin(evalCond(data, c, ctx), c.within);
   function needsFlow(cfg) { return [].concat(exprLeaves(exprOf(cfg.entries)), exprLeaves(exprOf(cfg.exits))).some((c) => c.type === 'flow'); }
 
   /* ---------- 엔진 ---------- */
@@ -616,9 +624,9 @@
     if (errors.length) return { error: [...new Set(errors)].join(' ') };
 
     const entrySet = new Set(entryConds), entryArr = new Map();
-    for (const c of entryConds) if (!isDyn(c)) entryArr.set(c, evalCond(data, c, ctx));
+    for (const c of entryConds) if (!isDyn(c)) entryArr.set(c, condArr(data, c, ctx));
     const exitStaticConds = exitConds.filter((c) => !isDyn(c)), exitStaticSet = new Set(exitStaticConds), exitArr = new Map(); // 순번별·평단 조건(손절·목표 등)은 식 밖에서 따로 도달하면 매도
-    for (const c of exitStaticConds) exitArr.set(c, evalCond(data, c, ctx));
+    for (const c of exitStaticConds) exitArr.set(c, condArr(data, c, ctx));
     const exitSig = Array.from({ length: n }, (_, i) => !!evalExpr(xExpr, (c) => exitArr.get(c)[i], exitStaticSet));
     const dyn = (t) => exitConds.filter((c) => c.type === t);
     const tpC = dyn('tp'), slC = dyn('sl'), trC = dyn('trail'), hdC = dyn('holdDays'), apC = dyn('avgPct');
@@ -632,7 +640,8 @@
 
     const open = [], trades = [], buys = [], sells = [], equity = [];
     let pending = [], lotNo = 0, realized = 0, feesTotal = 0, peakInvested = 0, firstBuyIdx = -1, skipped = 0;
-    let startIdx = -1, endIdx = -1;
+    let startIdx = -1, endIdx = -1, lastBuyIdx = -1e9, lastCloseIdx = -1e9;
+    const cooldown = Math.max(0, Math.floor(num(cfg.cooldown, 0))), minGap = Math.max(0, Math.floor(num(cfg.minGap, 0))); // 청산 뒤 쉬는 거래일 · 같은 사이클 안 매수 최소 간격(거래일)
     const cycles = []; let cyc = null; // 사이클 = 첫 매수 ~ 보유 순번이 모두 팔릴 때까지(물타기 전략이 ‘언제 본전·이익이 되는지’ 보기 위함)
 
     const invested = () => open.reduce((a, l) => a + l.qty * l.price + l.fee, 0);
@@ -651,6 +660,7 @@
       const seq = (cyc ? cyc.lots : 0) + 1;
       buys.push({ i, price, qty, cyc: cycles.length + 1, seq }); // cyc: 사이클 번호, seq: 그 사이클의 몇 번째 매수
       if (firstBuyIdx < 0) firstBuyIdx = i;
+      lastBuyIdx = i;
       peakInvested = Math.max(peakInvested, invested());
       if (!cyc) cyc = { no: cycles.length + 1, buys: [], startIdx: i, startDate: data.d[i], lots: 0, maxLots: 0, peakInv: 0, qty: 0, realized: 0, worst: 0, firstPrice: price, lowPrice: price };
       cyc.lots++; cyc.qty += qty; cyc.maxLots = Math.max(cyc.maxLots, open.length); cyc.peakInv = Math.max(cyc.peakInv, invested()); cyc.lowPrice = Math.min(cyc.lowPrice, price);
@@ -668,6 +678,7 @@
       realized += pnl;
       trades.push({ no: lot.no, buyDate: lot.date, buyPrice: lot.price, sellDate: data.d[i], sellPrice: price, qty: lot.qty, fee: lot.fee + sf + tx, pnl, ret: pnl / (lot.qty * lot.price + lot.fee), days: SM.daysBetween(lot.date, data.d[i]), reason });
       sells.push({ i, price, qty: lot.qty });
+      if (!open.length) lastCloseIdx = i;
       if (cyc) {
         cyc.realized += pnl;
         if (!open.length) { cyc.endIdx = i; cyc.endDate = data.d[i]; cyc.days = SM.daysBetween(cyc.startDate, data.d[i]); cyc.sellPrice = price; cyc.sellQty = cyc.qty; cyc.ret = cyc.peakInv > 0 ? cyc.realized / cyc.peakInv : null; cycles.push(cyc); cyc = null; }
@@ -722,7 +733,9 @@
       }
       const pendBuys = pending.filter((o) => o.t === 'buy').length;
       const sig = !!evalExpr(eExpr, (cd) => (entryArr.has(cd) ? entryArr.get(cd)[i] : entryDyn(cd, i)), entrySet);
-      const canBuy = sig && !sellAll && (maxLots <= 0 || open.length - sellOrders.length + pendBuys < maxLots);
+      const holdNow = open.length - sellOrders.length + pendBuys > 0; // 쉬는 날 규칙: 보유가 없을 때는 마지막 청산 뒤 cooldown일, 보유 중에는 마지막 매수 뒤 minGap일이 지나야 매수
+      const rest = (cooldown > 0 && !holdNow && i - lastCloseIdx < cooldown) || (minGap > 0 && holdNow && i - lastBuyIdx < minGap);
+      const canBuy = sig && !sellAll && !rest && (maxLots <= 0 || open.length - sellOrders.length + pendBuys < maxLots);
       const orders = sellOrders.slice();
       if (canBuy) orders.push({ t: 'buy' });
       if (fillClose) { for (const o of orders) { if (o.t === 'buy') execBuy(i, c); else execSell(o.lot, i, c, o.why); } }
@@ -817,7 +830,7 @@
   }
 
   function blankCfg() {
-    return { market: 'KR', qty: 10, qtyMode: 'shares', growth: 1, maxInvest: 0, maxLots: 0, fill: 'nextOpen', from: '', to: '', renko: { mode: 'pct', value: 2, period: 14 }, entries: { mode: 'AND', conds: [] }, exits: { mode: 'OR', conds: [] } };
+    return { market: 'KR', qty: 10, qtyMode: 'shares', growth: 1, maxInvest: 0, maxLots: 0, cooldown: 0, minGap: 0, fill: 'nextOpen', from: '', to: '', renko: { mode: 'pct', value: 2, period: 14 }, entries: { mode: 'AND', conds: [] }, exits: { mode: 'OR', conds: [] } };
   }
 
   // 재생용: 기준 날짜(date)까지 일어난 일만 보이도록 사이클을 잘라 줍니다(그 뒤의 매수·매도는 숨김, 아직 안 끝난 사이클은 진행 중으로)
@@ -846,7 +859,7 @@
     if (errors.length) return { error: [...new Set(errors)].join(' ') };
     if (!leaves.length) return { empty: true, days: 0, signalDays: 0, leaves: [], groups: [] };
     let renkoCache = null; const ctx = { renko: () => (renkoCache = renkoCache || buildRenko(data, opt.renko || {})) };
-    const stat = leaves.filter((c) => !isDyn(c)), statSet = new Set(stat), arr = new Map(stat.map((c) => [c, evalCond(data, c, ctx)]));
+    const stat = leaves.filter((c) => !isDyn(c)), statSet = new Set(stat), arr = new Map(stat.map((c) => [c, condArr(data, c, ctx)]));
     const from = opt.from || data.d[0], to = opt.to || data.d[n - 1], idx = []; for (let i = 0; i < n; i++) if (data.d[i] >= from && data.d[i] <= to) idx.push(i);
     const count = (node) => { let k = 0, first = null; for (const i of idx) { const v = evalExpr(node, (c) => arr.get(c)[i], statSet); if (v) { k++; if (first == null) first = data.d[i]; } } return { k, first }; };
     const total = count(ex), perLeaf = leaves.map((c) => (isDyn(c) ? { leaf: c, dyn: true } : { leaf: c, days: idx.filter((i) => arr.get(c)[i]).length }));
@@ -885,7 +898,14 @@
     out.splits = ev.map((e) => ({ date: e.date, factor: e.factor })); out.splitAdjusted = true;
     return { data: out, events: out.splits };
   }
-  Object.assign(SM, { detectSplits, adjustSplits, exprOf, exprLeaves, evalExpr, signalStats });
+  // 여러 종목 일괄 결과 요약: rows = [{ ret(최대 투입금 대비 수익률), total, ret1(앞 구간), ret2(뒤 구간), bh(단순 보유) ...}]
+  function summarizeMulti(rows) {
+    const ok = (rows || []).filter((r) => r && !r.error && r.ret != null), med = (a) => { const x = a.filter(Number.isFinite).sort((p, q) => p - q); if (!x.length) return null; const m = x.length >> 1; return x.length % 2 ? x[m] : (x[m - 1] + x[m]) / 2; };
+    const win = ok.filter((r) => r.total > 0), tested = ok.filter((r) => r.ret2 != null), late = tested.filter((r) => r.ret2 > 0);
+    return { n: (rows || []).length, ran: ok.length, win: win.length, medRet: med(ok.map((r) => r.ret)), tested: tested.length, lateWin: late.length, beatBh: ok.filter((r) => r.bh != null && r.ret > r.bh).length, withBh: ok.filter((r) => r.bh != null).length };
+  }
+  Object.assign(SM, { summarizeMulti });
+  Object.assign(SM, { detectSplits, adjustSplits, exprOf, exprLeaves, evalExpr, signalStats, applyWithin });
   Object.assign(SM, { dataInfo, detectFlowUnit, parseOHLCV, parseTable, guessFlowCols, mergeFlow, parseDate, splitTable, guessCols, kindOf, analyzeTable, buildDataset, mergeDatasets, sameStockScore, sma, ema, rsi, macd, bollinger, buildRenko, COND_DEFS, runBacktest, runSplitValidation, overlayLines, blankCfg, closeOn, buyHoldFrom, needsFlow });
   if (typeof module !== 'undefined' && module.exports) module.exports = SM;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

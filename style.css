@@ -973,3 +973,13 @@ tr.hl > td { animation: hlflash 2.4s ease-out; }
 .pick-tabs { margin: 8px 0 4px; } .pick-list { display: grid; gap: 6px; margin-top: 6px; }
 .pickrow { text-align: left; border: 0; border-radius: 12px; padding: 10px 12px; background: var(--ios-fill, rgba(118,118,128,.12)); color: var(--fg); cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
 .sheet.buy .pickrow { background: var(--buy-bg); } .sheet.sell .pickrow { background: var(--sell-bg); } .pickrow b { font-size: 14px; } .pickrow small { font-size: 11.5px; color: var(--muted); }
+
+/* 구간 재생 메뉴 */
+details.rpmenu { background: var(--ios-fill, rgba(118,118,128,.12)); border-radius: 12px; margin-bottom: 10px; padding: 8px 12px; }
+details.rpmenu > summary { cursor: pointer; font-size: 14px; } details.rpmenu > summary small { color: var(--muted); margin-left: 6px; font-weight: 400; }
+details.rpmenu .rp { background: transparent; padding: 8px 0 2px; margin: 0; }
+.rp-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
+.selbtn { display: inline-flex; align-items: center; gap: 8px; } .selbtn.cancel { color: var(--danger); }
+.se-ico { display: inline-flex; align-items: center; gap: 3px; } .se-ico i { font-style: normal; font-size: 11px; font-weight: 800; color: #fff; border-radius: 5px; padding: 1px 5px; } .se-ico i.s { background: #16a34a; } .se-ico i.e { background: #ea580c; } .se-ico i.ar { background: transparent; color: var(--muted); font-size: 14px; padding: 0; }
+
+#zoomBtn.on { background: var(--accent); color: var(--accent-fg); }
