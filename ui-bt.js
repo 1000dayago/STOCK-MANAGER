@@ -328,6 +328,13 @@
     c.entries = { mode: 'AND', conds: [tr, dl], expr: { op: 'AND', items: [tr, dl] } }; c.exits = { mode: 'OR', conds: [tp, sl], expr: { op: 'OR', items: [tp, sl] } };
     return c;
   }
+  // 예시 전략: 저점 매수 → 목표 수익에 팔기 (한국전력 10년 탐색 결과. 매수 = 종가가 60일선보다 20% 이상 아래 AND 거래량이 전일보다 높음, 매도 = 평단 +8%)
+  function exampleLowHigh() {
+    const c = SM.blankCfg(); c.qtyMode = 'shares'; c.qty = 10; c.growth = 1; c.maxLots = 3; c.maxInvest = 0; c.minGap = 3; c.cooldown = 0; c.fill = 'nextOpen';
+    const g = newCond('maGap'); g.ma = 'sma'; g.n = 60; g.dir = 'below'; g.pct = 20; const v = newCond('volPrev'); v.x = 1; const t = newCond('avgPct'); t.dir = 'up'; t.pct = 8;
+    c.entries = { mode: 'AND', conds: [g, v], expr: { op: 'AND', items: [g, v] } }; c.exits = { mode: 'OR', conds: [t], expr: { op: 'OR', items: [t] } };
+    return c;
+  }
   // 수량·한도: 촘촘한 격자(한 줄에 여러 칸)
   function sgrid(c, mg) {
     const f = (k, label, unit) => `<label class="sg"><span>${label}</span><span class="sgi"><input class="inp" data-btc="${k}" value="${esc(c[k] == null ? '' : c[k])}" inputmode="decimal">${unit ? `<i>${unit}</i>` : ''}</span></label>`;
@@ -373,7 +380,7 @@
     <section class="card">
       ${sgrid(c, !custom)}
       ${condBox('entries')}${condBox('exits')}
-      ${custom ? '' : '<div class="btns"><button class="btn sm" data-act="btPreset">물타기 기본값으로 되돌리기</button></div>'}
+      <div class="btns"><button class="btn sm" data-act="btExample" data-v="lowhigh" title="한국전력 10년으로 찾은 저점 매수·목표 수익 매도 예시 (일관성은 4개 종목에서 확인, 거래 횟수가 적음)">예시 불러오기: 저점 매수 · 고점 매도</button>${custom ? '' : '<button class="btn sm" data-act="btPreset">물타기 기본값으로 되돌리기</button>'}</div>
       <details class="box"><summary>고급 설정 <small class="muted">(체결 방식 · 수수료 · 전략 저장 · 기간 분할 검증)</small></summary>
         <div class="ios-list">
           <div class="ios-row stack"><span>체결 방식</span><span class="rowr">${seg('fill', [['nextOpen', '다음 날 시가'], ['close', '당일 종가']], c.fill)}</span></div>
@@ -921,6 +928,7 @@
       for (const k of ['from', 'to', 'market', 'fill']) next[k] = bt.cfg[k];
       bt.modeCfg[to] = next; bt.cfg = next; bt.mode = to; bt.condOpen = ''; bt.wrap = null; bt.result = null; bt.val = null; A.render();
     },
+    btExample: () => { const keep = { from: bt.cfg.from, to: bt.cfg.to, market: bt.cfg.market, fill: bt.cfg.fill }; bt.cfg = Object.assign(exampleLowHigh(), keep); bt.modeCfg[bt.mode] = bt.cfg; bt.strategyId = ''; bt.condOpen = ''; bt.wrap = null; bt.result = null; bt.val = null; A.render(); toast('예시 전략을 불러왔습니다. 실행해 보세요'); },
     btPreset: () => { const keep = { from: bt.cfg.from, to: bt.cfg.to, market: bt.cfg.market, fill: bt.cfg.fill }; bt.cfg = Object.assign(presetCfg(), keep); bt.modeCfg.mg = bt.cfg; bt.strategyId = ''; bt.condOpen = ''; bt.wrap = null; bt.result = null; bt.val = null; A.render(); },
     btRange: (el) => {
       const ds = curDS(); if (!ds) return; const d = ds.data.d, last = d[d.length - 1], m = +el.dataset.v;
