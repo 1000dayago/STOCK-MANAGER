@@ -215,17 +215,17 @@ function fixtures() {
         await page.waitForTimeout(100);
         await page.click('[data-act=rpSel]'); await page.waitForTimeout(100);
         ok('“구간 지정 취소”를 누르면 내비게이션 막대와 차트의 선택 구간이 사라짐', (await page.$('#rpTimeline')) === null && (await page.evaluate(() => SM.app._chart().state.range)) === null && /재생 구간 지정/.test(await page.textContent('[data-act=rpSel]'))); }
-      { // 차트 구간 확대: 켜고 오른쪽→왼쪽 드래그는 확대, 왼쪽→오른쪽은 원래 화면
+      { // 차트 구간 확대: 시작점에서 오른쪽으로 끌면 확대, 왼쪽으로 끌면 원래 화면(버튼·Shift·우클릭)
         const toTop = async () => { await page.evaluate(() => { document.querySelector('#chartHost canvas').scrollIntoView({ block: 'start' }); window.scrollBy(0, -90); }); await page.waitForTimeout(150); return (await page.$('#chartHost canvas')).boundingBox(); };
         const v0 = await page.evaluate(() => { const s = SM.app._chart().state; return { count: s.count, end: s.end }; });
         await page.click('#zoomBtn'); ok('구간 확대 버튼을 켜면 표시가 바뀜', /확대/.test(await page.textContent('#zoomBtn')) && (await page.evaluate(() => SM.app._chart().state.zoomSel)) === true);
-        let cvz = await toTop(); await page.mouse.move(cvz.x + 260, cvz.y + 100); await page.mouse.down(); await page.mouse.move(cvz.x + 120, cvz.y + 100, { steps: 6 }); await page.mouse.up(); await page.waitForTimeout(150);
+        let cvz = await toTop(); await page.mouse.move(cvz.x + 120, cvz.y + 100); await page.mouse.down(); await page.mouse.move(cvz.x + 260, cvz.y + 100, { steps: 6 }); await page.mouse.up(); await page.waitForTimeout(150);
         const v1 = await page.evaluate(() => { const s = SM.app._chart().state; return { count: s.count, end: s.end, zs: s.zoomSel, home: !!s.homeView }; });
-        ok('오른쪽에서 왼쪽으로 끌면 그 구간이 화면 가득(보이는 봉 수가 줄고) 확대되며 선택 모드는 꺼짐', v1.count < v0.count && v1.home && v1.zs === false, [v0, v1]);
-        await page.click('#zoomBtn'); cvz = await toTop(); await page.mouse.move(cvz.x + 80, cvz.y + 100); await page.mouse.down(); await page.mouse.move(cvz.x + 240, cvz.y + 100, { steps: 6 }); await page.mouse.up(); await page.waitForTimeout(150);
+        ok('시작점에서 오른쪽으로 끌면 그 구간이 화면 가득(보이는 봉 수가 줄고) 확대되며 선택 모드는 꺼짐', v1.count < v0.count && v1.home && v1.zs === false, [v0, v1]);
+        await page.click('#zoomBtn'); cvz = await toTop(); await page.mouse.move(cvz.x + 240, cvz.y + 100); await page.mouse.down(); await page.mouse.move(cvz.x + 80, cvz.y + 100, { steps: 6 }); await page.mouse.up(); await page.waitForTimeout(150);
         const v2 = await page.evaluate(() => { const s = SM.app._chart().state; return { count: s.count, end: s.end, home: !!s.homeView }; });
-        ok('왼쪽에서 오른쪽으로 끌면 확대 전 원래 화면으로 돌아옴', v2.count === v0.count && v2.end === v0.end && !v2.home, [v0, v2]);
-        cvz = await toTop(); await page.keyboard.down('Shift'); await page.mouse.move(cvz.x + 260, cvz.y + 100); await page.mouse.down(); await page.mouse.move(cvz.x + 150, cvz.y + 100, { steps: 5 }); await page.mouse.up(); await page.keyboard.up('Shift'); await page.waitForTimeout(150);
+        ok('왼쪽으로 끌면 확대 전 원래 화면으로 돌아옴', v2.count === v0.count && v2.end === v0.end && !v2.home, [v0, v2]);
+        cvz = await toTop(); await page.keyboard.down('Shift'); await page.mouse.move(cvz.x + 150, cvz.y + 100); await page.mouse.down(); await page.mouse.move(cvz.x + 260, cvz.y + 100, { steps: 5 }); await page.mouse.up(); await page.keyboard.up('Shift'); await page.waitForTimeout(150);
         ok('마우스는 Shift+드래그로도 확대', (await page.evaluate(() => SM.app._chart().state.count)) < v0.count);
         await page.evaluate(() => SM.app._chart().resetZoom()); await page.waitForTimeout(100); }
       { // 휠 확대·축소: 커서가 놓인 봉이 같은 자리에 그대로 있음(보고 싶은 위치가 밀려나지 않음)
@@ -239,16 +239,14 @@ function fixtures() {
           ok(`휠을 아래로 굴리면 확대(커서 ${Math.round(frac * 100)}% 지점): 봉 수가 줄었는데도 커서 아래 날짜가 그대로(±3일)`, b1.count < b0.count && di(b0.d, b1.d) <= 3, [b0, b1]);
           ok(`휠을 위로 굴리면 축소(커서 ${Math.round(frac * 100)}% 지점): 봉 수가 늘었는데도 커서 아래 날짜가 그대로(±5일)`, b2.count > b1.count && di(b0.d, b2.d) <= 5, [b0, b2]);
         }
-        // 마우스 우클릭을 누른 채 드래그: 왼쪽→오른쪽 확대, 오른쪽→왼쪽 축소(누른 자리 기준)
+        // 마우스 우클릭 구간 확대: 시작점에서 오른쪽으로 끌면 그 구간 확대, 왼쪽으로 끌면 원래 화면
         await page.evaluate(() => SM.app._chart().resetZoom()); await page.waitForTimeout(80);
-        const cnt = () => page.evaluate(() => SM.app._chart().state.count), x0 = cb.x + cb.width * 0.5, y0 = cb.y + 120, c0 = await cnt(), d0 = await dateAt(x0);
-        await page.mouse.move(x0, y0); await page.mouse.down({ button: 'right' }); await page.mouse.move(x0 + 160, y0, { steps: 8 }); await page.mouse.up({ button: 'right' }); await page.waitForTimeout(120);
-        const c1 = await cnt(), d1 = await dateAt(x0); const di2 = (a, b) => Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 86400000;
-        ok('우클릭 드래그 왼쪽→오른쪽: 확대(보이는 봉 수 감소)되고 누른 자리의 날짜는 유지', c1 < c0 && di2(d0.d, d1.d) <= 3, [c0, c1, d0, d1]);
-        await page.mouse.move(x0, y0); await page.mouse.down({ button: 'right' }); await page.mouse.move(x0 - 160, y0, { steps: 8 }); await page.mouse.up({ button: 'right' }); await page.waitForTimeout(120);
-        const c2 = await cnt(), d2 = await dateAt(x0);
-        ok('우클릭 드래그 오른쪽→왼쪽: 축소(보이는 봉 수 증가)되고 누른 자리의 날짜는 유지', c2 > c1 && di2(d1.d, d2.d) <= 5, [c1, c2, d1, d2]);
-        ok('우클릭 드래그에서 십자선이 남지 않고 컨텍스트 메뉴가 뜨지 않음', (await page.evaluate(() => SM.app._chart().state.cross)) === null);
+        const st = () => page.evaluate(() => { const s = SM.app._chart().state; return { count: s.count, end: s.end, cross: s.cross }; }), x0 = cb.x + cb.width * 0.4, y0 = cb.y + 120, s0 = await st();
+        await page.mouse.move(x0, y0); await page.mouse.down({ button: 'right' }); await page.mouse.move(x0 + 180, y0, { steps: 8 }); await page.mouse.up({ button: 'right' }); await page.waitForTimeout(120);
+        const s1 = await st(); ok('우클릭 드래그 시작점→오른쪽: 그 구간으로 확대(보이는 봉 수 감소)', s1.count < s0.count, [s0, s1]);
+        await page.mouse.move(x0 + 180, y0); await page.mouse.down({ button: 'right' }); await page.mouse.move(x0 + 20, y0, { steps: 8 }); await page.mouse.up({ button: 'right' }); await page.waitForTimeout(120);
+        const s2 = await st(); ok('우클릭 드래그 왼쪽으로: 원래 화면으로 복귀', s2.count === s0.count && s2.end === s0.end, [s0, s2]);
+        ok('우클릭 드래그 후 십자선이 남지 않음', s2.cross === null);
         await page.evaluate(() => SM.app._chart().resetZoom()); }
       { // 재생(리플레이): 시작일 이전은 모두 보이고 이후는 한 봉씩, 배속·주봉
         const nBars = () => page.evaluate(() => SM.app._chart().state.bars.d.length), full = await nBars();
