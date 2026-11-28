@@ -279,6 +279,13 @@ function fixtures() {
       if (process.env.EXPR_SHOT) { await page.evaluate(() => { const g = SM.app.ui.bt.cfg.exits; g.expr = { op: 'OR', items: [{ type: 'maCross', ma: 'sma', s: 5, l: 15, dir: 'down' }] }; g.conds = SM.exprLeaves(g.expr); SM.app.render(); }); await page.waitForTimeout(200); await (await page.$('.cndbox.buy')).screenshot({ path: process.env.EXPR_SHOT + '_buy.png' }); await (await page.$('.cndbox.sell')).screenshot({ path: process.env.EXPR_SHOT + '_sell.png' }); }
       ok('신호 진단: 신호일 수와 전체 일수 대비 %가 표시됨', /매수 신호일/.test(await page.textContent('.cndbox.buy .diag-h')) && /전체 \d+일 중/.test(await page.textContent('.cndbox.buy .diag-h')), await page.textContent('.cndbox.buy .diag-h'));
       await page.click('.cndbox.sell [data-act=btPickOpen]'); await page.waitForSelector('.sheet.sell'); const tabs2 = await page.$$eval('.sheet .pick-tabs .chip', (e) => e.map((x) => x.textContent)); ok('매도 선택창에는 청산 분류가 있고 하락 시 추가 매수 같은 매수 전용은 없음', tabs2.includes('청산') && !tabs2.includes('분할매수'), tabs2);
+      await page.click('.sheet .pick-tabs .chip:has-text("거래량")'); const vrows = await page.$$eval('.sheet .pickrow', (e) => e.map((x) => x.textContent));
+      ok('거래량 분류에 증가·감소 / 거래량 이동평균 비교 / 하락+거래량 급증(손절 신호) 조건이 있음', vrows.some((x) => /거래량 증가·감소/.test(x)) && vrows.some((x) => /거래량 이동평균 비교/.test(x)) && vrows.some((x) => /하락 \+ 거래량 급증/.test(x)), vrows);
+      await page.click('.sheet .pickrow[data-t=dropVol]'); await page.waitForSelector('.cndbox.sell .tok');
+      ok('매도 문장에 “당일 2% 이상 하락 + 거래량이 20일 평균의 2배 이상” 조건이 들어감(문장 안에서 AND/OR로 다른 조건과 연결 가능)', /당일 2% 이상 하락 \+ 거래량이 20일 평균의 2배 이상/.test(await page.textContent('#sent-exits')), await page.textContent('#sent-exits'));
+      await page.click('.cndbox.sell [data-act=btPickOpen]'); await page.waitForSelector('.sheet.sell'); await page.click('.sheet .pick-tabs .chip:has-text("거래량")'); await page.click('.sheet .pickrow[data-t=volMa]'); await page.waitForSelector('.cndbox.sell .cn');
+      ok('거래량 이동평균 조건 추가: 문장에 “거래량이 20일 거래량 평균 초과”가 AND로 이어짐', /거래량이 20일 거래량 평균 초과/.test(await page.textContent('#sent-exits')) && /AND|OR/.test(await page.textContent('#sent-exits')), await page.textContent('#sent-exits'));
+      await page.click('.cndbox.sell [data-act=btPickOpen]'); await page.waitForSelector('.sheet.sell');
       await page.click('.sheet .pick-tabs .chip:has-text("청산")'); await page.click('.sheet .pickrow[data-t=avgPct]'); await page.waitForSelector('.cndbox.sell .indep .tok');
       ok('청산 조건(평단 대비 ±N%)은 문장 밖 “별개로, 도달하면 바로 매도”에 표시', /별개로/.test(await page.textContent('.cndbox.sell .indep')) && /평단 대비/.test(await page.textContent('.cndbox.sell .indep')));
       await page.click('.cndbox.buy .grp .par.o'); await page.waitForTimeout(150);

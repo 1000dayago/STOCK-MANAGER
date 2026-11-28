@@ -128,7 +128,7 @@
 
   /* ---------- 화면 조각 ---------- */
   /* ---------- 조건 UI: 선택한 조건은 한 줄 요약으로 모아 보이고, 눌러서 펼쳐 값을 고침 · 추가는 아래에서 올라오는 선택창 ---------- */
-  const COND_SHORT = { vol: '거래량 N주 이상', volPrev: '거래량이 전일보다 높음', volRatio: '거래량이 평균 대비 급증', maCross: '이동평균 교차 (골든·데드)', maState: '단기·장기선 위치', maSlope: '이동평균선 방향 (상승·하락 중)', priceMa: '종가와 이동평균선 위치', bb: '볼린저밴드 터치', rsi: 'RSI', macd: 'MACD 시그널 교차', breakout: '신고가·신저가', change: '전일 대비 등락률', flow: '수급 (외국인·기관·개인)', flowSum: '수급 누적 순매수 (N일 합)', riseLast: '상승 시 추가 매수 (불타기)', maGap: '이동평균 이격도', maAlign: '이동평균 정배열·역배열', retN: 'N일 전 대비 등락률', streakDays: 'N일 연속 상승·하락', gapOpen: '갭 상승·하락', fromHigh: '고점 대비 낙폭', fromLow: '저점 대비 반등', candle: '양봉·음봉', stoch: '스토캐스틱', bbWidth: '볼린저 밴드폭', dropLast: '하락 시 추가 매수', tp: '목표수익 도달 (순번별)', sl: '손절 (순번별)', trail: '고점 대비 하락 (순번별)', holdDays: 'N일 보유 후 (순번별)', avgPct: '평단 대비 ±N% (전량)' };
+  const COND_SHORT = { vol: '거래량 N주 이상', volChange: '거래량 증가·감소 (전일 대비)', volMa: '거래량 이동평균 비교 (넘음·낮음)', dropVol: '하락 + 거래량 급증 (손절 신호)', volPrev: '거래량이 전일보다 높음', volRatio: '거래량이 평균 대비 급증', maCross: '이동평균 교차 (골든·데드)', maState: '단기·장기선 위치', maSlope: '이동평균선 방향 (상승·하락 중)', priceMa: '종가와 이동평균선 위치', bb: '볼린저밴드 터치', rsi: 'RSI', macd: 'MACD 시그널 교차', breakout: '신고가·신저가', change: '전일 대비 등락률', flow: '수급 (외국인·기관·개인)', flowSum: '수급 누적 순매수 (N일 합)', riseLast: '상승 시 추가 매수 (불타기)', maGap: '이동평균 이격도', maAlign: '이동평균 정배열·역배열', retN: 'N일 전 대비 등락률', streakDays: 'N일 연속 상승·하락', gapOpen: '갭 상승·하락', fromHigh: '고점 대비 낙폭', fromLow: '저점 대비 반등', candle: '양봉·음봉', stoch: '스토캐스틱', bbWidth: '볼린저 밴드폭', dropLast: '하락 시 추가 매수', tp: '목표수익 도달 (순번별)', sl: '손절 (순번별)', trail: '고점 대비 하락 (순번별)', holdDays: 'N일 보유 후 (순번별)', avgPct: '평단 대비 ±N% (전량)' };
   const WHO_TXT = { frgn: '외국인', inst: '기관', indiv: '개인', both: '외국인·기관 동시', combo: '외국인+기관 합산' };
   function condSummary(c) {
     const base = condSummaryCore(c), w = Math.floor(Number(c.within)); return w > 1 && !(SM.COND_DEFS[c.type] || {}).dyn ? `${base} · 최근 ${w}일 이내` : base;
@@ -138,6 +138,9 @@
     switch (c.type) {
       case 'vol': return `거래량 ${n(c.n)}주 이상`;
       case 'volPrev': return Number(c.x) > 1 ? `거래량이 전일의 ${n(c.x)}배 초과` : '거래량이 전일보다 높음';
+      case 'volChange': { const k = Math.max(1, Math.floor(Number(c.k) || 1)), base = k === 1 ? '전일' : `${k}일 전`, down = c.dir === 'down'; return c.mode === 'ratio' ? `거래량이 ${base}의 ${n(c.x)}배 ${down ? '이하로 감소' : '이상으로 증가'}` : `거래량이 ${base}보다 ${down ? '감소' : '증가'}`; }
+      case 'volMa': return `거래량이 ${n(c.n)}일 거래량 평균${Number(c.x) === 1 ? '' : '의 ' + n(c.x) + '배'}${c.dir === 'below' ? ' 미만' : ' 초과'}`;
+      case 'dropVol': return `당일 ${n(c.pct)}% 이상 하락 + 거래량이 ${n(c.n)}일 평균의 ${n(c.x)}배 이상`;
       case 'volRatio': return `거래량이 ${n(c.n)}일 평균의 ${n(c.x)}배 이상`;
       case 'maCross': return `${ma}${n(c.s)}일선이 ${n(c.l)}일선을 ${up ? '위로 (골든크로스)' : '아래로 (데드크로스)'}`;
       case 'maState': return `${ma}${n(c.s)}일선이 ${n(c.l)}일선 ${c.dir === 'below' ? '아래' : '위'}`;

@@ -256,6 +256,22 @@ t('삭제된 조건(렌코)이 옛 전략에 남아 있어도 무시되고 오�
   const r = SM.runBacktest(d, mk([{ type: 'renkoFlip', dir: 'up' }, { type: 'change', op: 'gte', v: 1 }], []), Object.assign({}, S)); assert(!r.error && r.buys.length > 0); assert(!SM.COND_DEFS.renkoFlip && !SM.COND_DEFS.renkoRun && !SM.buildRenko);
   assert(/매수 조건/.test(SM.runBacktest(d, mk([{ type: 'renkoFlip', dir: 'up' }], []), S).error)); // 렌코만 남은 전략은 ‘조건 없음’
 });
+t('거래량 조건 3종: 증가·감소(단순·배수), 거래량 이동평균 넘음·낮음, 하락+거래량 급증(손절)', () => {
+  const v = [100, 120, 100, 300, 90, 90, 500, 80, 80, 80], c = [100, 101, 99, 95, 96, 94, 90, 91, 92, 93];
+  const d = { d: [], o: c.slice(), h: c.slice(), l: c.slice(), c: c.slice(), v, hasVol: true, hasHL: true }, dt = new Date('2025-03-03'); c.forEach(() => { d.d.push(dt.toISOString().slice(0, 10)); dt.setDate(dt.getDate() + 1); });
+  const days = (cond) => SM.signalStats(d, { expr: { op: 'AND', items: [cond] } }).leaves[0].days;
+  assert.equal(days({ type: 'volChange', dir: 'up', mode: 'simple' }), 3); assert.equal(days({ type: 'volChange', dir: 'up', mode: 'ratio', x: 2 }), 2);
+  assert.equal(days({ type: 'volChange', dir: 'down', mode: 'simple' }), 3); assert.equal(days({ type: 'volChange', dir: 'down', mode: 'ratio', x: 0.5 }), 2);
+  assert.equal(days({ type: 'volChange', dir: 'up', mode: 'simple', k: 2 }), SM.signalStats(d, { expr: { op: 'AND', items: [{ type: 'volChange', dir: 'up', mode: 'simple', k: 2 }] } }).leaves[0].days); // 2일 전과 비교도 동작
+  assert.equal(days({ type: 'volMa', n: 3, dir: 'above', x: 1 }), 2); assert.equal(days({ type: 'volMa', n: 3, dir: 'above', x: 2 }), 1); assert.equal(days({ type: 'volMa', n: 3, dir: 'below', x: 1 }), 5);
+  assert.equal(days({ type: 'dropVol', pct: 3, n: 3, x: 1.5 }), 2); assert.equal(days({ type: 'dropVol', pct: 5, n: 3, x: 1.5 }), 0);
+  // ‘당일 하락 AND 거래량 평균 배수’를 직접 문장으로 만들어도 같은 결과
+  const combo = SM.signalStats(d, { expr: { op: 'AND', items: [{ type: 'change', op: 'lte', v: -3 }, { type: 'volMa', n: 3, dir: 'above', x: 1.5 }] } }); assert.equal(combo.signalDays, 2);
+  // 손절: 매수 후 하락+거래량 급증이 나오면 그 신호로 전량 매도(체결: 당일 종가 기준 설정)
+  const cfg = Object.assign(SM.blankCfg(), { fill: 'close', qty: 1, growth: 1, maxLots: 1, entries: { mode: 'AND', conds: [{ type: 'vol', n: 1 }] }, exits: { mode: 'OR', conds: [{ type: 'dropVol', pct: 3, n: 3, x: 1.5 }] } });
+  const r = SM.runBacktest(d, cfg, S); assert(r.cycles.length >= 1 && r.cycles[0].endIdx === 3 && r.cycles[0].sellWhy.conds[0].type === 'dropVol' && r.cycles[0].realized < 0, JSON.stringify(r.cycles.map((x) => [x.startIdx, x.endIdx])));
+  assert(SM.runBacktest(Object.assign({}, d, { hasVol: false }), cfg, S).error); // 거래량 없는 데이터는 사전 오류
+});
 t('재생: cutRaw는 모든 배열을 같은 길이로 자름', () => {
   const raw = { d: ['2025-01-01', '2025-01-02', '2025-01-03'], o: [1, 2, 3], h: [1, 2, 3], l: [1, 2, 3], c: [1, 2, 3], v: [1, 1, 1], frgn: [5, null, 7], hasVol: true, flowUnit: 'shares' };
   const a = SM.cutRaw(raw, '2025-01-02'); assert.deepEqual(a.d, ['2025-01-01', '2025-01-02']); assert.deepEqual(a.frgn, [5, null]); assert.equal(a.hasVol, true); assert.equal(a.flowUnit, 'shares');

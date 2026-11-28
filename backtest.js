@@ -398,6 +398,15 @@
   const COND_DEFS = {
     vol: { use: 'both', group: '거래량', label: '거래량 N주 이상', params: [{ k: 'n', label: '거래량(주)', def: 1000000 }] },
     volPrev: { use: 'both', group: '거래량', label: '거래량이 전일보다 높음(x배 초과)', params: [{ k: 'x', label: '배수 (1 = 어제보다 높음)', def: 1 }] },
+    volChange: { use: 'both', group: '거래량', label: '거래량 증가·감소 (전일 등과 비교, 단순 또는 배수)', params: [
+      { k: 'dir', label: '방향', def: 'up', opts: [['up', '증가 (상승)'], ['down', '감소 (하락)']] },
+      { k: 'mode', label: '기준', def: 'simple', opts: [['simple', '단순 (늘기만/줄기만 하면)'], ['ratio', '배수 (N배 이상 늘 때 · N배 이하로 줄 때)']] },
+      { k: 'x', label: '배수 (배수 기준일 때: 증가는 N배 이상, 감소는 N배 이하 예: 0.5)', def: 2 }, { k: 'k', label: '비교 일수 (1 = 전일)', def: 1 }] },
+    volMa: { use: 'both', group: '거래량', label: '거래량이 거래량 이동평균(N일)보다 높음·낮음 (몇 배)', params: [
+      { k: 'n', label: '이동평균 기간(일)', def: 20 }, { k: 'dir', label: '방향', def: 'above', opts: [['above', '넘을 때 (초과)'], ['below', '낮을 때 (미만)']] },
+      { k: 'x', label: '배수 (1 = 평균 그대로, 2 = 평균의 2배)', def: 1 }] },
+    dropVol: { use: 'both', group: '거래량', label: '당일 하락 + 거래량 급증 (거래량 동반 하락, 손절 신호)', params: [
+      { k: 'pct', label: '당일 하락률 % (전일 종가 대비)', def: 2 }, { k: 'n', label: '거래량 평균 기간(일)', def: 20 }, { k: 'x', label: '거래량이 평균의 몇 배 이상', def: 2 }] },
     volRatio: { use: 'both', group: '거래량', label: '거래량이 최근 평균의 x배 이상', params: [{ k: 'n', label: '평균 기간(일)', def: 20 }, { k: 'x', label: '배수', def: 2 }] },
     maCross: { use: 'both', group: '이동평균', label: '이동평균 교차', params: [{ k: 'ma', label: '종류', def: 'sma', opts: MA_OPTS }, { k: 's', label: '단기', def: 5 }, { k: 'l', label: '장기', def: 20 }, { k: 'dir', label: '방향', def: 'up', opts: [['up', '골든크로스(상향 돌파)'], ['down', '데드크로스(하향 이탈)']] }] },
     maState: { use: 'both', group: '이동평균', label: '이동평균 단기선·장기선 위치(상태)', params: [{ k: 'ma', label: '종류', def: 'sma', opts: MA_OPTS }, { k: 's', label: '단기', def: 5 }, { k: 'l', label: '장기', def: 20 }, { k: 'dir', label: '조건', def: 'above', opts: [['above', '단기선이 위'], ['below', '단기선이 아래']] }] },
@@ -451,6 +460,9 @@
     switch (cond.type) {
       case 'vol': { const t = num(p.n); for (let i = 0; i < n; i++) out[i] = data.v[i] >= t; break; }
       case 'volPrev': { const x = num(p.x, 1); for (let i = 1; i < n; i++) out[i] = data.v[i - 1] > 0 && data.v[i] > x * data.v[i - 1]; break; } // 어제 거래량보다 x배를 넘음
+      case 'volChange': { const k = Math.max(1, Math.floor(num(p.k, 1))), x = num(p.x, 2); for (let i = k; i < n; i++) { const pv = data.v[i - k]; if (!(pv > 0)) continue; out[i] = p.dir === 'down' ? (p.mode === 'ratio' ? data.v[i] <= x * pv : data.v[i] < pv) : (p.mode === 'ratio' ? data.v[i] >= x * pv : data.v[i] > pv); } break; }
+      case 'volMa': { const avg = sma(data.v, Math.max(2, Math.floor(num(p.n, 20)))), x = num(p.x, 1); for (let i = 0; i < n; i++) { if (avg[i] == null) continue; out[i] = p.dir === 'below' ? data.v[i] < x * avg[i] : data.v[i] > x * avg[i]; } break; } // 당일 포함 평균(차트의 거래량 이동평균선과 같음)
+      case 'dropVol': { const avg = sma(data.v, Math.max(2, Math.floor(num(p.n, 20)))), t = num(p.pct, 2), x = num(p.x, 2); for (let i = 1; i < n; i++) { if (avg[i] == null) continue; const ch = (data.c[i] / data.c[i - 1] - 1) * 100; out[i] = ch <= -t && data.v[i] >= x * avg[i]; } break; }
       case 'volRatio': {
         const k = Math.max(1, Math.floor(num(p.n, 20))), x = num(p.x, 2);
         const avg = sma(data.v, k);
@@ -608,7 +620,7 @@
     const exitConds = exprLeaves(xExpr).filter((c) => COND_DEFS[c.type] && COND_DEFS[c.type].use !== 'entry');
     const errors = [];
     const allConds = entryConds.concat(exitConds);
-    if (!data.hasVol && allConds.some((c) => ['vol', 'volRatio'].includes(c.type) || (c.type === 'flow' && ['ratio'].includes(c.mode)))) errors.push('거래량 데이터가 없어 거래량 조건을 쓸 수 없습니다.');
+    if (!data.hasVol && allConds.some((c) => ['vol', 'volRatio', 'volPrev', 'volChange', 'volMa', 'dropVol'].includes(c.type) || (c.type === 'flow' && ['ratio'].includes(c.mode)))) errors.push('거래량 데이터가 없어 거래량 조건을 쓸 수 없습니다.');
     for (const c of allConds) {
       if (isFlowType(c)) {
         const who = flowWho(c);
@@ -851,7 +863,7 @@
     const leaves = exprLeaves(ex).filter((c) => COND_DEFS[c.type] && (opt.use === 'exit' ? COND_DEFS[c.type].use !== 'entry' : COND_DEFS[c.type].use !== 'exit'));
     const errors = [];
     for (const c of leaves) if (isFlowType(c)) for (const w of flowWho(c)) if (!data[w]) errors.push('수급 데이터가 없습니다.');
-    if (!data.hasVol && leaves.some((c) => ['vol', 'volRatio', 'volPrev'].includes(c.type))) errors.push('거래량 데이터가 없습니다.');
+    if (!data.hasVol && leaves.some((c) => ['vol', 'volRatio', 'volPrev', 'volChange', 'volMa', 'dropVol'].includes(c.type))) errors.push('거래량 데이터가 없습니다.');
     if (errors.length) return { error: [...new Set(errors)].join(' ') };
     if (!leaves.length) return { empty: true, days: 0, signalDays: 0, leaves: [], groups: [] };
     const ctx = {};
