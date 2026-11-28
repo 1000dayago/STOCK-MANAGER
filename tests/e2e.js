@@ -110,12 +110,12 @@ function fixtures() {
       { // 예시 탭: 시험해 본 전략을 조건 문장 그대로 보여 주고, 불러와서 수정
         await page.click('[data-act=btMode2][data-v=example]'); await page.waitForSelector('.excard');
         const cards = await page.$$eval('.excard', (e) => e.map((x) => x.textContent.replace(/\s+/g, ' ')));
-        ok('예시 탭: 시험해 본 전략 7가지가 카드로 나오고 조건 문장·시험값이 보임', cards.length === 7 && /저점 매수 · 목표 매도/.test(cards[0]) && /종가가 60일선보다 20% 이상 아래/.test(cards[0]) && /거래량이 전일보다 증가|거래량이 전일보다 높음/.test(cards[0]) && /평단 대비 \+8% 도달/.test(cards[0]) && /한국전력 \+19\.9%/.test(cards[0]) && /하락 \+ 거래량 급증|당일 3% 이상 하락/.test(cards[1]) && /물타기 기본값/.test(cards[3]), cards.map((c) => c.slice(0, 40)));
+        ok('예시 탭: 새 한국전력 전략 5가지가 카드로 나오고 규칙별 수량·조건 문장·시험값이 보임', cards.length === 5 && /5일 급락 \+ 양봉/.test(cards[0]) && /매수 · 10주/.test(cards[0]) && /매수 규칙 2 · 20주/.test(cards[0]) && /평단 대비 \+5% 도달/.test(cards[0]) && /한국전력 앞 \+27\.0%/.test(cards[0]) && /고정 10주/.test(cards[0]) && /매수 규칙 2 · 30주/.test(cards[1]) && /볼린저/.test(cards[2]) && !cards.some((c) => /물타기 기본값|저점 매수 · 목표 매도/.test(c)), cards.map((c) => c.slice(0, 60)));
         if (process.env.EXT_SHOT) await page.screenshot({ path: process.env.EXT_SHOT, fullPage: false });
         ok('예시 탭에서는 전략 입력·실행 줄이 숨겨짐', (await page.$('.cndbox')) === null && (await page.$('[data-act=btRun]')) === null);
-        await page.click('[data-act=btExLoad][data-id=lowhigh]'); await page.waitForSelector('.cndbox.buy');
-        const ex = await page.evaluate(() => { const c = SM.app.ui.bt.cfg; return { mode: SM.app.ui.bt.mode, e: SM.exprLeaves(SM.exprOf(c.entries)).map((x) => [x.type, x.n, x.dir, x.pct].join(':')), x: SM.exprLeaves(SM.exprOf(c.exits)).map((x) => [x.type, x.dir, x.pct].join(':')), q: Number(c.qty), g: Number(c.growth), ml: Number(c.maxLots), mg: Number(c.minGap) }; });
-        ok('불러와서 수정하기: 직접 조건 만들기로 이동해 문장 그대로 채워짐(60일선 −20% AND 거래량 / 평단 +8% / 10주·최대 3회·간격 3일)', ex.mode === 'custom' && ex.e.join('|') === 'maGap:60:below:20|volPrev:::' && ex.x.join() === 'avgPct:up:8' && ex.q === 10 && ex.g === 1 && ex.ml === 3 && ex.mg === 3 && /60일선보다 20% 이상 아래/.test(await page.textContent('#sent-entries')), ex);
+        await page.click('[data-act=btExLoad][data-id=k-rsi]'); await page.waitForSelector('#cnd-r1');
+        const ex = await page.evaluate(() => { const c = SM.app.ui.bt.cfg; return { mode: SM.app.ui.bt.mode, e: SM.exprLeaves(SM.exprOf(c.entries)).map((x) => [x.type, x.op, x.v].join(':')), r: c.rules.map((r) => [r.qty, SM.exprLeaves(SM.exprOf(r)).map((x) => x.type).join('+')].join('/')), x: SM.exprLeaves(SM.exprOf(c.exits)).map((x) => x.type).join(), q: Number(c.qty), ml: Number(c.maxLots), mg: Number(c.minGap) }; });
+        ok('불러와서 수정하기: 직접 조건 만들기로 이동해 기본 규칙(RSI≤30+양봉, 10주)과 규칙 2(5일 −10%+양봉, 30주)·매도(+5%, 거래량 손절)가 그대로 채워짐', ex.mode === 'custom' && ex.e.join('|') === 'rsi:lte:30|candle::' && ex.r.join() === '30/retN+candle' && ex.x === 'avgPct,dropVol' && ex.q === 10 && ex.ml === 4 && ex.mg === 3 && /매수 규칙 2/.test(await page.textContent('#cnd-r1 .cndbox-h')), ex);
         await page.click('.cndbox.buy .tok-b'); ok('불러온 조건을 눌러 바로 값을 수정할 수 있음', (await page.$('.cndbox.buy .tok-ed.show')) !== null);
         await page.click('[data-act=btMode2][data-v=mg]'); await page.waitForSelector('.sgrid');
         await page.evaluate(() => { SM.app.ui.bt.modeCfg.custom = SM.blankCfg(); }); } // 뒤의 검사는 비어 있는 직접 조건에서 시작

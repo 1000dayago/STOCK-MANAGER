@@ -359,10 +359,11 @@
   function exampleCards() {
     return SM.EXAMPLES.map((ex) => { const c = ex.mk(); return `<section class="card excard" data-ex="${ex.id}">
       <h4>${esc(ex.name)}</h4><p class="hint">${esc(ex.note)}</p>
-      <div class="exsent buy"><b>매수</b> ${exSentence('entries', c.entries)}</div>
+      <div class="exsent buy"><b>매수${(c.rules || []).length ? ` · ${c.qtyMode === 'amount' ? '금액' : esc(c.qty) + '주'}` : ''}</b> ${exSentence('entries', c.entries)}</div>
+      ${(c.rules || []).map((r, k) => `<div class="exsent buy"><b>매수 규칙 ${k + 2} · ${esc(r.qty)}${c.qtyMode === 'amount' ? '원' : '주'}</b> ${exSentence('entries', r)}</div>`).join('')}
       <div class="exsent sell"><b>매도</b> ${exSentence('exits', c.exits)}</div>
-      <p class="exset">${c.qtyMode === 'amount' ? '금액' : esc(c.qty) + '주'} · 수량 배수 ${esc(c.growth)}배 · 최대 ${esc(c.maxLots)}회${Number(c.minGap) > 0 ? ' · 매수 간격 ' + esc(c.minGap) + '일' : ''}</p>
-      ${ex.res ? `<p class="exres"><b>시험값</b> (전체 기간, 최대 투입금 대비) ${esc(ex.res)}</p>` : ''}
+      <p class="exset">${(c.rules || []).length ? '규칙이 겹치면 큰 수량 하나만' : (c.qtyMode === 'amount' ? '금액' : esc(c.qty) + '주')} · 수량 배수 ${esc(c.growth)}배 · 최대 ${esc(c.maxLots)}회${Number(c.minGap) > 0 ? ' · 매수 간격 ' + esc(c.minGap) + '일' : ''}</p>
+      ${ex.res ? `<p class="exres"><b>시험값</b> (최대 투입금 대비 수익률) ${esc(ex.res)}</p>` : ''}
       <div class="btns"><button class="btn primary sm" data-act="btExLoad" data-id="${ex.id}">불러와서 수정하기</button><button class="btn sm" data-act="btExRun" data-id="${ex.id}">이 데이터로 바로 실행</button></div></section>`; }).join('');
   }
   // 예시를 직접 조건 만들기로 불러옴(문장 그대로, 바로 고칠 수 있음). quiet이면 안내 문구 생략

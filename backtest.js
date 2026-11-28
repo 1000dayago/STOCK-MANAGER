@@ -883,32 +883,35 @@
   /* ---------- 예시 전략: 탐색·시험해 본 전략을 문장 그대로 보관(시뮬레이션의 ‘예시’ 탭에서 불러와 수정) ---------- */
   const mkLeaf = (type, o) => { const c = { type }; COND_DEFS[type].params.forEach((q) => { c[q.k] = q.def; }); return Object.assign(c, o || {}); };
   function exampleCfg(spec) {
-    const c = blankCfg(); Object.assign(c, { qtyMode: 'shares', qty: 10, growth: 1, maxLots: 3, maxInvest: 0, cooldown: 0, minGap: 3, fill: 'nextOpen' }, spec.set || {});
+    const c = blankCfg(); Object.assign(c, { qtyMode: 'shares', qty: 10, growth: 1, maxLots: 4, maxInvest: 0, cooldown: 0, minGap: 3, fill: 'nextOpen' }, spec.set || {});
     const side = (op, list) => { const items = list.map((x) => mkLeaf(x[0], x[1])); return { mode: op, conds: items.slice(), expr: { op, items } }; };
     c.entries = side(spec.eop || 'AND', spec.entries); c.exits = side('OR', spec.exits);
+    c.rules = (spec.rules || []).map((r) => Object.assign({ qty: r.qty }, side('AND', r.conds)));
     return c;
   }
-  const LOWHIGH_E = [['maGap', { ma: 'sma', n: 60, dir: 'below', pct: 20 }], ['volPrev', { x: 1 }]];
-  const DOWN_ENTRY = [['maSlope', { ma: 'sma', n: 30, k: 5, dir: 'up' }], ['dropLast', { pct: 10, basis: 'last', first: 'yes' }]];
-  const MG = { growth: 2, maxLots: 5, minGap: 0 };
+  /* 한국전력(2016-11~2026-11) 5,184개 조합 탐색(앞 2016~2022 / 뒤 2023~2026 분할) 뒤, 두 구간 모두 이익이고 값을 조금 바꿔도 크게 무너지지 않는 것 중심으로 고른 5개.
+     모두 ‘얕은 하락은 10주, 깊은 하락은 더 많이’ 규칙별 수량. 앞 구간 순위와 뒤 구간 순위의 상관은 −0.38이라 과거 1등이 앞으로도 1등일 근거는 없음 */
+  const UPC = ['candle', { dir: 'up', pct: 1, within: 3 }], VUP = ['volPrev', { x: 1 }];
+  const gapB = (n, pct) => ['maGap', { ma: 'sma', n, dir: 'below', pct }];
   const EXAMPLES = [
-    { id: 'lowhigh', name: '저점 매수 · 목표 매도', note: '한국전력 10년으로 찾은 조합. 급락 뒤 거래량이 늘 때 사서 평단 +8%에 팔기', spec: { entries: LOWHIGH_E, exits: [['avgPct', { dir: 'up', pct: 8 }]] } },
-    { id: 'lowhigh-stop3', name: '저점 매수 + 하락·거래량 손절 (3%·2배)', note: '위 전략에 “당일 3% 이상 하락 + 거래량 20일 평균의 2배 이상”이면 전량 매도(손절) 추가', spec: { entries: LOWHIGH_E, exits: [['avgPct', { dir: 'up', pct: 8 }], ['dropVol', { pct: 3, n: 20, x: 2 }]] } },
-    { id: 'lowhigh-stop5', name: '저점 매수 + 하락·거래량 손절 (5%·3배)', note: '손절 기준을 더 높여 거의 안 나오게 한 버전', spec: { entries: LOWHIGH_E, exits: [['avgPct', { dir: 'up', pct: 8 }], ['dropVol', { pct: 5, n: 20, x: 3 }]] } },
-    { id: 'mg-base', name: '물타기 기본값', note: '30일선 상승 중일 때 직전 매수가보다 10% 하락하면 2배씩 추가 매수, 평단 +5% 매도·−20% 손절', spec: { set: MG, entries: DOWN_ENTRY, exits: [['avgPct', { dir: 'up', pct: 5 }], ['avgPct', { dir: 'down', pct: 20 }]] } },
-    { id: 'mg-stop', name: '물타기 + 하락·거래량 손절', note: '물타기 기본값에 “당일 3% 하락 + 거래량 2배” 손절을 더함', spec: { set: MG, entries: DOWN_ENTRY, exits: [['avgPct', { dir: 'up', pct: 5 }], ['avgPct', { dir: 'down', pct: 20 }], ['dropVol', { pct: 3, n: 20, x: 2 }]] } },
-    { id: 'mg-flow', name: '물타기 + 외국인·기관 동시 순매수', note: '직전 매수가 대비 10% 하락한 날 외국인과 기관이 같이 순매수일 때만 추가 매수', spec: { set: MG, entries: [['dropLast', { pct: 10, basis: 'last', first: 'yes' }], ['flow', { who: 'both', dir: 'buy', mode: 'day', v: 1, n: 3 }]], exits: [['avgPct', { dir: 'up', pct: 5 }], ['avgPct', { dir: 'down', pct: 20 }]] } },
-    { id: 'flow-below30', name: '수급 + 거래량 + 30일선 아래', note: '외국인·기관 동시 순매수, 거래량 전일보다 증가, 종가가 30일선 아래일 때 매수 (수급 신호)', spec: { set: MG, entries: [['flow', { who: 'both', dir: 'buy', mode: 'day', v: 1, n: 3 }], ['volPrev', { x: 1 }], ['priceMa', { ma: 'sma', n: 30, dir: 'below' }]], exits: [['avgPct', { dir: 'up', pct: 5 }], ['avgPct', { dir: 'down', pct: 20 }]] } },
+    { id: 'k-dip5', name: '5일 급락 + 양봉 → 평단 +5%', note: '5일간 6% 이상 빠지고 3일 안에 1% 이상 양봉이 나오면 10주, RSI 25 이하로 더 깊으면 20주. 평단 +5%에 전량 매도. 값을 바꿔도 결과가 비슷한 편(안정). 손절이 없어 계속 빠지는 종목에는 약함(산일전기 −48.7%)',
+      spec: { entries: [['retN', { n: 5, op: 'lte', v: -6 }], UPC], rules: [{ qty: 20, conds: [['rsi', { n: 14, op: 'lte', v: 25 }], UPC] }], exits: [['avgPct', { dir: 'up', pct: 5 }]] } },
+    { id: 'k-rsi', name: 'RSI 과매도 + 양봉 → +5% · 거래량 손절', note: 'RSI 30 이하 + 3일 안 양봉이면 10주, 5일 −10% 급락이면 30주. 평단 +5% 매도, 당일 3% 하락 + 거래량 2배면 손절. 이 탐색에서 규칙별 수량의 효과가 가장 컸음(같은 조건 고정 10주 대비). 목표를 +7%로 올리면 무너짐',
+      spec: { entries: [['rsi', { n: 14, op: 'lte', v: 30 }], UPC], rules: [{ qty: 30, conds: [['retN', { n: 5, op: 'lte', v: -10 }], UPC] }], exits: [['avgPct', { dir: 'up', pct: 5 }], ['dropVol', { pct: 3, n: 20, x: 2 }]] } },
+    { id: 'k-bb', name: '볼린저 하단 + 양봉 → 20일선 +6%', note: '종가가 볼린저 하단 아래 + 3일 안 양봉이면 10주, 60일선보다 25% 이상 아래면 30주. 20일선보다 6% 위로 올라오면 매도. 4개 종목 모두 이익(폭은 작음)',
+      spec: { entries: [['bb', { n: 20, k: 2, band: 'lower', basis: 'close' }], UPC], rules: [{ qty: 30, conds: [gapB(60, 25), UPC] }], exits: [['maGap', { ma: 'sma', n: 20, dir: 'above', pct: 6 }]] } },
+    { id: 'k-ma20', name: '20일선 −8% + 거래량 → 20일선 +6%', note: '20일선보다 8% 이상 아래 + 거래량 전일보다 증가면 10주, 60일선보다 20% 아래면 30주. 20일선 +6% 위에서 매도. 거래가 많은 편이고 한국전력 앞·뒤 구간이 비슷함. 삼성전자에서는 손실',
+      spec: { entries: [gapB(20, 8), VUP], rules: [{ qty: 30, conds: [gapB(60, 20), VUP] }], exits: [['maGap', { ma: 'sma', n: 20, dir: 'above', pct: 6 }]] } },
+    { id: 'k-ma60', name: '60일선 이격 2단계 → 평단 +5%', note: '60일선보다 15% 아래면 10주, 20% 아래면 30주(더 깊을 때 크게). 평단 +5% 매도. 고정 10주면 한국전력 −30.6%인데 이 규칙으로 +24.5%. 다만 목표 +6%·기준 −13%로 바꾸면 크게 손실 나는 불안정한 전략',
+      spec: { entries: [gapB(60, 15)], rules: [{ qty: 30, conds: [gapB(60, 20)] }], exits: [['avgPct', { dir: 'up', pct: 5 }]] } },
   ].map((e) => Object.assign(e, { mk: () => exampleCfg(e.spec) }));
-  // 측정값: 수집 데이터 전체 기간(2016~2026, 산일전기는 2024~)을 이 설정 그대로 돌린 최대 투입금 대비 수익률(매수 횟수). 과거 시험값이며 미래를 보장하지 않음
+  // 측정값(최대 투입금 대비 수익률, 괄호는 매수 횟수): 한국전력 앞(2016~2022)·뒤(2023~2026) 구간과 4개 종목 전체 기간. 과거 시험값이며 미래를 보장하지 않음
   const EX_RES = {
-    'lowhigh': '한국전력 +19.9% (6회) · 대한항공 +19.1% (4회) · 삼성전자 +15.3% (8회) · 산일전기 +13.8% (10회)',
-    'lowhigh-stop3': '한국전력 +19.9% (6회) · 대한항공 +2.2% (5회) · 삼성전자 +1.1% (7회) · 산일전기 +13.8% (10회)',
-    'lowhigh-stop5': '한국전력 +19.9% (6회) · 대한항공 +9.0% (5회) · 삼성전자 +15.3% (8회) · 산일전기 +13.8% (10회)',
-    'mg-base': '한국전력 −14.8% (57회) · 대한항공 +35.5% (64회) · 삼성전자 +17.8% (75회) · 산일전기 −7.5% (51회)',
-    'mg-stop': '한국전력 −2.8% (74회) · 대한항공 +26.4% (70회) · 삼성전자 +27.6% (78회) · 산일전기 −9.3% (51회)',
-    'mg-flow': '한국전력 −10.3% (62회) · 대한항공 +24.2% (62회) · 삼성전자 +10.8% (66회) · 산일전기 +21.2% (40회)',
-    'flow-below30': '한국전력 +6.8% (68회) · 대한항공 +10.3% (64회) · 삼성전자 +5.6% (49회) · 산일전기 +2.1% (17회)' };
+    'k-dip5': '한국전력 앞 +27.0% (13회) · 뒤 +54.3% (21회) | 전체 기간 한국전력 +62.3% (32회) · 대한항공 +40.6% (40회) · 삼성전자 +23.4% (33회) · 산일전기 −48.7% (19회) | 같은 조건 고정 10주: 한국전력 +65.1%',
+    'k-rsi': '한국전력 앞 +16.2% (15회) · 뒤 +34.2% (12회) | 전체 기간 한국전력 +48.1% (27회) · 대한항공 +57.8% (26회) · 삼성전자 +0.1% (20회) · 산일전기 −0.1% (21회) | 같은 조건 고정 10주: 한국전력 +18.2%',
+    'k-bb': '한국전력 앞 +15.9% (10회) · 뒤 +14.6% (9회) | 전체 기간 한국전력 +28.5% (19회) · 대한항공 +25.9% (23회) · 삼성전자 +5.2% (18회) · 산일전기 +3.6% (11회) | 같은 조건 고정 10주: 한국전력 +12.9%',
+    'k-ma20': '한국전력 앞 +13.6% (15회) · 뒤 +13.2% (13회) | 전체 기간 한국전력 +21.1% (28회) · 대한항공 +21.9% (26회) · 삼성전자 −11.4% (21회) · 산일전기 +6.6% (21회) | 같은 조건 고정 10주: 한국전력 +19.3%',
+    'k-ma60': '한국전력 앞 +16.0% (16회) · 뒤 +13.4% (11회) | 전체 기간 한국전력 +24.5% (27회) · 대한항공 +31.7% (18회) · 삼성전자 +10.1% (19회) · 산일전기 +9.6% (15회) | 같은 조건 고정 10주: 한국전력 −30.6%' };
   EXAMPLES.forEach((e) => { e.res = EX_RES[e.id] || ''; });
   Object.assign(SM, { EXAMPLES });
 
