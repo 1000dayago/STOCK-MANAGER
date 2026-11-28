@@ -993,3 +993,14 @@ details.rpmenu .rp { background: transparent; padding: 8px 0 2px; margin: 0; }
 .sgi .inp { width: 100%; min-width: 0; border: 0; background: transparent !important; padding: 7px 0; font-size: 14px; color: var(--fg); text-align: right; }
 .sgi i { font-style: normal; font-size: 11px; color: var(--muted); white-space: nowrap; }
 .sg-u { border: 0; background: transparent; color: var(--accent); font-size: 11.5px; font-weight: 700; padding: 0; max-width: 56px; }
+/* 사이클 표: 펼침 안의 넓은 표가 바깥 표 폭을 밀어내지 않게 하고, 5열이 좁은 화면에 들어가도록 촘촘하게 */
+table.cyc > tbody > tr.cycdet > td { max-width: 0; overflow-x: auto; }
+table.cyc > thead th, table.cyc > tbody > tr.cycrow td { padding: 6px 4px; font-size: 12.5px; }
+table.cyc > tbody > tr.cycrow td:nth-child(n+2) { white-space: normal; }
+table.cyc > tbody > tr.cycrow td:nth-child(4), table.cyc > tbody > tr.cycrow td:nth-child(5) { text-align: right; }
+table.cyc { table-layout: fixed; width: 100%; }
+table.cyc > thead th:nth-child(1) { width: 29%; } table.cyc > thead th:nth-child(2) { width: 15%; } table.cyc > thead th:nth-child(3) { width: 19%; } table.cyc > thead th:nth-child(4) { width: 19%; } table.cyc > thead th:nth-child(5) { width: 18%; }
+table.cyc > tbody > tr.cycrow td { word-break: keep-all; overflow-wrap: anywhere; }
+table.cyc > tbody > tr.cycdet > td { overflow-x: auto; max-width: none; }
+table.cyc > tbody > tr.cycrow td:first-child small { white-space: normal; text-align: left; overflow-wrap: anywhere; font-size: 10.5px; line-height: 1.25; }
+table.cyc > tbody > tr.cycrow td:first-child { overflow: hidden; }
