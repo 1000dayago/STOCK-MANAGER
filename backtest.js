@@ -579,7 +579,20 @@
     return out;
   }
 
-  function needsFlow(cfg) { return [].concat(cfg.entries.conds, cfg.exits.conds).some((c) => c.type === 'flow'); }
+  /* ---------- 조건식(트리): 한 층은 AND 또는 OR 하나, 섞으려면 괄호(묶음)로 ----------
+     side = { mode, conds }(예전 형식) 또는 { expr: { op, items: [조건 | 묶음] } }. 비어 있는 묶음은 무시합니다. */
+  const isLeaf = (n) => !!(n && n.type);
+  function exprOf(side) { const s = side || {}; if (s.expr && Array.isArray(s.expr.items)) return s.expr; return { op: s.mode === 'OR' ? 'OR' : 'AND', items: (s.conds || []).slice() }; }
+  function exprLeaves(node, out) { out = out || []; if (!node) return out; if (isLeaf(node)) out.push(node); else for (const it of node.items || []) exprLeaves(it, out); return out; }
+  // f(조건) → 참/거짓, ok: 계산 대상 조건 집합. 대상 밖 조건·빈 묶음은 null(무시)
+  function evalExpr(node, f, ok) {
+    if (!node) return null;
+    if (isLeaf(node)) return ok.has(node) ? !!f(node) : null;
+    const vals = (node.items || []).map((it) => evalExpr(it, f, ok)).filter((v) => v !== null);
+    if (!vals.length) return null;
+    return node.op === 'OR' ? vals.some(Boolean) : vals.every(Boolean);
+  }
+  function needsFlow(cfg) { return [].concat(exprLeaves(exprOf(cfg.entries)), exprLeaves(exprOf(cfg.exits))).some((c) => c.type === 'flow'); }
 
   /* ---------- 엔진 ---------- */
   function runBacktest(data, cfg, settings) {
@@ -587,8 +600,9 @@
     const rates = SM.ratesOf(settings, cfg.market || 'KR');
     let renkoCache = null;
     const ctx = { renko: () => (renkoCache = renkoCache || buildRenko(data, cfg.renko || {})) };
-    const entryConds = (cfg.entries.conds || []).filter((c) => COND_DEFS[c.type] && COND_DEFS[c.type].use !== 'exit');
-    const exitConds = (cfg.exits.conds || []).filter((c) => COND_DEFS[c.type] && COND_DEFS[c.type].use !== 'entry');
+    const eExpr = exprOf(cfg.entries), xExpr = exprOf(cfg.exits);
+    const entryConds = exprLeaves(eExpr).filter((c) => COND_DEFS[c.type] && COND_DEFS[c.type].use !== 'exit');
+    const exitConds = exprLeaves(xExpr).filter((c) => COND_DEFS[c.type] && COND_DEFS[c.type].use !== 'entry');
     const errors = [];
     const allConds = entryConds.concat(exitConds);
     if (!data.hasVol && allConds.some((c) => ['vol', 'volRatio'].includes(c.type) || (c.type === 'flow' && ['ratio'].includes(c.mode)))) errors.push('거래량 데이터가 없어 거래량 조건을 쓸 수 없습니다.');
@@ -601,9 +615,11 @@
     if (!entryConds.length) errors.push('매수 조건을 1개 이상 추가하세요.');
     if (errors.length) return { error: [...new Set(errors)].join(' ') };
 
-    const entryArr = entryConds.map((c) => (isDyn(c) ? null : evalCond(data, c, ctx)));
-    const exitStaticConds = exitConds.filter((c) => !isDyn(c));
-    const exitSig = combine(exitStaticConds.map((c) => evalCond(data, c, ctx)), cfg.exits.mode === 'AND' ? 'AND' : 'OR', n);
+    const entrySet = new Set(entryConds), entryArr = new Map();
+    for (const c of entryConds) if (!isDyn(c)) entryArr.set(c, evalCond(data, c, ctx));
+    const exitStaticConds = exitConds.filter((c) => !isDyn(c)), exitStaticSet = new Set(exitStaticConds), exitArr = new Map(); // 순번별·평단 조건(손절·목표 등)은 식 밖에서 따로 도달하면 매도
+    for (const c of exitStaticConds) exitArr.set(c, evalCond(data, c, ctx));
+    const exitSig = Array.from({ length: n }, (_, i) => !!evalExpr(xExpr, (c) => exitArr.get(c)[i], exitStaticSet));
     const dyn = (t) => exitConds.filter((c) => c.type === t);
     const tpC = dyn('tp'), slC = dyn('sl'), trC = dyn('trail'), hdC = dyn('holdDays'), apC = dyn('avgPct');
 
@@ -705,8 +721,7 @@
         }
       }
       const pendBuys = pending.filter((o) => o.t === 'buy').length;
-      const flags = entryConds.map((cd, k) => (entryArr[k] ? entryArr[k][i] : entryDyn(cd, i)));
-      const sig = (cfg.entries.mode === 'OR' ? flags.some(Boolean) : flags.every(Boolean));
+      const sig = !!evalExpr(eExpr, (cd) => (entryArr.has(cd) ? entryArr.get(cd)[i] : entryDyn(cd, i)), entrySet);
       const canBuy = sig && !sellAll && (maxLots <= 0 || open.length - sellOrders.length + pendBuys < maxLots);
       const orders = sellOrders.slice();
       if (canBuy) orders.push({ t: 'buy' });
@@ -764,7 +779,7 @@
     const palette = ['#2563eb', '#d97706', '#9333ea', '#0891b2', '#be185d', '#65a30d'];
     const lines = [], seen = new Set();
     let pi = 0;
-    for (const c of [].concat(cfg.entries.conds, cfg.exits.conds)) {
+    for (const c of [].concat(exprLeaves(exprOf(cfg.entries)), exprLeaves(exprOf(cfg.exits)))) {
       if (c.type === 'maCross' || c.type === 'maState') {
         for (const k of [num(c.s, 5), num(c.l, 20)]) { const key = (c.ma || 'sma') + k; if (seen.has(key)) continue; seen.add(key); lines.push({ name: (c.ma === 'ema' ? 'EMA' : 'MA') + k, arr: maOf(c.ma, data.c, k), color: palette[pi++ % palette.length] }); }
       } else if (c.type === 'priceMa') {
@@ -821,6 +836,25 @@
     return { date: data.d[t], idx: t, close, qty, cost, avg, buyCount: open.length, cyc: open.length ? open[open.length - 1].cyc : null, unrealized, realized, total: realized + unrealized, today, cyclesDone: (r.cycles || []).filter((c) => c.endDate <= date).length };
   }
   Object.assign(SM, { cyclesAsOf, replayState });
+  // 신호 진단: 매수(또는 매도) 조건식이 참인 날과 조건별 참인 날 수. ‘하락 시 추가 매수’처럼 보유 상태에 따라 달라지는 조건은 일수에서 제외(무시)
+  function signalStats(data, side, opt) {
+    opt = opt || {}; const n = data.c.length, ex = exprOf(side);
+    const leaves = exprLeaves(ex).filter((c) => COND_DEFS[c.type] && (opt.use === 'exit' ? COND_DEFS[c.type].use !== 'entry' : COND_DEFS[c.type].use !== 'exit'));
+    const errors = [];
+    for (const c of leaves) if (c.type === 'flow') for (const w of (c.who === 'both' ? ['frgn', 'inst'] : [c.who])) if (!data[w]) errors.push('수급 데이터가 없습니다.');
+    if (!data.hasVol && leaves.some((c) => ['vol', 'volRatio', 'volPrev'].includes(c.type))) errors.push('거래량 데이터가 없습니다.');
+    if (errors.length) return { error: [...new Set(errors)].join(' ') };
+    if (!leaves.length) return { empty: true, days: 0, signalDays: 0, leaves: [], groups: [] };
+    let renkoCache = null; const ctx = { renko: () => (renkoCache = renkoCache || buildRenko(data, opt.renko || {})) };
+    const stat = leaves.filter((c) => !isDyn(c)), statSet = new Set(stat), arr = new Map(stat.map((c) => [c, evalCond(data, c, ctx)]));
+    const from = opt.from || data.d[0], to = opt.to || data.d[n - 1], idx = []; for (let i = 0; i < n; i++) if (data.d[i] >= from && data.d[i] <= to) idx.push(i);
+    const count = (node) => { let k = 0, first = null; for (const i of idx) { const v = evalExpr(node, (c) => arr.get(c)[i], statSet); if (v) { k++; if (first == null) first = data.d[i]; } } return { k, first }; };
+    const total = count(ex), perLeaf = leaves.map((c) => (isDyn(c) ? { leaf: c, dyn: true } : { leaf: c, days: idx.filter((i) => arr.get(c)[i]).length }));
+    // 같은 날 한 번도 겹치지 않는 AND 묶음(각 조건은 따로는 참인 날이 있는데 함께는 0일)
+    const groups = []; (function walk(node, path) { if (isLeaf(node)) return; const kids = node.items || []; kids.forEach((it, k) => walk(it, path.concat(k))); if (node.op !== 'OR' && kids.length >= 2) { const sub = exprLeaves(node).filter((c) => statSet.has(c)); if (sub.length >= 2 && count(node).k === 0 && sub.every((c) => idx.some((i) => arr.get(c)[i]))) groups.push(path.join('.')); } })(ex, []);
+    return { days: idx.length, signalDays: total.k, first: total.first, leaves: perLeaf, groups, hasDyn: leaves.some(isDyn) };
+  }
+
   /* ---------- 액면분할·병합 보정(수정주가) ----------
      한국 주식은 하루 가격제한폭이 ±30%라서, 전일 대비 가격이 그 범위를 크게 벗어나면 정상 등락이 아니라 액면분할(병합)입니다.
      분할 비율(2·3·4·5·10·20·25·50·100배, 병합은 그 역수) 중 가장 가까운 것을 골라 그 전의 가격·거래량·수급(주 단위)을 현재 기준으로 맞춥니다. */
@@ -851,7 +885,7 @@
     out.splits = ev.map((e) => ({ date: e.date, factor: e.factor })); out.splitAdjusted = true;
     return { data: out, events: out.splits };
   }
-  Object.assign(SM, { detectSplits, adjustSplits });
+  Object.assign(SM, { detectSplits, adjustSplits, exprOf, exprLeaves, evalExpr, signalStats });
   Object.assign(SM, { dataInfo, detectFlowUnit, parseOHLCV, parseTable, guessFlowCols, mergeFlow, parseDate, splitTable, guessCols, kindOf, analyzeTable, buildDataset, mergeDatasets, sameStockScore, sma, ema, rsi, macd, bollinger, buildRenko, COND_DEFS, runBacktest, runSplitValidation, overlayLines, blankCfg, closeOn, buyHoldFrom, needsFlow });
   if (typeof module !== 'undefined' && module.exports) module.exports = SM;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

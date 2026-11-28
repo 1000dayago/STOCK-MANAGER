@@ -941,3 +941,35 @@ tr.hl > td { animation: hlflash 2.4s ease-out; }
 .rp-se { display: inline-flex; gap: 6px; }
 .rp-se .se { border: 0; border-radius: 999px; padding: 6px 12px; font-size: 12.5px; font-weight: 700; color: #fff; cursor: pointer; }
 .rp-se .se.s { background: #16a34a; } .rp-se .se.e { background: #ea580c; }
+
+/* ===== 조건식 빌더(문장) ===== */
+.cndbox-tools { display: inline-flex; gap: 6px; }
+.sent { background: var(--card); border-radius: 12px; padding: 12px; line-height: 2.2; font-size: 14px; border: 1px solid transparent; }
+.cndbox.buy .sent { border-color: var(--buy-line); } .cndbox.sell .sent { border-color: var(--sell-line); }
+.sent-sfx { margin-left: 4px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.tok { display: inline-block; margin: 2px 2px; vertical-align: middle; }
+.tok-b { border: 1.5px solid var(--line); background: var(--ios-fill, rgba(118,118,128,.12)); color: var(--fg); border-radius: 10px; padding: 5px 10px; font-size: 13.5px; font-weight: 600; line-height: 1.35; cursor: pointer; text-align: left; }
+.cndbox.buy .tok-b { border-color: var(--buy-line); } .cndbox.sell .tok-b { border-color: var(--sell-line); }
+.tok.open .tok-b { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.tok.picked .tok-b, .grp.picked { outline: 2.5px solid var(--accent); outline-offset: 1px; }
+.cn { border: 0; border-radius: 999px; padding: 3px 11px; margin: 0 3px; font-size: 12px; font-weight: 800; letter-spacing: .02em; cursor: pointer; vertical-align: middle; }
+.cn.AND { background: rgba(10, 132, 255, .16); color: var(--accent); } .cn.OR { background: rgba(255, 149, 0, .2); color: #c26a00; }
+@media (prefers-color-scheme: dark) { .cn.OR { color: #ffb340; } }
+.grp { display: inline-block; border: 1.5px dashed var(--muted); border-radius: 12px; padding: 0 4px 0 2px; margin: 2px 2px; vertical-align: middle; }
+.grp.d1 { border-color: #af52de; } .grp.d2 { border-color: #30b0c7; }
+.par { font-size: 20px; font-weight: 700; color: var(--muted); padding: 0 5px; border: 0; background: transparent; vertical-align: middle; line-height: 1; }
+.par.o { cursor: pointer; } .par.o:hover { color: var(--danger); }
+.gadd { border: 1.5px dashed var(--line); background: transparent; color: var(--accent); border-radius: 999px; width: 28px; height: 28px; font-size: 15px; font-weight: 700; cursor: pointer; margin-left: 4px; vertical-align: middle; }
+.sent-plain { margin: 6px 4px 0; font-size: 12.5px; color: var(--muted); }
+.cnd-help { margin: 6px 4px 0; font-size: 12.5px; color: var(--accent); }
+.indep { margin-top: 8px; padding: 6px 8px; border-radius: 10px; background: var(--card); } .indep-t { display: block; font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+.eds { margin-top: 6px; } .tok-ed { display: none; background: var(--card); border-radius: 12px; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--line); } .tok-ed.show { display: block; }
+.tok-edh { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 13px; }
+.tok-edb { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; } .tok-edb label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); } .tok-edb .inp { width: 100%; }
+.diag { margin-top: 8px; padding: 8px 12px; border-radius: 12px; background: var(--card); font-size: 13px; } .diag.bad { background: color-mix(in srgb, var(--warn) 14%, var(--card)); }
+.diag-h small { color: var(--muted); } .diag-w { margin: 4px 0 0; font-size: 12.5px; color: var(--warn); font-weight: 600; } .diag-d { margin-top: 4px; } .diag-d summary { font-size: 12px; color: var(--muted); cursor: pointer; }
+.dgs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; } .dg { font-size: 12px; background: var(--ios-fill, rgba(118,118,128,.12)); border-radius: 8px; padding: 3px 8px; }
+.diag.warn { color: var(--warn); }
+.pick-tabs { margin: 8px 0 4px; } .pick-list { display: grid; gap: 6px; margin-top: 6px; }
+.pickrow { text-align: left; border: 0; border-radius: 12px; padding: 10px 12px; background: var(--ios-fill, rgba(118,118,128,.12)); color: var(--fg); cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.sheet.buy .pickrow { background: var(--buy-bg); } .sheet.sell .pickrow { background: var(--sell-bg); } .pickrow b { font-size: 14px; } .pickrow small { font-size: 11.5px; color: var(--muted); }

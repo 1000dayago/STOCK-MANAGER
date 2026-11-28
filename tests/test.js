@@ -164,6 +164,34 @@ t('안전장치: 손절(평단 −N%)은 사이클을 손실로 청산하고 최
   assert(free.openCycle && free.openCycle.lots >= 5, '손절·한도 없이 하락장에서는 계속 사 들어감'); assert(sl.cycles.length >= 1 && sl.cycles[0].realized < 0, '손절로 손실 청산'); assert(sl.cycles[0].ret < 0);
   assert(sl.cycleStats.maxInvest < free.cycleStats.maxInvest + free.openCycle.peakInv, '손절하면 투입이 더 커지기 전에 끊김'); assert(lim.cycleStats.maxLots <= 3 && (lim.openCycle ? lim.openCycle.lots : 0) <= 3, '최대 3회');
 });
+t('조건식(트리): AND/OR 묶음·빈 묶음 무시·엔진 평가·신호 진단', () => {
+  const L = (type, extra) => Object.assign({ type }, extra || {});
+  const a = L('vol', { n: 1500 }), b = L('change', { op: 'gte', v: 2 }), c = L('volPrev', { x: 1 });
+  const ok = new Set([a, b, c]), val = { a: true, b: false, c: true }, f = (x) => (x === a ? val.a : x === b ? val.b : val.c);
+  assert.equal(SM.evalExpr({ op: 'AND', items: [a, b] }, f, ok), false); assert.equal(SM.evalExpr({ op: 'OR', items: [a, b] }, f, ok), true);
+  assert.equal(SM.evalExpr({ op: 'OR', items: [{ op: 'AND', items: [a, b] }, c] }, f, ok), true); // (a and b) or c
+  assert.equal(SM.evalExpr({ op: 'AND', items: [{ op: 'OR', items: [b, c] }, b] }, f, ok), false); // (b or c) and b
+  assert.equal(SM.evalExpr({ op: 'AND', items: [a, { op: 'OR', items: [] }] }, f, ok), true); assert.equal(SM.evalExpr({ op: 'AND', items: [] }, f, ok), null); // 빈 묶음은 무시
+  assert.equal(SM.evalExpr({ op: 'AND', items: [a, L('rsi')] }, f, ok), true); // 대상 밖 조건 무시
+  assert.deepEqual(SM.exprLeaves({ op: 'AND', items: [a, { op: 'OR', items: [b, c] }] }), [a, b, c]);
+  assert.deepEqual(SM.exprOf({ mode: 'OR', conds: [a, b] }), { op: 'OR', items: [a, b] }); assert.equal(SM.exprOf({ expr: { op: 'AND', items: [a] }, mode: 'OR', conds: [b] }).items[0], a); // expr가 있으면 expr 우선
+  // 엔진: (거래량 큼 AND 등락 큼) OR 전일보다 거래량 큼 — 날짜별 참/거짓을 직접 설계
+  const rows = [[100, 1000], [101, 1600], [105, 2000], [104, 1900], [104, 1800], [104, 1000]]; // 종가, 거래량
+  const d = { d: [], o: [], h: [], l: [], c: [], v: [], hasVol: true, hasHL: true }, dt = new Date('2024-08-01'); rows.forEach(([cl, v]) => { d.d.push(dt.toISOString().slice(0, 10)); dt.setDate(dt.getDate() + 1); d.o.push(cl); d.h.push(cl); d.l.push(cl); d.c.push(cl); d.v.push(v); });
+  const mkE = (expr) => Object.assign(SM.blankCfg(), { fill: 'close', qty: 1, growth: 1, entries: { mode: 'AND', conds: SM.exprLeaves(expr), expr }, exits: { mode: 'OR', conds: [] } });
+  const A = L('vol', { n: 1500 }), B = L('change', { op: 'gte', v: 2 }), C = L('volPrev', { x: 1 });
+  const r1 = SM.runBacktest(d, mkE({ op: 'AND', items: [A, B] }), S); assert.deepEqual(r1.buys.map((x) => x.i), [2]); // 거래량≥1500 이면서 +2% 이상: 3번째 날(105/101=+3.96%)
+  const r2 = SM.runBacktest(d, mkE({ op: 'OR', items: [{ op: 'AND', items: [A, B] }, C] }), S); assert.deepEqual(r2.buys.map((x) => x.i), [1, 2]); // 또는 전일보다 거래량 큼: 2번째(1000→1600), 3번째(1600→2000)
+  const r3 = SM.runBacktest(d, mkE({ op: 'AND', items: [A, { op: 'OR', items: [B, C] }] }), S); assert.deepEqual(r3.buys.map((x) => x.i), [1, 2]); // 거래량≥1500 이면서 (등락 큼 또는 거래량 증가): 2번째 날 포함
+  // 예전 형식과 같은 결과
+  const old = SM.runBacktest(d, Object.assign(SM.blankCfg(), { fill: 'close', qty: 1, growth: 1, entries: { mode: 'AND', conds: [A, B] }, exits: { mode: 'OR', conds: [] } }), S); assert.deepEqual(old.buys.map((x) => x.i), r1.buys.map((x) => x.i));
+  // 신호 진단
+  const g1 = SM.signalStats(d, { expr: { op: 'AND', items: [A, B] } }); assert.equal(g1.signalDays, 1); assert.equal(g1.first, d.d[2]); assert.equal(g1.days, 6); assert.deepEqual(g1.leaves.map((x) => x.days), [4, 1]);
+  const g2 = SM.signalStats(d, { expr: { op: 'AND', items: [L('volPrev', { x: 1 }), L('change', { op: 'lte', v: -0.9 })] } }); assert.equal(g2.signalDays, 0); assert.deepEqual(g2.groups, ['']); // 전일보다 거래량이 큰 날(2·3번째)과 −0.9% 이하 하락한 날(4번째)은 각자는 있는데 함께는 0일
+  const g3 = SM.signalStats(d, { expr: { op: 'AND', items: [L('vol', { n: 99999 }), B] } }); assert.deepEqual(g3.groups, []); // 한쪽이 원래 한 번도 안 참이면 ‘겹치지 않음’ 경고 대상이 아님
+  assert(SM.signalStats(d, { expr: { op: 'AND', items: [L('flow', { who: 'frgn', mode: 'day', dir: 'buy', v: 1, n: 3 })] } }).error);
+  const g4 = SM.signalStats(d, { expr: { op: 'AND', items: [B, L('dropLast', { pct: 5, basis: 'last', first: 'yes' })] } }); assert.equal(g4.hasDyn, true); assert.equal(g4.leaves[1].dyn, true);
+});
 t('재생: cutRaw는 모든 배열을 같은 길이로 자름', () => {
   const raw = { d: ['2025-01-01', '2025-01-02', '2025-01-03'], o: [1, 2, 3], h: [1, 2, 3], l: [1, 2, 3], c: [1, 2, 3], v: [1, 1, 1], frgn: [5, null, 7], hasVol: true, flowUnit: 'shares' };
   const a = SM.cutRaw(raw, '2025-01-02'); assert.deepEqual(a.d, ['2025-01-01', '2025-01-02']); assert.deepEqual(a.frgn, [5, null]); assert.equal(a.hasVol, true); assert.equal(a.flowUnit, 'shares');

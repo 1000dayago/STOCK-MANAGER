@@ -14,7 +14,7 @@
     catch (e) { toast('가격 데이터를 저장할 공간이 부족합니다. 안 쓰는 데이터를 삭제하세요.', true); return false; }
   }
   const newImp = () => ({ stockId: '', autoNote: '', text: '', headerLine: '', an: null, fileNames: [], dest: 'new', destId: '', name: '', market: 'KR', useAdj: true, unit: '' });
-  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mode: 'mg', picker: null, condOpen: '', mgOpen: false, mg: { qty: 10, growth: 2, drop: 10, signal: 'drop', vx: 1, trend: true, tn: 30, tk: 5, sl: true, sln: 20, pc: 'none', pn: 30, pv: 40, xtrend: true, xn: 30, xk: 5, exit: 'target', target: 5, s: 5, l: 15, maxLots: 5, maxInvest: 0 }, stockId: '', imp: newImp() });
+  const bt = (A.ui.bt = { datasetId: null, cfg: SM.blankCfg(), result: null, val: null, cmp: null, warn: [], validate: false, splitPct: 70, strategyId: '', simTab: 'bt', mode: 'mg', picker: null, pickGroup: '', wrap: null, condOpen: '', mgOpen: false, mg: { qty: 10, growth: 2, drop: 10, signal: 'drop', vx: 1, trend: true, tn: 30, tk: 5, sl: true, sln: 20, pc: 'none', pn: 30, pv: 40, xtrend: true, xn: 30, xk: 5, exit: 'target', target: 5, s: 5, l: 15, maxLots: 5, maxInvest: 0 }, stockId: '', imp: newImp() });
   const MAP_KEY = 'stockmgr.colmaps';
   const loadMaps = () => { try { return JSON.parse(localStorage.getItem(MAP_KEY) || '{}'); } catch (e) { return {}; } };
   function rememberCols(an) { try { const m = loadMaps(); m[an.signature] = an.cols; localStorage.setItem(MAP_KEY, JSON.stringify(m)); } catch (e) { /* ignore */ } }
@@ -156,30 +156,96 @@
       default: return esc((SM.COND_DEFS[c.type] || {}).label || c.type);
     }
   }
-  function condCard(g, i, c) {
-    const def = SM.COND_DEFS[c.type], open = bt.condOpen === `${g}.${i}`;
-    const fields = def.params.map((p) => p.opts
-      ? `<label class="mini">${p.label}<select class="inp" data-change="btParam" data-g="${g}" data-i="${i}" data-k="${p.k}" data-seg>${opts(p.opts, c[p.k] != null ? c[p.k] : p.def)}</select></label>`
-      : `<label class="mini">${p.label}<input class="inp" data-btp="${g}.${i}.${p.k}" value="${esc(c[p.k] != null ? c[p.k] : p.def)}" inputmode="decimal"></label>`).join('');
-    return `<div class="cnd ${open ? 'open' : ''}" data-g="${g}" data-i="${i}"><div class="cnd-h" role="button" tabindex="0" data-act="btCondOpen" data-g="${g}" data-i="${i}" aria-expanded="${open}"><span class="cnd-t">${condSummary(c)}</span><button type="button" class="cnd-del" data-act="btDel" data-g="${g}" data-i="${i}" aria-label="조건 삭제">✕</button><i class="cnd-ch">▾</i></div><div class="cnd-b">${fields}</div></div>`;
+  /* ---------- 조건식 빌더: 문장처럼 이어 붙임. 한 층에서는 AND/OR 하나, 섞으려면 괄호(묶기) ---------- */
+  const isLeaf = (n) => !!(n && n.type);
+  const isDynC = (c) => !!(SM.COND_DEFS[c.type] && SM.COND_DEFS[c.type].dyn);
+  const hiddenInTree = (g, it) => g === 'exits' && isLeaf(it) && isDynC(it); // 매도의 순번별·평단 조건(손절·목표 등)은 식 밖에서 도달하면 바로 매도 → 따로 표시
+  function getSide(g) { const s0 = bt.cfg[g]; if (!s0.expr || !Array.isArray(s0.expr.items)) s0.expr = { op: s0.mode === 'OR' ? 'OR' : 'AND', items: (s0.conds || []).slice() }; return s0; }
+  function syncSide(g) { const s0 = bt.cfg[g]; s0.conds = SM.exprLeaves(s0.expr); s0.mode = s0.expr.op; }
+  const keysOf = (path) => (path === '' || path == null ? [] : String(path).split('.').map(Number));
+  function nodeAt(g, path) { let n = getSide(g).expr; for (const k of keysOf(path)) n = n && n.items ? n.items[k] : null; return n; }
+  function parentAt(g, path) { const ks = keysOf(path), idx = ks.pop(); return { parent: nodeAt(g, ks.join('.')), idx, ppath: ks.join('.') }; }
+  function tidy(node) { // 빈 묶음 제거, 조건이 하나뿐인 묶음은 괄호를 없앰
+    node.items = node.items.map((it) => (isLeaf(it) ? it : tidy(it))).filter((it) => isLeaf(it) || it.items.length);
+    node.items = node.items.map((it) => (!isLeaf(it) && it.items.length === 1 ? it.items[0] : it));
+    return node;
+  }
+  function leafAtPath(g, path) { const n = nodeAt(g, path); return isLeaf(n) ? n : null; }
+  const OPS = { AND: 'AND', OR: 'OR' };
+  const pthOf = (path, k) => (path === '' ? String(k) : `${path}.${k}`);
+  function leafChip(g, leaf, path) {
+    const w = bt.wrap && bt.wrap.g === g, picked = w && bt.wrap.sel.includes(path), open = bt.condOpen === `${g}:${path}`;
+    return `<span class="tok ${open ? 'open' : ''} ${picked ? 'picked' : ''}" data-g="${g}" data-path="${path}"><button type="button" class="tok-b" data-act="${w ? 'btSel' : 'btCondOpen'}" data-g="${g}" data-path="${path}" aria-pressed="${open || picked}">${condSummary(leaf)}</button></span>`;
+  }
+  function renderNode(g, node, path, depth) {
+    const kids = node.items.map((it, k) => ({ it, k })).filter(({ it }) => !hiddenInTree(g, it));
+    const w = bt.wrap && bt.wrap.g === g;
+    const parts = kids.map(({ it, k }, j) => {
+      const p = pthOf(path, k), body = isLeaf(it) ? leafChip(g, it, p) : renderNode(g, it, p, depth + 1);
+      return (j ? `<button type="button" class="cn ${node.op}" data-act="btOp" data-g="${g}" data-path="${path}" title="눌러서 AND ↔ OR 바꾸기 (이 층의 모든 연결이 같이 바뀝니다)">${OPS[node.op]}</button>` : '') + body;
+    }).join('');
+    const add = `<button type="button" class="gadd" data-act="btPickOpen" data-g="${g}" data-path="${path}" aria-label="조건 추가">＋</button>`;
+    if (path === '') return parts + add;
+    const w2 = w && bt.wrap.sel.includes(path);
+    return `<span class="grp d${depth % 3} ${w2 ? 'picked' : ''}"><button type="button" class="par o" data-act="${w ? 'btSel' : 'btUngroup'}" data-g="${g}" data-path="${path}" title="${w ? '이 묶음 선택' : '괄호 풀기'}">(</button>${parts}${add}<span class="par c">)</span></span>`;
+  }
+  function exprPlain(g, node) { // 문장으로 읽는 한 줄: (A and B) or C
+    const kids = node.items.filter((it) => !hiddenInTree(g, it)).map((it) => (isLeaf(it) ? condSummary(it) : `( ${exprPlain(g, it)} )`)).filter(Boolean);
+    return kids.join(` <b>${node.op === 'OR' ? '또는' : '그리고'}</b> `);
+  }
+  function editorsHtml(g) { // 값 편집칸: 눌러 둔 조건 하나만 보임(나머지는 숨김)
+    const out = [];
+    (function walk(node, path) { node.items.forEach((it, k) => { const p = pthOf(path, k); if (isLeaf(it)) { const def = SM.COND_DEFS[it.type]; if (!def) return;
+      const fields = def.params.map((q) => q.opts ? `<label class="mini">${q.label}<select class="inp" data-change="btParam" data-g="${g}" data-path="${p}" data-k="${q.k}" data-seg>${opts(q.opts, it[q.k] != null ? it[q.k] : q.def)}</select></label>` : `<label class="mini">${q.label}<input class="inp" data-btp="${g}|${p}|${q.k}" value="${esc(it[q.k] != null ? it[q.k] : q.def)}" inputmode="decimal"></label>`).join('');
+      out.push(`<div class="tok-ed ${bt.condOpen === `${g}:${p}` ? 'show' : ''}" data-g="${g}" data-path="${p}"><div class="tok-edh"><b>${esc(COND_SHORT[it.type] || def.label)}</b><button type="button" class="btn sm danger" data-act="btDel" data-g="${g}" data-path="${p}">삭제</button></div><div class="tok-edb">${fields}</div></div>`); } else walk(it, p); }); })(getSide(g).expr, '');
+    return out.join('');
+  }
+  function indepHtml(g) { // 매도의 독립 조건 목록
+    if (g !== 'exits') return '';
+    const root = getSide(g).expr, list = root.items.map((it, k) => ({ it, k })).filter(({ it }) => hiddenInTree(g, it));
+    if (!list.length) return '';
+    return `<div class="indep"><span class="indep-t">그리고 별개로, 도달하면 바로 매도</span>${list.map(({ it, k }) => leafChip(g, it, String(k))).join('')}</div>`;
+  }
+  function diagHtml(g) { // 신호 진단: 이 조건식이 참인 날 수
+    const ds = curDS(); if (!ds) return '';
+    const exprSide = getSide(g), st = SM.signalStats(ds.data, exprSide, { use: g === 'exits' ? 'exit' : 'entry', from: bt.cfg.from, to: bt.cfg.to, renko: bt.cfg.renko });
+    const lab = g === 'entries' ? '매수' : '매도';
+    if (st.error) return `<p class="diag warn">${ic('alert')} ${esc(st.error)}</p>`;
+    if (st.empty) return '';
+    const pc = st.days ? ((st.signalDays / st.days) * 100).toFixed(1) : '0';
+    const warn = [];
+    if (st.signalDays === 0) warn.push(`${lab} 조건식이 이 기간에 한 번도 참이 아닙니다.`);
+    else if (st.signalDays < 8) warn.push(`${lab} 신호가 ${st.signalDays}일뿐이라 결과가 우연일 수 있습니다.`);
+    for (const gp of st.groups) warn.push(`${gp === '' ? '맨 바깥' : '괄호 안'} AND 조건들이 같은 날 한 번도 겹치지 않습니다. OR로 바꾸거나 값을 느슨하게 하세요.`);
+    const lines = st.leaves.map((x) => `<span class="dg">${condSummary(x.leaf)} <b>${x.dyn ? '상태 의존' : x.days + '일'}</b></span>`).join('');
+    return `<div class="diag ${warn.length ? 'bad' : ''}"><div class="diag-h">${lab} 신호일 <b>${st.signalDays}일</b> <small>(전체 ${st.days}일 중 ${pc}%${st.first ? ' · 첫 신호 ' + st.first : ''})</small></div>${warn.map((w) => `<p class="diag-w">${ic('alert')} ${esc(w)}</p>`).join('')}<details class="diag-d"><summary>조건별 참인 날</summary><div class="dgs">${lines}${st.hasDyn ? '<small class="muted">상태 의존 조건(하락 시 추가 매수 등)은 보유 상태에 따라 달라져 일수에서 제외했습니다.</small>' : ''}</div></details></div>`;
   }
   function condBox(g) {
-    const buy = g === 'entries', c = bt.cfg, conds = c[g].conds, mode = c[g].mode;
-    const seg = buy ? [['AND', '모두 만족'], ['OR', '하나라도']] : [['OR', '하나라도'], ['AND', '모두 만족']];
-    return `<div class="cndbox ${buy ? 'buy' : 'sell'}"><div class="cndbox-h"><b>${buy ? '매수 조건' : '매도 조건'}</b><select data-change="btMode" data-g="${g}" data-seg aria-label="조건 결합 방식">${opts(seg, mode || (buy ? 'AND' : 'OR'))}</select></div>
-      ${conds.map((x, i) => condCard(g, i, x)).join('') || `<p class="cnd-empty">${buy ? '조건이 없으면 매수하지 않습니다' : '조건이 없으면 기간 끝까지 보유합니다'}</p>`}
-      <button type="button" class="cnd-add" data-act="btPickOpen" data-g="${g}">＋ ${buy ? '매수' : '매도'} 조건 추가</button></div>`;
+    const buy = g === 'entries', side = getSide(g), w = bt.wrap && bt.wrap.g === g;
+    const root = side.expr, empty = !root.items.filter((it) => !hiddenInTree(g, it)).length;
+    return `<div class="cndbox ${buy ? 'buy' : 'sell'}"><div class="cndbox-h"><b>${buy ? '매수 조건' : '매도 조건'}</b>
+        <span class="cndbox-tools">${w ? `<button type="button" class="btn sm primary" data-act="btWrapDo" data-g="${g}">선택 묶기 (${bt.wrap.sel.length})</button><button type="button" class="btn sm" data-act="btWrapToggle" data-g="${g}">취소</button>` : `<button type="button" class="btn sm" data-act="btWrapToggle" data-g="${g}" title="조건 둘 이상을 골라 괄호로 묶음">( ) 묶기</button>`}</span></div>
+      <div class="sent" id="sent-${g}">${empty ? `<span class="cnd-empty">${buy ? '조건을 추가하세요 (없으면 매수하지 않음)' : '조건을 추가하세요 (없으면 기간 끝까지 보유)'}</span>` : renderNode(g, root, '', 0)}<span class="sent-sfx">일 때 ${buy ? '매수' : '매도'}</span></div>
+      ${w ? '<p class="cnd-help">묶을 조건(또는 괄호)을 같은 층에서 둘 이상 고른 뒤 “선택 묶기”를 누르세요.</p>' : ''}
+      ${empty ? `<button type="button" class="cnd-add" data-act="btPickOpen" data-g="${g}" data-path="">＋ ${buy ? '매수' : '매도'} 조건 추가</button>` : ''}
+      ${indepHtml(g)}
+      ${root.items.filter((it) => !hiddenInTree(g, it)).length > 1 ? `<p class="sent-plain">${exprPlain(g, root)} 일 때 ${buy ? '매수' : '매도'}</p>` : ''}
+      <div class="eds">${editorsHtml(g)}</div>${diagHtml(g)}</div>`;
   }
   function pickerHtml() {
-    const g = bt.picker; if (!g) return '';
-    const want = g === 'entries' ? (d) => d.use !== 'exit' : (d) => d.use !== 'entry', groups = {};
+    const pk = bt.picker; if (!pk) return '';
+    const g = pk.g, want = g === 'entries' ? (d) => d.use !== 'exit' : (d) => d.use !== 'entry', groups = {};
     Object.entries(SM.COND_DEFS).filter(([, d]) => want(d)).forEach(([k, d]) => { (groups[d.group] = groups[d.group] || []).push(k); });
+    const names = Object.keys(groups), cur = names.includes(bt.pickGroup) ? bt.pickGroup : names[0];
     return `<div class="sheet-bg" data-act="btPickClose"></div><div class="sheet ${g === 'entries' ? 'buy' : 'sell'}" role="dialog" aria-label="조건 고르기"><div class="sheet-h"><b>${g === 'entries' ? '매수' : '매도'} 조건 고르기</b><button type="button" class="btn sm" data-act="btPickClose">닫기</button></div>
-      ${Object.entries(groups).map(([gr, list]) => `<div class="sheet-g"><span>${esc(gr)}</span><div class="chips">${list.map((k) => `<button type="button" class="chip pick" data-act="btPick" data-t="${k}" title="${esc(SM.COND_DEFS[k].label)}">${esc(COND_SHORT[k] || SM.COND_DEFS[k].label)}</button>`).join('')}</div></div>`).join('')}</div>`;
+      <div class="chips pick-tabs" role="tablist">${names.map((n) => `<button type="button" class="chip ${n === cur ? 'on' : ''}" data-act="btPickTab" data-v="${esc(n)}">${esc(n)}</button>`).join('')}</div>
+      <div class="pick-list">${groups[cur].map((k) => `<button type="button" class="pickrow" data-act="btPick" data-t="${k}"><b>${esc(COND_SHORT[k] || SM.COND_DEFS[k].label)}</b><small>${esc(SM.COND_DEFS[k].label)}</small></button>`).join('')}</div></div>`;
   }
-  function condRefresh(g, i) { // 값을 고치면 요약 한 줄을 바로 갱신
-    const el = document.querySelector(`.cnd[data-g="${g}"][data-i="${i}"] .cnd-t`), c = bt.cfg[g] && bt.cfg[g].conds[+i];
-    if (el && c) el.innerHTML = condSummary(c);
+  function condRefreshPath(g, path) { // 값을 고치면 문장 속 그 조건의 글자를 바로 갱신
+    const c = leafAtPath(g, path); if (!c) return;
+    document.querySelectorAll(`.tok[data-g="${g}"][data-path="${path}"] .tok-b`).forEach((el) => { el.innerHTML = condSummary(c); });
+    const pl = document.querySelector(`#sent-${g}`); void pl;
+    const pe = document.querySelector(`.cndbox.${g === 'entries' ? 'buy' : 'sell'} .sent-plain`); if (pe) pe.innerHTML = `${exprPlain(g, getSide(g).expr)} 일 때 ${g === 'entries' ? '매수' : '매도'}`;
   }
 
   function dsSelectOptions(ds, keys) {
@@ -203,7 +269,7 @@
   function dataInfoCard(ds) {
     if (!ds) return '';
     const inf = SM.dataInfo(ds.data, { from: bt.cfg.from, to: bt.cfg.to });
-    const eff = bt.mode !== 'custom' ? applyMgTo(clone(bt.cfg)) : bt.cfg, usesFlow = [].concat(eff.entries.conds, eff.exits.conds).some((c) => c.type === 'flow');
+    const eff = bt.mode !== 'custom' ? applyMgTo(clone(bt.cfg)) : bt.cfg, usesFlow = [].concat(SM.exprLeaves(SM.exprOf(eff.entries)), SM.exprLeaves(SM.exprOf(eff.exits))).some((c) => c.type === 'flow');
     const warn = [];
     if (!inf.anyFlow) warn.push(usesFlow ? '이 데이터에는 수급이 없는데 전략에 수급 조건이 있습니다. 시뮬레이션을 실행하면 오류가 납니다. 위 “자동 수집 시세·수급 불러오기”나 수급 파일로 먼저 합치세요.' : '수급이 없습니다. 외국인·기관 조건을 쓰려면 수급을 합쳐야 합니다.');
     else {
@@ -578,9 +644,9 @@
   // 사이클(첫 매수 → 보유 순번 전부 매도) 요약: 청산까지 몇 번·얼마·몇 주를 샀는지(평균·최대)와 사이클별 목록(눌러서 펼침)
   function cycleSection(r, cur) {
     const cs = r.cycleStats, oc = r.openCycle, cfg = r.cfg;
-    const multi = Number(cfg.growth) > 1 || (cfg.entries.conds || []).some((x) => x.type === 'dropLast');
+    const multi = Number(cfg.growth) > 1 || SM.exprLeaves(SM.exprOf(cfg.entries)).some((x) => x.type === 'dropLast');
     if (!multi || (!r.cycles.length && !oc)) return '';
-    const tgt = (cfg.exits.conds.find((c) => c.type === 'avgPct' && c.dir !== 'down') || {}).pct, tp = tgt != null ? Number(tgt) : null;
+    const tgt = (SM.exprLeaves(SM.exprOf(cfg.exits)).find((c) => c.type === 'avgPct' && c.dir !== 'down') || {}).pct, tp = tgt != null ? Number(tgt) : null;
     const d = (v) => (v == null ? '-' : Math.round(v).toLocaleString('ko-KR') + '일'), n1 = (v) => (v == null ? '-' : (Math.round(v * 10) / 10).toLocaleString('ko-KR')), md = (dt) => dt.slice(2);
     const sgn = (v) => (v > 0 ? '+' : '') + v.toFixed(1) + '%', pc = (v) => (v == null ? '-' : sgn(v * 100)), cls = (v) => (v >= 0 ? 'pos' : 'neg');
     const done = cs.count;
@@ -617,8 +683,8 @@
     const stored = allDS()[bt.datasetId];
     if (!stored || !stored.data) return;
     const data = stored.data, cfg = r.cfg;
-    const vc = cfg.entries.conds.concat(cfg.exits.conds).find((c) => c.type === 'vol');
-    const targetPct = (cfg.exits.conds.find((c) => c.type === 'avgPct' && c.dir !== 'down') || {}).pct;
+    const vc = SM.exprLeaves(SM.exprOf(cfg.entries)).concat(SM.exprLeaves(SM.exprOf(cfg.exits))).find((c) => c.type === 'vol');
+    const targetPct = (SM.exprLeaves(SM.exprOf(cfg.exits)).find((c) => c.type === 'avgPct' && c.dir !== 'down') || {}).pct;
     if (A.mountChart && document.getElementById('chartHost')) {
       const dsId = String(bt.datasetId || ''), code = dsId.startsWith('repo:') ? dsId.slice(5) : '';
       const mounted = A.mountChart({ ds: { name: stored.name || '시뮬레이션 데이터', data }, code, onMarker: (h) => A.btOpenCycle(h), cycles: r.cycles.concat(r.openCycle ? [r.openCycle] : []), target: targetPct != null ? Number(targetPct) : 0 });
@@ -724,16 +790,45 @@
   Object.assign(H, {
     btRepoRefresh: async () => { SM.data.clear(); repo.cache = {}; repo.initP = null; await A.btRepoInit(true); toast('저장소의 최신 목록을 읽었습니다'); },
     btDSDel: () => { if (isRepoId(bt.datasetId)) return toast('자동 수집 데이터는 삭제하지 않습니다. 수집 대상에서 빼면 목록에서 사라집니다.', true); if (!confirm('이 가격 데이터를 삭제할까요?')) return; const ds = loadDS(); delete ds[bt.datasetId]; saveDS(ds); bt.datasetId = null; bt.result = null; bt.val = null; bt.cmp = null; A.render(); },
-    btDel: (el) => { bt.cfg[el.dataset.g].conds.splice(+el.dataset.i, 1); bt.condOpen = ''; A.render(); },
-    btCondOpen: (el) => {
-      const card = el.closest('.cnd'); if (!card) return; const was = card.classList.contains('open');
-      document.querySelectorAll('.cnd.open').forEach((x) => { x.classList.remove('open'); const h = x.querySelector('.cnd-h'); if (h) h.setAttribute('aria-expanded', 'false'); });
-      if (!was) { card.classList.add('open'); el.setAttribute('aria-expanded', 'true'); }
-      bt.condOpen = was ? '' : `${el.dataset.g}.${el.dataset.i}`;
+    btDel: (el) => {
+      const g = el.dataset.g, { parent, idx } = parentAt(g, el.dataset.path); if (!parent) return;
+      parent.items.splice(idx, 1); tidy(getSide(g).expr); syncSide(g); bt.condOpen = ''; A.render();
     },
-    btPickOpen: (el) => { bt.picker = el.dataset.g; A.render(); },
+    btCondOpen: (el) => { // 문장 속 조건을 누르면 그 조건의 값 편집칸이 열림(다시 누르면 닫힘). 화면 전체를 다시 그리지 않음
+      const key = `${el.dataset.g}:${el.dataset.path}`, was = bt.condOpen === key;
+      document.querySelectorAll('.tok.open').forEach((x) => x.classList.remove('open')); document.querySelectorAll('.tok-ed.show').forEach((x) => x.classList.remove('show'));
+      if (!was) { const tk = el.closest('.tok'); if (tk) tk.classList.add('open'); const ed = document.querySelector(`.tok-ed[data-g="${el.dataset.g}"][data-path="${el.dataset.path}"]`); if (ed) { ed.classList.add('show'); if (ed.scrollIntoView) ed.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } }
+      bt.condOpen = was ? '' : key;
+    },
+    btOp: (el) => { const n = nodeAt(el.dataset.g, el.dataset.path); if (!n) return; n.op = n.op === 'OR' ? 'AND' : 'OR'; syncSide(el.dataset.g); A.render(); },
+    btPickOpen: (el) => { bt.picker = { g: el.dataset.g, path: el.dataset.path || '' }; A.render(); },
     btPickClose: () => { bt.picker = null; A.render(); },
-    btPick: (el) => { const g = bt.picker; if (!g || !SM.COND_DEFS[el.dataset.t]) return; bt.cfg[g].conds.push(newCond(el.dataset.t)); bt.condOpen = `${g}.${bt.cfg[g].conds.length - 1}`; bt.picker = null; A.render(); },
+    btPickTab: (el) => { bt.pickGroup = el.dataset.v; A.render(); },
+    btPick: (el) => {
+      const pk = bt.picker; if (!pk || !SM.COND_DEFS[el.dataset.t]) return; const g = pk.g;
+      let path = pk.path, node = nodeAt(g, path); if (!node || isLeaf(node)) { path = ''; node = nodeAt(g, ''); }
+      const leaf = newCond(el.dataset.t); if (g === 'exits' && isDynC(leaf)) { path = ''; node = getSide(g).expr; } // 독립 조건은 맨 바깥에
+      node.items.push(leaf); syncSide(g); bt.condOpen = `${g}:${pthOf(path, node.items.length - 1)}`; bt.picker = null; A.render();
+    },
+    btWrapToggle: (el) => { bt.wrap = bt.wrap && bt.wrap.g === el.dataset.g ? null : { g: el.dataset.g, sel: [] }; A.render(); },
+    btSel: (el) => { // 묶기 모드에서 조건·괄호 선택(화면은 다시 그리지 않고 표시만 바꿈)
+      if (!bt.wrap) return; const p = el.dataset.path, i = bt.wrap.sel.indexOf(p); if (i >= 0) bt.wrap.sel.splice(i, 1); else bt.wrap.sel.push(p);
+      const box = el.closest('.tok') || el.closest('.grp'); if (box) box.classList.toggle('picked', i < 0);
+      const b = document.querySelector('[data-act=btWrapDo]'); if (b) b.textContent = `선택 묶기 (${bt.wrap.sel.length})`;
+    },
+    btWrapDo: () => {
+      const wr = bt.wrap; if (!wr) return; const g = wr.g, paths = wr.sel.slice();
+      if (paths.length < 2) return toast('묶을 조건을 둘 이상 고르세요', true);
+      const pp = paths.map((p) => parentAt(g, p)); if (!pp.every((x) => x.ppath === pp[0].ppath)) return toast('같은 층(같은 괄호 안)의 조건만 함께 묶을 수 있습니다', true);
+      const parent = pp[0].parent, idxs = pp.map((x) => x.idx).sort((a, b2) => a - b2), picked = idxs.map((k) => parent.items[k]);
+      const grp = { op: parent.op === 'AND' ? 'OR' : 'AND', items: picked }; // 바깥과 다른 연결(AND↔OR)을 기본으로: 그래야 괄호가 의미를 가짐
+      parent.items = parent.items.filter((_, k) => !idxs.includes(k)); parent.items.splice(idxs[0], 0, grp);
+      tidy(getSide(g).expr); syncSide(g); bt.wrap = null; bt.condOpen = ''; A.render();
+    },
+    btUngroup: (el) => {
+      const g = el.dataset.g, { parent, idx } = parentAt(g, el.dataset.path); const node = nodeAt(g, el.dataset.path); if (!parent || !node || isLeaf(node)) return;
+      parent.items.splice(idx, 1, ...node.items); syncSide(g); bt.condOpen = ''; A.render(); toast(`괄호를 풀었습니다. 이제 같은 층의 조건이 모두 ${parent.op}로 연결됩니다`);
+    },
     btRepo: async () => {
       const [wl, st] = await Promise.all([SM.data.watchlist(true), SM.data.status(true)]);
       const okOf = (w, k) => st && st.stocks && st.stocks[w.code] && st.stocks[w.code][k] && st.stocks[w.code][k].ok;
@@ -875,8 +970,7 @@
     btImpAdj: (el) => { bt.imp.useAdj = el.checked; A.render(); },
     btImpDest: (el) => { bt.imp[el.dataset.k] = el.type === 'radio' ? el.value : el.value; A.render(); },
     btDS: (el) => { bt.datasetId = el.value; bt.result = null; bt.val = null; bt.cmp = null; bt.cfg.from = ''; bt.cfg.to = ''; if (isRepoId(el.value)) A.btRepoLoad(el.value.slice(5)); A.render(); },
-    btParam: (el) => { bt.cfg[el.dataset.g].conds[+el.dataset.i][el.dataset.k] = el.value; condRefresh(el.dataset.g, el.dataset.i); },
-    btMode: (el) => { bt.cfg[el.dataset.g].mode = el.value; },
+    btParam: (el) => { const c = leafAtPath(el.dataset.g, el.dataset.path); if (c) { c[el.dataset.k] = el.value; condRefreshPath(el.dataset.g, el.dataset.path); } },
     btTop: (el) => { bt.cfg[el.dataset.k] = el.value; if (el.dataset.k === 'qtyMode') A.render(); },
     btRenko: (el) => { bt.cfg.renko[el.dataset.k] = el.value; },
     btValidate: (el) => { bt.validate = el.checked; A.render(); },
@@ -991,7 +1085,7 @@
   Object.assign(A.changeHandlers, { btMgSL: (el) => { bt.mg.sl = el.value === '1'; A.render(); }, btMgPrice: (el) => { const v = ['ma', 'rsi', 'bb'].includes(el.value) ? el.value : 'none'; bt.mg.pc = v; if (v === 'ma') bt.mg.pn = 30; else if (v === 'rsi') { bt.mg.pn = 14; bt.mg.pv = 40; } else if (v === 'bb') { bt.mg.pn = 20; bt.mg.pv = 2; } A.render(); }, btMgXTrend: (el) => { bt.mg.xtrend = el.value === '1'; A.render(); }, btMgTrend: (el) => { bt.mg.trend = el.value === '1'; A.render(); }, btMgSignal: (el) => { bt.mg.signal = ['flow', 'flowdrop'].includes(el.value) ? el.value : 'drop'; A.render(); }, btMgExit: (el) => { bt.mg.exit = el.value === 'cross' ? 'cross' : 'target'; bt.mgOpen = true; A.render(); }, btStock: (el) => { A.btPickStock(el.value); A.render(); } });
 
   A.inputHandlers.bt = (el) => {
-    if (el.dataset.btp) { const [g, i, k] = el.dataset.btp.split('.'); const c = bt.cfg[g].conds[+i]; if (c) { c[k] = el.value; condRefresh(g, i); } }
+    if (el.dataset.btp) { const [g, path, k] = el.dataset.btp.split('|'); const c = leafAtPath(g, path); if (c) { c[k] = el.value; condRefreshPath(g, path); } }
     else if (el.dataset.btc) bt.cfg[el.dataset.btc] = el.value;
     else if (el.dataset.btr) bt.cfg.renko[el.dataset.btr] = el.value;
     else if (el.dataset.btsplit) bt.splitPct = el.value;

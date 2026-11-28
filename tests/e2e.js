@@ -233,23 +233,46 @@ function fixtures() {
         ok('실행 조건: 외국인+기관 모두 순매수(당일) AND 거래량 전일 대비 1배 초과', JSON.stringify(en) === '["flow:both:buy:day:","volPrev::::1"]', en); }
       await page.click('[data-act=chartMonths][data-v="0"]'); await page.waitForTimeout(300); await (await page.$('#chartCard')).screenshot({ path: process.env.BT_SHOT || '/tmp/bt_chart.png' });
     }
-    { // 직접 조건: 매수(분홍)·매도(하늘) 상자, 선택창에서 고르고 한 줄 요약을 눌러 펼침
-      await page.click('[data-act=btMode2][data-v=custom]'); await page.waitForSelector('.cndbox.buy'); 
+    { // 직접 조건(문장 빌더): 매수(분홍)·매도(하늘), 선택창에서 분류→조건, 문장으로 이어 붙이고 AND/OR·괄호·신호 진단
+      await page.click('[data-act=btMode2][data-v=custom]'); await page.waitForSelector('.cndbox.buy');
       ok('직접 조건: 매수 조건·매도 조건 상자가 따로 있음', (await page.$('.cndbox.buy')) !== null && (await page.$('.cndbox.sell')) !== null && /매수 조건/.test(await page.textContent('.cndbox.buy .cndbox-h')) && /매도 조건/.test(await page.textContent('.cndbox.sell .cndbox-h')));
       const bg = await page.evaluate(() => [getComputedStyle(document.querySelector('.cndbox.buy')).backgroundColor, getComputedStyle(document.querySelector('.cndbox.sell')).backgroundColor]);
       ok('매수는 연한 분홍·매도는 연한 하늘 배경(서로 다른 색)', bg[0] !== bg[1] && /rgba\(255, 45, 85/.test(bg[0]) && /rgba\(50, 173, 230/.test(bg[1]), bg);
-      if (process.env.CND_SHOT) { await page.click('.cndbox.buy [data-act=btPickOpen]'); await page.waitForSelector('.sheet.buy'); await page.screenshot({ path: process.env.CND_SHOT + '_sheet.png' }); await page.click('.sheet .chip.pick[data-t=maSlope]'); await page.waitForSelector('.cndbox.buy .cnd.open'); await page.click('.cndbox.sell [data-act=btPickOpen]'); await page.click('.sheet .chip.pick[data-t=avgPct]'); await page.waitForSelector('.cndbox.sell .cnd.open'); await (await page.$('.sim')).screenshot({ path: process.env.CND_SHOT + '_list.png' }); await page.click('.cndbox.buy .cnd .cnd-del'); await page.click('.cndbox.sell .cnd .cnd-del'); }
-      const before = await page.$$eval('.cndbox.buy .cnd', (e) => e.length);
+      const sentTxt = (g) => page.textContent(`#sent-${g}`);
+      // 새 문장 만들기: 비운 뒤 조건을 선택창에서 추가
+      await page.evaluate(() => { const b = SM.app.ui.bt.cfg; b.entries = { mode: 'AND', conds: [] }; b.exits = { mode: 'OR', conds: [] }; SM.app.render(); }); await page.waitForSelector('.cndbox.buy .cnd-add');
       await page.click('.cndbox.buy [data-act=btPickOpen]'); await page.waitForSelector('.sheet.buy');
-      const items = await page.$$eval('.sheet .chip.pick', (e) => e.map((x) => x.textContent)), groups = await page.$$eval('.sheet .sheet-g > span', (e) => e.map((x) => x.textContent));
-      ok('조건 선택창: 분류별로 모아 보여 주고 매수에는 청산 조건이 없음', groups.includes('이동평균') && groups.includes('수급') && items.some((x) => /이동평균선 방향/.test(x)) && !items.some((x) => /목표수익|손절/.test(x)), [groups, items.length]);
-      await page.click('.sheet .chip.pick[data-t=maSlope]'); await page.waitForSelector('.cndbox.buy .cnd.open');
-      ok('조건을 고르면 선택창이 닫히고 그 조건이 펼쳐진 채 목록에 추가됨(요약 한 줄)', (await page.$('.sheet')) === null && (await page.$$eval('.cndbox.buy .cnd', (e) => e.length)) === before + 1 && /30일선이 5일 전보다 높음/.test(await page.textContent('.cndbox.buy .cnd.open .cnd-t')));
-      await page.fill('.cndbox.buy .cnd.open [data-btp$=".n"]', '60'); await page.waitForTimeout(100);
-      ok('값을 고치면 요약 한 줄이 바로 바뀜', /60일선이 5일 전보다 높음/.test(await page.textContent('.cndbox.buy .cnd.open .cnd-t')));
-      await page.click('.cndbox.buy .cnd.open .cnd-h'); ok('요약 줄을 누르면 접힘', (await page.$('.cndbox.buy .cnd.open')) === null);
-      await page.click('.cndbox.sell [data-act=btPickOpen]'); await page.waitForSelector('.sheet.sell'); const it2 = await page.$$eval('.sheet .chip.pick', (e) => e.map((x) => x.textContent)); ok('매도 선택창에는 청산 조건(목표수익·손절·평단 대비)이 있음', it2.some((x) => /목표수익/.test(x)) && it2.some((x) => /평단 대비/.test(x)) && !it2.some((x) => /하락 시 추가 매수/.test(x)), it2); await page.click('.sheet [data-act=btPickClose].btn');
-      await page.click('.cndbox.buy .cnd .cnd-del'); ok('✕로 조건 삭제', (await page.$$eval('.cndbox.buy .cnd', (e) => e.length)) === before);
+      const tabs = await page.$$eval('.sheet .pick-tabs .chip', (e) => e.map((x) => x.textContent));
+      ok('조건 선택창: 분류 탭(거래량·이동평균·수급 …)으로 모아 보여 줌', ['거래량', '이동평균', '수급'].every((t) => tabs.includes(t)) && !tabs.includes('청산'), tabs);
+      await page.click('.sheet .pick-tabs .chip:has-text("분할매수")'); await page.click('.sheet .pickrow[data-t=dropLast]'); await page.waitForSelector('.cndbox.buy .tok');
+      ok('조건을 고르면 선택창이 닫히고 문장에 조건이 들어가고 값 편집칸이 열림', (await page.$('.sheet')) === null && /하락 시 추가 매수/.test(await sentTxt('entries')) && /일 때 매수/.test(await sentTxt('entries')) && (await page.$('.cndbox.buy .tok-ed.show')) !== null);
+      await page.click('.cndbox.buy [data-act=btPickOpen]'); await page.click('.sheet .pick-tabs .chip:has-text("거래량")'); await page.click('.sheet .pickrow[data-t=volPrev]'); await page.waitForSelector('.cndbox.buy .cn');
+      ok('두 번째 조건은 AND로 이어짐(문장: … AND 거래량이 전일보다 높음 일 때 매수)', /AND/.test(await sentTxt('entries')) && /거래량이 전일보다 높음/.test(await sentTxt('entries')), await sentTxt('entries'));
+      await page.fill('.cndbox.buy .tok-ed.show [data-btp$="|x"]', '1.5'); await page.waitForTimeout(100);
+      ok('값을 고치면 문장 속 조건 글자가 바로 바뀜(전일의 1.5배 초과)', /전일의 1.5배 초과/.test(await sentTxt('entries')), await sentTxt('entries'));
+      await page.click('.cndbox.buy .cn'); ok('AND를 누르면 OR로 바뀜', /OR/.test(await sentTxt('entries')) && (await page.evaluate(() => SM.app.ui.bt.cfg.entries.expr.op)) === 'OR');
+      await page.click('.cndbox.buy .cn');
+      // 세 번째 조건 추가 후 둘을 괄호로 묶음: 하락 AND (거래량 OR 이동평균 상승)
+      await page.click('.cndbox.buy [data-act=btPickOpen]'); await page.click('.sheet .pick-tabs .chip:has-text("이동평균")'); await page.click('.sheet .pickrow[data-t=maSlope]'); await page.waitForTimeout(150);
+      await page.click('.cndbox.buy [data-act=btWrapToggle]'); await page.waitForSelector('[data-act=btWrapDo]');
+      const toks = await page.$$('.cndbox.buy #sent-entries > .tok .tok-b'); await toks[1].click(); await toks[2].click();
+      ok('묶기 모드: 고른 조건 개수가 버튼에 표시', /\(2\)/.test(await page.textContent('[data-act=btWrapDo]')));
+      await page.click('[data-act=btWrapDo]'); await page.waitForSelector('.cndbox.buy .grp');
+      const ex = await page.evaluate(() => { const e = SM.app.ui.bt.cfg.entries.expr; return { op: e.op, n: e.items.length, g: e.items[1] && e.items[1].items ? { op: e.items[1].op, t: e.items[1].items.map((x) => x.type) } : null, conds: SM.app.ui.bt.cfg.entries.conds.length }; });
+      ok('괄호 묶기: 바깥은 AND, 괄호 안은 OR(기본으로 바깥과 반대)로 하락 AND (거래량 OR 이동평균 상승)', ex.op === 'AND' && ex.n === 2 && ex.g && ex.g.op === 'OR' && ex.g.t.join() === 'volPrev,maSlope' && ex.conds === 3, ex);
+      ok('문장에 괄호가 표시되고 풀이 문장이 나옴', /\(/.test(await sentTxt('entries')) && /그리고/.test(await page.textContent('.cndbox.buy .sent-plain')) && /또는/.test(await page.textContent('.cndbox.buy .sent-plain')), await page.textContent('.cndbox.buy .sent-plain'));
+      if (process.env.EXPR_SHOT) { await page.evaluate(() => { const g = SM.app.ui.bt.cfg.exits; g.expr = { op: 'OR', items: [{ type: 'maCross', ma: 'sma', s: 5, l: 15, dir: 'down' }] }; g.conds = SM.exprLeaves(g.expr); SM.app.render(); }); await page.waitForTimeout(200); await (await page.$('.cndbox.buy')).screenshot({ path: process.env.EXPR_SHOT + '_buy.png' }); await (await page.$('.cndbox.sell')).screenshot({ path: process.env.EXPR_SHOT + '_sell.png' }); }
+      ok('신호 진단: 신호일 수와 전체 일수 대비 %가 표시됨', /매수 신호일/.test(await page.textContent('.cndbox.buy .diag-h')) && /전체 \d+일 중/.test(await page.textContent('.cndbox.buy .diag-h')), await page.textContent('.cndbox.buy .diag-h'));
+      await page.click('.cndbox.sell [data-act=btPickOpen]'); await page.waitForSelector('.sheet.sell'); const tabs2 = await page.$$eval('.sheet .pick-tabs .chip', (e) => e.map((x) => x.textContent)); ok('매도 선택창에는 청산 분류가 있고 하락 시 추가 매수 같은 매수 전용은 없음', tabs2.includes('청산') && !tabs2.includes('분할매수'), tabs2);
+      await page.click('.sheet .pick-tabs .chip:has-text("청산")'); await page.click('.sheet .pickrow[data-t=avgPct]'); await page.waitForSelector('.cndbox.sell .indep .tok');
+      ok('청산 조건(평단 대비 ±N%)은 문장 밖 “별개로, 도달하면 바로 매도”에 표시', /별개로/.test(await page.textContent('.cndbox.sell .indep')) && /평단 대비/.test(await page.textContent('.cndbox.sell .indep')));
+      await page.click('.cndbox.buy .grp .par.o'); await page.waitForTimeout(150);
+      ok('괄호 “(”를 누르면 풀림: 조건이 같은 층에 모두 연결', (await page.$('.cndbox.buy .grp')) === null && (await page.evaluate(() => SM.app.ui.bt.cfg.entries.expr.items.length)) === 3);
+      await page.click('.cndbox.buy #sent-entries > .tok .tok-b'); await page.click('.cndbox.buy .tok-ed.show [data-act=btDel]'); await page.waitForTimeout(100);
+      ok('삭제하면 문장에서 사라지고 남은 조건으로 이어짐', (await page.evaluate(() => SM.app.ui.bt.cfg.entries.conds.length)) === 2);
+      await page.evaluate(() => { const b = SM.app.ui.bt.cfg; b.entries.expr = { op: 'AND', items: [{ type: 'volPrev', x: 1 }, { op: 'OR', items: [{ type: 'maSlope', ma: 'sma', n: 30, k: 5, dir: 'up' }, { type: 'dropLast', pct: 3, basis: 'last', first: 'yes' }] }] }; b.entries.conds = SM.exprLeaves(b.entries.expr); SM.app.render(); });
+      await page.click('[data-act=btRun]'); await page.waitForSelector('#chartHost canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(300);
+      ok('조건식(괄호 포함)으로 시뮬레이션 실행', await page.evaluate(() => { const r = SM.app.ui.bt.result; return !!r && !r.error && r.cfg.entries.expr && r.cfg.entries.expr.items[1].op === 'OR'; }));
       await page.click('[data-act=btMode2][data-v=mg]'); }
     ok('3) 오류 없음', errs.length === 0, errs); await ctx.close(); }
 
