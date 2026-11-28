@@ -1017,3 +1017,10 @@ table.cyc table.cycmini th.c-why, table.cyc table.cycmini td.c-why { min-width: 
 /* 전략 저장·불러오기: 전략 카드 맨 위에 항상 보임 */
 .stratsave { margin: 0 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); } .stratsave .stratbar { margin-bottom: 0; }
 .stratsave .stratbar select.inp { flex: 1 1 100%; }
+
+/* 차트 패널 켜기/끄기 버튼(수급·거래량·영업이익) */
+.chartbar .panelbtns { display: inline-flex; gap: 6px; margin-left: auto; }
+.chartbar .panelbtns .btn { margin-left: 0; opacity: .55; }
+.chartbar .panelbtns .btn.on { opacity: 1; background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 700; }
+.chartbar .panelbtns + .btn { margin-left: 0; }
+.chartbar .panelbtns [hidden] { display: none; }

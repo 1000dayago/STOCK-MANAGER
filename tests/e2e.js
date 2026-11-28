@@ -376,7 +376,7 @@ function fixtures() {
     await page.mouse.move(bx.x + 200, bx.y + 60); await page.mouse.down(); await page.mouse.move(bx.x + 330, bx.y + 60, { steps: 6 }); await page.mouse.up(); await page.mouse.move(bx.x + 5, bx.y + 5); await page.waitForTimeout(120);
     ok('드래그로 과거 구간 이동', !new RegExp(F.last).test(await page.textContent('#chartRead')) || !/\(최근\)/.test(await page.textContent('#chartRead')));
     await page.evaluate(() => { document.querySelector('.chartopts').open = true; }); const h3 = await page.$eval('canvas.stockchart', (c) => c.clientHeight);
-    await page.uncheck('[data-chartopt=flow]'); await page.waitForTimeout(120); ok('수급 패널 끄면 차트가 낮아짐', (await page.$eval('canvas.stockchart', (c) => c.clientHeight)) < h3); await page.check('[data-chartopt=flow]');
+    await page.click('[data-act=chartPanel][data-v=flow]'); await page.waitForTimeout(120); ok('수급 패널 끄면 차트가 낮아짐', (await page.$eval('canvas.stockchart', (c) => c.clientHeight)) < h3); await page.click('[data-act=chartPanel][data-v=flow]');
     await page.click('[data-act=chartFull]'); ok('전체 화면 모드', await page.$eval('#chartCard', (e) => e.classList.contains('chart-full'))); await page.keyboard.press('Escape'); await page.waitForTimeout(100); ok('Esc로 전체 화면 닫힘', !(await page.$eval('#chartCard', (e) => e.classList.contains('chart-full'))));
     ok('5) 오류 없음', errs.length === 0, errs); await ctx.close(); }
   { const { ctx, page, errs } = await open(); await addStocks(page); // 종목 화면: 매수 B · 매도 S 표시
@@ -419,33 +419,22 @@ function fixtures() {
     const before = await at('2025-10-01'), after = await at('2025-12-01');
     ok('공시 전 날짜(2025-10-01)의 십자선에는 2025 2분기까지만(3분기는 11-14 공시)', /2025 2분기/.test(before) && !/2025 3분기/.test(before) && /공시 2025-08-14/.test(before), before.slice(-150));
     ok('공시 후 날짜(2025-12-01)에는 2025 3분기(전년 동기 대비 표시)', /2025 3분기/.test(after) && /공시 2025-11-14/.test(after), after.slice(-150));
-    // 선그래프(기본) / 표 / 끄기 전환
-    ok('영업이익 기본 표시는 선그래프(전환 버튼에서 선그래프가 선택됨, 표는 숨김)', (await page.$eval('[data-act=chartEarn][data-v=line]', (b) => b.classList.contains('on'))) && (await page.$('#earnTable table')) === null);
-    await page.click('[data-act=chartEarn][data-v=table]'); await page.waitForSelector('#earnTable table'); await page.waitForTimeout(150);
-    const rows = await page.$$eval('#earnTable tbody tr', (e) => e.map((x) => x.textContent.replace(/\s+/g, ' ').trim())), hTable = await page.$eval('canvas.stockchart', (c) => c.clientHeight);
-    ok('표: 분기 8행, 최근 분기부터, 영업이익·전년 동기 대비·공시일', rows.length === 8 && /^26\.4Q/.test(rows[0]) && /추정/.test(rows[0]) && /^26\.3Q/.test(rows[1]) && /3,492/.test(rows[1]) && /\+122%/.test(rows[1]) && /26-11-13/.test(rows[1]) && /적자전환/.test(rows.find((r) => /^26\.2Q/.test(r))), rows.slice(0, 3));
-    { const hd = await page.$$eval('#earnTable thead th', (e) => e.map((x) => x.textContent)), r3 = rows.find((r) => /^26\.3Q/.test(r)) || '';
-      ok('표: 증감·부채·부채 증감·부채비율 열(26.3Q 영업이익 증감 +1,917 · 부채 426,325 · +51,501 · 부채비율 359%)', ['증감', '부채', '부채 증감', '부채비율'].every((h) => hd.includes(h)) && /\+1,917/.test(r3) && /426,325/.test(r3) && /\+51,501/.test(r3) && /359%/.test(r3), [hd, r3]); }
-    ok('표: 4분기 계산값에 * 표시', rows.some((r) => /^25\.4Q\*/.test(r)));
-    ok('표로 바꾸면 차트의 영업이익 패널이 빠져 차트가 낮아지고 읽기 상자의 실적 줄도 사라짐', hTable < hWith && !/공시 20/.test(await page.textContent('#chartRead')), [hWith, hTable]); // 증감 줄은 영업이익이라는 말을 쓰므로 ‘공시 날짜’가 있는 실적 줄로 확인
-    await page.click('[data-act=chartEarn][data-v=off]'); await page.waitForTimeout(150); ok('끄기: 표와 패널이 모두 사라짐', (await page.$('#earnTable table')) === null && (await page.$eval('canvas.stockchart', (c) => c.clientHeight)) === hTable);
-    await page.click('[data-act=chartEarn][data-v=line]'); await page.waitForTimeout(150); ok('선그래프로 돌아오면 패널 복귀', (await page.$eval('canvas.stockchart', (c) => c.clientHeight)) === hWith && (await page.textContent('#chartRead')).includes('영업이익'));
-    { // 증감 패널(전년 동기 대비 영업이익·부채 증감, 0 맞춘 분리가 기본)
-      const hOn = await page.$eval('canvas.stockchart', (c) => c.clientHeight), cls = (sel) => page.$eval(sel, (b) => b.classList.contains('on'));
-      ok('증감 패널: 기본은 켜짐 · 0 맞춘 분리', (await cls('[data-act=chartChg][data-v=on]')) && (await cls('[data-act=chartChgScale][data-v=zero]')) && (await page.evaluate(() => SM.app._chartPrefs().chgScale)) === 'zero');
-      await page.mouse.move(bx.x + 40, bx.y + 100); await page.waitForTimeout(150); const rc = await page.textContent('#chartRead');
-      ok('증감 읽기 줄: 영업이익 증감·부채 증감(%)·부채비율', /증감/.test(rc) && /부채/.test(rc) && /부채비율 \d+%/.test(rc), rc.slice(-200));
-      await page.click('[data-act=chartChg][data-v=off]'); await page.waitForTimeout(150); const hOff = await page.$eval('canvas.stockchart', (c) => c.clientHeight);
-      ok('증감 끄기: 패널이 빠져 차트가 낮아짐', hOff < hOn, [hOn, hOff]);
-      await page.click('[data-act=chartChg][data-v=on]'); await page.click('[data-act=chartChgScale][data-v=same]'); await page.waitForTimeout(150);
-      ok('같은 눈금 선택(설정에 저장, 높이 유지)', (await page.evaluate(() => SM.app._chartPrefs().chgScale)) === 'same' && (await page.$eval('canvas.stockchart', (c) => c.clientHeight)) === hOn);
-      await page.click('[data-act=chartChgScale][data-v=zero]'); await page.waitForTimeout(100);
-    }
-    await page.evaluate(() => { document.querySelector('.chartopts').open = true; }); await page.check('[data-chartopt=earnStep]'); await page.waitForTimeout(150); ok('계단형 선택(설정에 저장)', (await page.evaluate(() => SM.app._chartPrefs().earnStep)) === true); await page.uncheck('[data-chartopt=earnStep]');
-    await page.click('[data-act=chartEarn][data-v=table]'); await page.waitForSelector('#earnTable table'); // 표를 고른 상태로 새로고침
+    // 영업이익(증감 포함)·수급·거래량 패널 켜기/끄기 버튼(차트 위 툴바), 설정 저장
+    const pOn = (v) => page.$eval(`[data-act=chartPanel][data-v=${v}]`, (b) => b.classList.contains('on')), hgt = () => page.$eval('canvas.stockchart', (c) => c.clientHeight);
+    ok('안내 문단·영업이익 선택줄·증감 선택줄은 없어지고 툴바에 수급·거래량·영업이익 버튼이 있음', (await page.$('#earnBar')) === null && (await page.$('#chgBar')) === null && (await page.$('.chartguide')) === null && (await pOn('flow')) && (await pOn('vol')) && (await pOn('earn')));
+    ok('영업이익 기본 켜짐: 읽기 상자에 실적, 읽기 상자에 증감 줄', (await page.textContent('#chartRead')).includes('영업이익'));
+    await page.mouse.move(bx.x + 40, bx.y + 100); await page.waitForTimeout(150); const rc = await page.textContent('#chartRead');
+    ok('증감 읽기 줄: 영업이익 증감·부채 증감(%)·부채비율', /증감/.test(rc) && /부채/.test(rc) && /부채비율 \d+%/.test(rc), rc.slice(-200));
+    await page.click('[data-act=chartPanel][data-v=earn]'); await page.waitForTimeout(150); const hOff = await hgt();
+    ok('영업이익 끄기: 영업이익·증감 패널이 빠져 차트가 낮아지고 버튼이 꺼진 표시', hOff < hWith && !(await pOn('earn')) && !(await page.textContent('#chartRead')).includes('공시 20'), [hWith, hOff]);
+    await page.click('[data-act=chartPanel][data-v=vol]'); await page.waitForTimeout(150); const hNoVol = await hgt(); ok('거래량 끄기: 차트가 낮아짐', hNoVol < hOff && !(await pOn('vol')), [hOff, hNoVol]);
+    await page.click('[data-act=chartPanel][data-v=flow]'); await page.waitForTimeout(150); const hNoFlow = await hgt(); ok('수급 끄기: 차트가 더 낮아짐', hNoFlow < hNoVol && !(await pOn('flow')), [hNoVol, hNoFlow]);
     await page.reload(); await page.waitForSelector('#app'); await page.evaluate(() => { const A = SM.app; A.ui.view = 'stocks'; A.ui.stockTab = 'held'; A.ui.stockId = A.getState().stocks[0].id; A.render(); });
-    await page.waitForSelector('#earnTable table', { timeout: 10000 }); ok('선택한 표시 방식(표)은 새로고침 뒤에도 유지', (await page.$eval('[data-act=chartEarn][data-v=table]', (b) => b.classList.contains('on'))) && (await page.$$eval('#earnTable tbody tr', (e) => e.length)) === 8);
-    await page.click('[data-act=chartEarn][data-v=line]');
+    await page.waitForSelector('canvas.stockchart', { timeout: 10000 }); await page.waitForTimeout(400);
+    ok('꺼 둔 설정이 새로고침 뒤에도 유지(세 패널 모두 꺼짐)', !(await pOn('flow')) && !(await pOn('vol')) && !(await pOn('earn')) && (await hgt()) === hNoFlow, await hgt());
+    for (const v of ['flow', 'vol', 'earn']) await page.click(`[data-act=chartPanel][data-v=${v}]`); await page.waitForTimeout(200);
+    ok('다시 켜면 원래 높이로 복귀', (await hgt()) === hWith && (await pOn('flow')) && (await pOn('vol')) && (await pOn('earn')), await hgt());
+    await page.evaluate(() => { document.querySelector('.chartopts').open = true; }); await page.check('[data-chartopt=earnStep]'); await page.waitForTimeout(150); ok('계단형 선택(설정에 저장)', (await page.evaluate(() => SM.app._chartPrefs().earnStep)) === true); await page.uncheck('[data-chartopt=earnStep]');
     ok('5c) 오류 없음', errs.length === 0, errs); await ctx.close(); }
   { const { ctx, page } = await open(); await page.route('**/data/status.json*', (r) => r.fulfill({ json: { updatedAt: new Date().toISOString(), keys: {}, stocks: { '003490': { prices: { ok: true, last: F.last, close: F.close }, flow: { ok: true, last: F.last } } } } })); // 재무(DART) 미수집
     await addStocks(page); await page.evaluate(() => { SM.app.collectInit(true); const A = SM.app; A.ui.view = 'stocks'; A.ui.stockTab = 'held'; A.ui.stockId = A.getState().stocks[0].id; A.render(); });

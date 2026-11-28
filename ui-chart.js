@@ -14,7 +14,7 @@
     try {
       const o = JSON.parse(localStorage.getItem(KEY) || 'null'), p = Object.assign({}, DEF, o && typeof o === 'object' ? o : {});
       if (o && o.earn === false && !o.earnView) p.earnView = 'off'; // 예전 설정(영업이익 패널 끔) 이어받기
-      if (!['line', 'table', 'off'].includes(p.earnView)) p.earnView = 'line';
+      if (!['line', 'off'].includes(p.earnView)) p.earnView = 'line'; // 표 보기는 없앰
       if (!['zero', 'same'].includes(p.chgScale)) p.chgScale = 'zero';
       p.chg = p.chg !== false; p.events = p.events !== false;
       return p;
@@ -38,24 +38,25 @@
         ${seg('chartTf', [['D', '일'], ['W', '주'], ['M', '월']], prefs.tf)}
         ${seg('chartMonths', MONTHS, prefs.months)}
         <button type="button" class="btn sm" data-act="chartZoomSel" id="zoomBtn" title="켠 뒤 차트를 드래그: 시작점에서 오른쪽으로 = 그 구간 확대, 왼쪽으로 = 원래 화면 (마우스는 우클릭 드래그·Shift+드래그도 가능)">구간 확대</button>
+        <span class="panelbtns" role="group" aria-label="패널 켜기·끄기">
+          <button type="button" class="btn sm${prefs.flow ? ' on' : ''}" data-act="chartPanel" data-v="flow" aria-pressed="${prefs.flow}" title="외국인·기관·개인 수급 패널 켜기/끄기">수급</button>
+          <button type="button" class="btn sm${prefs.vol ? ' on' : ''}" data-act="chartPanel" data-v="vol" aria-pressed="${prefs.vol}" title="거래량 패널 켜기/끄기">거래량</button>
+          <button type="button" class="btn sm${prefs.earnView !== 'off' ? ' on' : ''}" data-act="chartPanel" data-v="earn" id="earnBtn" aria-pressed="${prefs.earnView !== 'off'}" title="영업이익·증감 패널 켜기/끄기(DART로 수집된 종목만)" hidden>영업이익</button>
+        </span>
         <button type="button" class="btn sm" data-act="chartFull" aria-label="전체 화면">${ic('expand') || ''}전체 화면</button>
       </div>
       <div class="chartread" id="chartRead" aria-live="polite"><span class="muted">차트를 불러오는 중…</span></div>
       <div class="chartwrap" id="chartHost"></div>
       ${afterCanvas || ''}
       <div class="chartmsg" id="chartMsg"></div>
-      <div class="earnbar" id="earnBar" hidden><span class="muted">영업이익(분기, DART)</span>${seg('chartEarn', [['line', '선그래프'], ['table', '표'], ['off', '끄기']], prefs.earnView)}</div>
-      <div class="earnbar" id="chgBar" hidden><span class="muted">전년 동기 대비 증감</span>${seg('chartChg', [['on', '켜기'], ['off', '끄기']], prefs.chg ? 'on' : 'off')}${seg('chartChgScale', [['zero', '0 맞춘 분리'], ['same', '같은 눈금']], prefs.chgScale)}</div>
-      <div id="earnTable"></div>
       <details class="chartopts"><summary>지표 · 패널 설정</summary>
         <div class="chartopts-b">
           <label class="chk"><input type="checkbox" data-chartopt="bbOn" ${prefs.bbOn ? 'checked' : ''}> 볼린저밴드</label>
           <div class="grid2"><label>볼린저 기간<input class="inp" data-chartopt="bbN" value="${prefs.bbN}" inputmode="numeric"></label><label>볼린저 배수<input class="inp" data-chartopt="bbK" value="${prefs.bbK}" inputmode="decimal"></label></div>
           <label>이동평균 기간 <small class="muted">(쉼표로 구분, 최대 6개)</small><input class="inp" data-chartopt="ma" value="${esc(prefs.ma.join(', '))}" inputmode="numeric" placeholder="예: 5, 20, 60, 120, 200"></label>
-          <div class="row gap wrap"><label class="chk"><input type="checkbox" data-chartopt="flow" ${prefs.flow ? 'checked' : ''}> 외국인·기관·개인 수급</label><label class="chk"><input type="checkbox" data-chartopt="vol" ${prefs.vol ? 'checked' : ''}> 거래량</label><label class="chk"><input type="checkbox" data-chartopt="events" ${prefs.events ? 'checked' : ''}> 이슈 표시(증자·감자 등)</label><label class="chk"><input type="checkbox" data-chartopt="earnStep" ${prefs.earnStep ? 'checked' : ''}> 영업이익 선을 계단형으로(다음 공시 전까지 직전 값 유지)</label></div>
+          <div class="row gap wrap"><label class="chk"><input type="checkbox" data-chartopt="events" ${prefs.events ? 'checked' : ''}> 이슈 표시(증자·감자 등)</label><label class="chk"><input type="checkbox" data-chartopt="earnStep" ${prefs.earnStep ? 'checked' : ''}> 영업이익 선을 계단형으로(다음 공시 전까지 직전 값 유지)</label></div>
           <p class="hint">설정은 이 기기에만 저장됩니다. 주·월봉에서는 이동평균·볼린저가 주·월 단위로 계산됩니다.</p>
         </div></details>
-      <p class="hint chartguide">좌우로 <b>드래그</b>하면 이동, <b>두 손가락 벌리기</b>(PC는 마우스 휠)로 확대·축소, <b>탭</b>(PC는 마우스 올리기)하면 그 날의 시세와 수급이 위에 표시됩니다. 수급 누적선은 화면에 보이는 구간의 첫 날부터 합산합니다. 맨 위 파란 손잡이(◂▸)나 선 근처를 잡고 좌우로 끌면 날짜선이 움직입니다. 캔들 아래 글자 상자는 이슈(유 유상증자·무 무상증자·감 감자·분 분할/병합·합 합병/분할)입니다. 마우스는 <b>휠을 아래로 굴리면 확대·위로 굴리면 축소</b>(커서 위치 기준)되고, <b>우클릭을 누르고 시작점에서 오른쪽으로 끌면 그 구간 확대, 왼쪽으로 끌면 원래 화면</b>으로 돌아옵니다(“구간 확대” 버튼이나 Shift+드래그도 같음). 영업이익 선은 <b>공시일</b> 위치의 점을 잇습니다. 맨 아래 <b>증감</b> 패널은 전년 동기 대비 영업이익·부채 증감액을 모든 분기에서 이어 보여 주며, “0 맞춘 분리”는 두 선의 0 높이를 같게 하고 각자의 눈금(영업이익 왼쪽·부채 오른쪽)을 쓰며 “같은 눈금”은 실제 크기를 그대로 비교합니다(빨강 흑자·파랑 적자, 공시일을 모르면 속이 빈 점으로 분기 말 + 45일 추정). <b>*</b>는 연간 실적에서 앞 3분기를 뺀 4분기 값이고, 차트 아래 “표”로 바꿔 분기별 숫자를 볼 수 있습니다.</p>
     </div></details>`;
   };
 
@@ -73,35 +74,11 @@
     return { onZoomDone: zoomBtnOff, showEvents: prefs.events, sells, ma: prefs.ma, bb: { on: prefs.bbOn, n: Math.max(2, Math.min(200, Math.round(+prefs.bbN) || 20)), k: Math.max(0.5, Math.min(5, +prefs.bbK || 2)) }, flow: prefs.flow, vol: prefs.vol, earn: prefs.earnView === 'line', chg: prefs.chg, chgScale: prefs.chgScale, earnStep: !!prefs.earnStep, avg: sm && sm.qty > 0 && avg ? avg : null, lots };
   }
 
-  // 분기 실적 표(최근 분기부터): 매출·영업이익·전년 동기 대비·영업이익률·순이익(억원)
-  function earnTableHtml(quarters) {
-    const rows = SM.earningsSeries(quarters).slice().sort((a, b) => (a.ym < b.ym ? 1 : -1));
-    const eok = (v) => (v == null ? '-' : Math.round(v / 1e8).toLocaleString('ko-KR'));
-    const cls = (v) => (v > 0 ? 'cr-up' : v < 0 ? 'cr-down' : '');
-    const yc = (y) => (y.kind === 'pct' ? cls(y.pct) : y.kind === 'turn_profit' ? 'cr-up' : y.kind === 'turn_loss' ? 'cr-down' : y.kind === 'loss' ? (y.better ? 'cr-up' : 'cr-down') : '');
-    const qLabel = (e) => `${e.ym.slice(2, 4)}.${Math.ceil(+e.ym.slice(5) / 3)}Q`; // 분기 말 기준 달력 분기(예: 26.3Q)
-    const short = (d) => d.slice(2); // 2026-11-13 → 26-11-13
-    const hasL = rows.some((e) => e.liabEok != null), sg = (v) => (v == null ? '-' : (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(Math.round(v)).toLocaleString('ko-KR'));
-    const pc = (v) => (v == null ? '' : ` <small class="muted">${v > 0 ? '+' : ''}${v.toFixed(0)}%</small>`);
-    const head = `<th>분기</th><th>공시일</th><th>매출</th><th>영업이익</th><th title="전년 동기 대비 영업이익 증감액(억원)">증감</th><th title="전년 동기 대비 영업이익 증가율">전년비</th><th>이익률</th><th>순이익</th>` + (hasL ? `<th>부채</th><th title="전년 동기 대비 부채 증감액(억원)와 증가율">부채 증감</th><th title="부채 ÷ 자본">부채비율</th>` : '');
-    const body = rows.map((e) => `<tr><td title="${esc(e.label || e.ym)}">${qLabel(e)}${e.derived ? '*' : ''}</td><td>${short(e.at)}${e.filedEst ? '<small class="muted">추정</small>' : ''}</td><td>${eok(e.revenue)}</td><td class="${cls(e.op)}"><b>${eok(e.op)}</b></td><td class="${cls(e.dOpEok)}">${sg(e.dOpEok)}</td><td class="${yc(e.yoy)}">${SM.chartYoyText(e.yoy)}</td><td>${e.margin == null ? '-' : e.margin.toFixed(1) + '%'}</td><td class="${cls(e.net)}">${eok(e.net)}</td>` + (hasL ? `<td>${e.liabEok == null ? '-' : Math.round(e.liabEok).toLocaleString('ko-KR')}</td><td>${sg(e.dLiabEok)}${pc(e.liabPct)}</td><td>${e.debtRatio == null ? '-' : e.debtRatio.toFixed(0) + '%'}</td>` : '') + '</tr>').join('');
-    return `<div class="tablewrap earnwrap"><table class="mini earntable"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
-      <p class="hint">단위: 억원 · 연결 기준 우선(DART) · 증감 = 전년 동기 대비(전년이 적자여도 계산됨) · 전년비 = 영업이익 증가율 · 부채 증감의 %는 전년 동기 부채 대비 · 부채비율 = 부채 ÷ 자본 · <b>*</b> 4분기는 사업보고서(연간)에서 앞 3분기를 뺀 값 · 공시일 “추정”은 분기 말 + 45일(4분기 90일)${hasL ? '' : ' · 부채 자료는 다음 자동 수집 뒤에 표시됩니다'}</p>`;
-  }
   let curQuarters = null;
-  function renderEarnUi() { // 선그래프/표/끄기 선택에 맞춰 차트 패널과 표를 갱신
-    const bar = document.getElementById('earnBar'), tbl = document.getElementById('earnTable');
-    if (!bar || !tbl) return;
-    bar.hidden = !curQuarters;
-    const cb = document.getElementById('chgBar');
-    if (cb) {
-      cb.hidden = !curQuarters;
-      cb.querySelectorAll('[data-act=chartChg]').forEach((b) => b.classList.toggle('on', b.dataset.v === (prefs.chg ? 'on' : 'off')));
-      cb.querySelectorAll('[data-act=chartChgScale]').forEach((b) => b.classList.toggle('on', b.dataset.v === prefs.chgScale));
-    }
-    bar.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === prefs.earnView));
-    tbl.innerHTML = curQuarters && prefs.earnView === 'table' ? earnTableHtml(curQuarters) : '';
-    if (chart) chart.setConfig(Object.assign(curOpts() || {}, { earn: prefs.earnView === 'line', chg: prefs.chg && !!curQuarters }));
+  function renderEarnUi() { // 영업이익(증감 포함) 버튼 표시와 차트 패널을 켜기/끄기 상태에 맞춤
+    const eb = document.getElementById('earnBtn'), on = prefs.earnView !== 'off';
+    if (eb) { eb.hidden = !curQuarters; eb.classList.toggle('on', on); eb.setAttribute('aria-pressed', String(on)); }
+    if (chart) chart.setConfig(Object.assign(curOpts() || {}, { earn: on, chg: on && !!curQuarters }));
   }
   // 분기 실적(DART): 수집된 종목만. 없으면 null
   async function loadQuarters(st) {
@@ -155,9 +132,13 @@
 
   const setOn = (btn) => { btn.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn)); };
   Object.assign(A.handlers, {
-    chartChg: (el) => { prefs.chg = el.dataset.v === 'on'; savePrefs(); renderEarnUi(); },
-    chartChgScale: (el) => { prefs.chgScale = el.dataset.v === 'same' ? 'same' : 'zero'; savePrefs(); renderEarnUi(); },
-    chartEarn: (el) => { prefs.earnView = el.dataset.v; savePrefs(); renderEarnUi(); },
+    chartPanel: (el) => { // 수급·거래량·영업이익 패널 켜기/끄기(설정에 저장)
+      const k = el.dataset.v;
+      if (k === 'earn') { const on = prefs.earnView === 'off'; prefs.earnView = on ? 'line' : 'off'; prefs.chg = on; savePrefs(); renderEarnUi(); return; }
+      if (k !== 'flow' && k !== 'vol') return;
+      prefs[k] = !prefs[k]; savePrefs(); el.classList.toggle('on', prefs[k]); el.setAttribute('aria-pressed', String(prefs[k]));
+      const o = curOpts(); if (chart && o) chart.setConfig(o);
+    },
     chartZoomSel: () => { // 켜 두고 차트를 드래그: 오른쪽→왼쪽 확대, 왼쪽→오른쪽 원래 화면(한 번 쓰면 꺼짐)
       if (!chart) return; const b = document.getElementById('zoomBtn'), on = !chart.state.zoomSel; chart.setZoomMode(on);
       if (b) { b.classList.toggle('on', on); b.textContent = on ? '→ 확대 · ← 원래대로' : '구간 확대'; }
@@ -184,7 +165,7 @@
   document.addEventListener('change', (e) => {
     const el = e.target, k = el && el.dataset && el.dataset.chartopt;
     if (!k) return;
-    if (k === 'bbOn' || k === 'flow' || k === 'vol' || k === 'earnStep' || k === 'events') prefs[k] = el.checked;
+    if (k === 'bbOn' || k === 'earnStep' || k === 'events') prefs[k] = el.checked;
     else if (k === 'ma') { const v = parseMa(el.value); prefs.ma = v.length ? v : DEF.ma; el.value = prefs.ma.join(', '); }
     else if (k === 'bbN') { prefs.bbN = Math.max(2, Math.min(200, Math.round(+el.value) || DEF.bbN)); el.value = prefs.bbN; }
     else if (k === 'bbK') { prefs.bbK = Math.max(0.5, Math.min(5, +el.value || DEF.bbK)); el.value = prefs.bbK; }
